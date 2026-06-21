@@ -1,0 +1,26 @@
+import { cn } from "@/lib/utils/cn";
+import type { HTMLAttributes } from "react";
+
+export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6",
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+export function CardTitle({
+  className,
+  ...props
+}: HTMLAttributes<HTMLHeadingElement>) {
+  return (
+    <h2
+      className={cn("text-lg font-semibold text-gray-900", className)}
+      {...props}
+    />
+  );
+}

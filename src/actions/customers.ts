@@ -1,0 +1,310 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { connectDB } from "@/lib/db/connect";
+import { authorizePermission } from "@/lib/auth/session";
+import { generateCardId } from "@/lib/customers/card-id";
+import Customer from "@/models/Customer";
+import {
+  createCustomerSchema,
+  customerSearchSchema,
+  updateCustomerDetailsSchema,
+  updateStudentStatusSchema,
+} from "@/lib/validators/customer";
+import { toCustomerDTO } from "@/lib/mappers";
+import { failure, success, type ActionResult } from "@/lib/utils/action-result";
+import {
+  normalizeCardId,
+  normalizePhone,
+} from "@/lib/utils/phone";
+import {
+  cardIdVerificationSchema,
+  phoneVerificationSchema,
+} from "@/lib/validators/transaction";
+import type { CustomerDTO, PaginatedResult } from "@/types";
+
+export async function getCustomers(
+  searchParams: Record<string, string | string[] | undefined>
+): Promise<PaginatedResult<CustomerDTO>> {
+  const authResult = await authorizePermission("CUSTOMER_SEARCH");
+  if (!("session" in authResult)) {
+    throw new Error(
+      authResult.success === false ? authResult.error : "Unauthorized"
+    );
+  }
+
+  await connectDB();
+
+  const parsed = customerSearchSchema.safeParse({
+    query: typeof searchParams.q === "string" ? searchParams.q : undefined,
+    page: searchParams.page,
+    limit: searchParams.limit,
+  });
+
+  const { query, page, limit } = parsed.success
+    ? parsed.data
+    : { query: undefined, page: 1, limit: 20 };
+
+  const filter: Record<string, unknown> = { isActive: true };
+
+  if (query?.trim()) {
+    const term = query.trim();
+    filter.$or = [
+      { name: { $regex: term, $options: "i" } },
+      { phone: { $regex: term, $options: "i" } },
+      { cardId: { $regex: term, $options: "i" } },
+    ];
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [customers, total] = await Promise.all([
+    Customer.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
+    Customer.countDocuments(filter),
+  ]);
+
+  return {
+    items: customers.map((c) => toCustomerDTO(c)),
+    total,
+    page,
+    totalPages: Math.ceil(total / limit) || 1,
+  };
+}
+
+export async function getCustomerById(
+  id: string
+): Promise<CustomerDTO | null> {
+  const authResult = await authorizePermission("CUSTOMER_SEARCH");
+  if (!("session" in authResult)) {
+    return null;
+  }
+
+  await connectDB();
+
+  const customer = await Customer.findById(id).lean();
+  if (!customer) return null;
+
+  return toCustomerDTO(customer);
+}
+
+export async function createCustomer(
+  formData: FormData
+): Promise<ActionResult<CustomerDTO>> {
+  const authResult = await authorizePermission("CUSTOMER_REGISTER");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const raw = {
+    name: formData.get("name"),
+    phone: formData.get("phone"),
+    isStudent: formData.get("isStudent"),
+  };
+
+  const parsed = createCustomerSchema.safeParse(raw);
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const phone = parsed.data.phone.trim();
+
+  const existing = await Customer.findOne({ phone });
+  if (existing) {
+    return failure("A customer with this phone number already exists");
+  }
+
+  try {
+    const cardId = await generateCardId();
+
+    const customer = await Customer.create({
+      cardId,
+      name: parsed.data.name.trim(),
+      phone,
+      isStudent: parsed.data.isStudent ?? false,
+      balance: 0,
+    });
+
+    revalidatePath("/customers");
+    revalidatePath("/dashboard");
+
+    return success(toCustomerDTO(customer));
+  } catch {
+    return failure("Failed to create customer");
+  }
+}
+
+export async function updateStudentStatus(
+  formData: FormData
+): Promise<ActionResult<CustomerDTO>> {
+  const authResult = await authorizePermission("CUSTOMER_STUDENT_STATUS");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = updateStudentStatusSchema.safeParse({
+    customerId: formData.get("customerId"),
+    isStudent: formData.get("isStudent"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const customer = await Customer.findById(parsed.data.customerId);
+  if (!customer || !customer.isActive) {
+    return failure("Customer not found");
+  }
+
+  if (customer.isStudent === parsed.data.isStudent) {
+    return failure("Student status is already set to this value");
+  }
+
+  customer.isStudent = parsed.data.isStudent;
+  customer.studentStatusChangedAt = new Date();
+  customer.studentStatusChangedBy = authResult.session.user.username;
+  await customer.save();
+
+  revalidatePath(`/customers/${parsed.data.customerId}`);
+  revalidatePath(`/customers/${parsed.data.customerId}/recharge`);
+  revalidatePath("/customers");
+
+  return success(toCustomerDTO(customer));
+}
+
+export async function updateCustomerDetails(
+  formData: FormData
+): Promise<ActionResult<CustomerDTO>> {
+  const authResult = await authorizePermission("CUSTOMER_EDIT_DETAILS");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = updateCustomerDetailsSchema.safeParse({
+    customerId: formData.get("customerId"),
+    name: formData.get("name"),
+    phone: formData.get("phone"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const name = parsed.data.name.trim();
+  const phone = parsed.data.phone.trim();
+
+  const customer = await Customer.findById(parsed.data.customerId);
+  if (!customer || !customer.isActive) {
+    return failure("Customer not found");
+  }
+
+  if (customer.name === name && customer.phone === phone) {
+    return failure("No changes to save");
+  }
+
+  if (phone !== customer.phone) {
+    const existing = await Customer.findOne({
+      phone,
+      _id: { $ne: customer._id },
+    });
+    if (existing) {
+      return failure("A customer with this phone number already exists");
+    }
+  }
+
+  const changes: { field: "name" | "phone"; from: string; to: string }[] = [];
+
+  if (customer.name !== name) {
+    changes.push({ field: "name", from: customer.name, to: name });
+  }
+
+  if (customer.phone !== phone) {
+    changes.push({ field: "phone", from: customer.phone, to: phone });
+  }
+
+  customer.name = name;
+  customer.phone = phone;
+  customer.detailChanges.push({
+    changedAt: new Date(),
+    changedBy: authResult.session.user.username,
+    changes,
+  });
+  await customer.save();
+
+  revalidatePath(`/customers/${parsed.data.customerId}`);
+  revalidatePath(`/customers/${parsed.data.customerId}/recharge`);
+  revalidatePath(`/customers/${parsed.data.customerId}/deduct`);
+  revalidatePath(`/customers/${parsed.data.customerId}/transactions`);
+  revalidatePath("/customers");
+
+  return success(toCustomerDTO(customer));
+}
+
+export async function verifyCustomerByCardId(
+  formData: FormData
+): Promise<ActionResult<CustomerDTO>> {
+  const authResult = await authorizePermission("CUSTOMER_SEARCH");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = cardIdVerificationSchema.safeParse({
+    cardId: formData.get("cardId"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const cardId = normalizeCardId(parsed.data.cardId);
+  const customer = await Customer.findOne({
+    cardId,
+    isActive: true,
+  }).lean();
+
+  if (!customer) {
+    return failure("No active customer found with this Card ID");
+  }
+
+  return success(toCustomerDTO(customer));
+}
+
+export async function verifyCustomersByPhone(
+  formData: FormData
+): Promise<ActionResult<CustomerDTO[]>> {
+  const authResult = await authorizePermission("CUSTOMER_SEARCH");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = phoneVerificationSchema.safeParse({
+    phone: formData.get("phone"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const phone = normalizePhone(parsed.data.phone);
+  const customers = await Customer.find({
+    phone,
+    isActive: true,
+  })
+    .sort({ name: 1 })
+    .lean();
+
+  if (customers.length === 0) {
+    return failure("No active customer found with this phone number");
+  }
+
+  return success(customers.map((customer) => toCustomerDTO(customer)));
+}
