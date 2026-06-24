@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { VerificationMethod } from "@/lib/constants/verification";
-import type { RechargePlan } from "@/lib/constants/recharge-plans";
+import { getPlansForCustomer } from "@/lib/constants/recharge-plans";
 import type { CustomerDTO } from "@/types";
 import { CustomerVerification } from "@/components/wallet/CustomerVerification";
 import { WalletCustomerConfirmation } from "@/components/wallet/WalletCustomerConfirmation";
@@ -12,14 +12,10 @@ type WalletStep = "verify" | "confirm" | "operate";
 
 interface WalletRechargeFlowProps {
   initialCardId?: string;
-  plansForCustomer?: (customer: CustomerDTO) => RechargePlan[];
-  walletLabelForCustomer?: (customer: CustomerDTO) => string;
 }
 
 export function WalletRechargeFlow({
   initialCardId,
-  plansForCustomer,
-  walletLabelForCustomer,
 }: WalletRechargeFlowProps) {
   const [step, setStep] = useState<WalletStep>("verify");
   const [customer, setCustomer] = useState<CustomerDTO | null>(null);
@@ -57,10 +53,8 @@ export function WalletRechargeFlow({
   }
 
   if (step === "operate" && customer && verificationMethod) {
-    const plans = plansForCustomer?.(customer) ?? [];
-    const walletLabel =
-      walletLabelForCustomer?.(customer) ??
-      (customer.isStudent ? "Student Wallet" : "Club Wallet");
+    const plans = getPlansForCustomer(customer.isStudent);
+    const walletLabel = customer.isStudent ? "Student Wallet" : "Club Wallet";
 
     return (
       <div className="space-y-4">

@@ -16,6 +16,12 @@ export const PERMISSIONS = {
   STAFF_RESET_PASSWORD: ["SUPER_MASTER", "MASTER"],
   STAFF_SET_ACTIVE: ["SUPER_MASTER", "MASTER"],
   STAFF_CHANGE_ROLE: ["SUPER_MASTER"],
+  NOTEBOOK_VIEW: ["SUPER_MASTER", "MASTER", "STAFF"],
+  NOTEBOOK_ENTRY_CREATE: ["SUPER_MASTER", "MASTER", "STAFF"],
+  NOTEBOOK_ENTRY_REVERSE: ["SUPER_MASTER", "MASTER", "STAFF"],
+  NOTEBOOK_SETTLE: ["SUPER_MASTER", "MASTER", "STAFF"],
+  NOTEBOOK_SETTLEMENT_REVERSE: ["SUPER_MASTER", "MASTER", "STAFF"],
+  NOTEBOOK_CLOSING_VIEW: ["SUPER_MASTER", "MASTER", "STAFF"],
 } as const satisfies Record<string, StaffRole[]>;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -72,6 +78,7 @@ export function canViewStaffAccount(
   return actorRole === "MASTER" && targetRole === "STAFF";
 }
 
-export function getDefaultHomePath(role: StaffRole): string {
-  return role === "STAFF" ? "/customers" : "/dashboard";
+export function getDefaultHomePath(role?: StaffRole): string {
+  void role;
+  return "/counter/big-snooker";
 }

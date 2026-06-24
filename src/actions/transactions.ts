@@ -18,6 +18,7 @@ import {
   reverseTransactionSchema,
 } from "@/lib/validators/transaction";
 import { toTransactionDTO } from "@/lib/mappers";
+import { executeWalletDeduct } from "@/lib/wallet/execute-wallet-deduct";
 import { getReversalReasonLabel } from "@/lib/constants/reversal-reasons";
 import type { ReversalReasonKey } from "@/lib/constants/reversal-reasons";
 import { formatDate } from "@/lib/utils/format";
@@ -92,6 +93,10 @@ export async function rechargeWallet(
 
       if (!customer || !customer.isActive) {
         throw new Error("Customer not found");
+      }
+
+      if (!customer.walletEnabled) {
+        throw new Error("Wallet is not enabled for this customer");
       }
 
       const expectedWalletType = customer.isStudent ? "student" : "club";
@@ -176,44 +181,19 @@ export async function deductWallet(
     let transactionDoc: Parameters<typeof toTransactionDTO>[0] | null = null;
 
     await dbSession.withTransaction(async () => {
-      const customer = await Customer.findById(parsed.data.customerId).session(
+      const result = await executeWalletDeduct({
+        customerId: parsed.data.customerId,
+        amount: parsed.data.amount,
+        description: parsed.data.description,
+        verificationMethod: parsed.data.verificationMethod,
+        staffId: session.user.id,
+        staffUsername: session.user.username,
+        dbSession,
+      });
+
+      const transaction = await Transaction.findById(result.transactionId).session(
         dbSession
       );
-
-      if (!customer || !customer.isActive) {
-        throw new Error("Customer not found");
-      }
-
-      const amount = Math.round(parsed.data.amount);
-
-      if (customer.balance < amount) {
-        throw new Error(
-          `Insufficient balance. Available: ₹${customer.balance.toLocaleString("en-IN")}`
-        );
-      }
-
-      const balanceAfter = customer.balance - amount;
-
-      customer.balance = balanceAfter;
-      await customer.save({ session: dbSession });
-
-      const [transaction] = await Transaction.create(
-        [
-          {
-            customerId: customer._id,
-            type: "debit",
-            amount,
-            balanceAfter,
-            description: parsed.data.description.trim(),
-            staffId: session.user.id,
-            staffUsername: session.user.username,
-            isReversal: false,
-            verificationMethod: parsed.data.verificationMethod,
-          },
-        ],
-        { session: dbSession }
-      );
-
       transactionDoc = transaction;
     });
 

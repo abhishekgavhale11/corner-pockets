@@ -35,7 +35,7 @@ export function CustomerSearch() {
         placeholder="Search by name, phone, or card ID..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        className="w-full"
+        className="h-9 w-full text-[14px]"
         aria-label="Search customers"
       />
       {isPending && (

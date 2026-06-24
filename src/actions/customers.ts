@@ -10,7 +10,12 @@ import {
   customerSearchSchema,
   updateCustomerDetailsSchema,
   updateStudentStatusSchema,
+  enableWalletMembershipSchema,
 } from "@/lib/validators/customer";
+import {
+  createQuickCustomerSchema,
+  updateCustomerNotesSchema,
+} from "@/lib/validators/notebook";
 import { toCustomerDTO } from "@/lib/mappers";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import {
@@ -21,6 +26,7 @@ import {
   cardIdVerificationSchema,
   phoneVerificationSchema,
 } from "@/lib/validators/transaction";
+import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
 import type { CustomerDTO, PaginatedResult } from "@/types";
 
 export async function getCustomers(
@@ -37,15 +43,27 @@ export async function getCustomers(
 
   const parsed = customerSearchSchema.safeParse({
     query: typeof searchParams.q === "string" ? searchParams.q : undefined,
+    filter: typeof searchParams.filter === "string" ? searchParams.filter : undefined,
     page: searchParams.page,
     limit: searchParams.limit,
   });
 
-  const { query, page, limit } = parsed.success
+  const { query, page, limit, filter: filterType } = parsed.success
     ? parsed.data
-    : { query: undefined, page: 1, limit: 20 };
+    : { query: undefined, filter: "all" as const, page: 1, limit: 25 };
 
   const filter: Record<string, unknown> = { isActive: true };
+
+  if (filterType === "regular") {
+    filter.walletEnabled = false;
+  } else if (filterType === "wallet") {
+    filter.walletEnabled = true;
+  } else if (filterType === "members") {
+    filter.walletEnabled = true;
+    filter.cardId = { $nin: ["", null] };
+  } else if (filterType === "students") {
+    filter.isStudent = true;
+  }
 
   if (query?.trim()) {
     const term = query.trim();
@@ -124,10 +142,10 @@ export async function createCustomer(
       phone,
       isStudent: parsed.data.isStudent ?? false,
       balance: 0,
+      walletEnabled: true,
     });
 
     revalidatePath("/customers");
-    revalidatePath("/dashboard");
 
     return success(toCustomerDTO(customer));
   } catch {
@@ -267,10 +285,11 @@ export async function verifyCustomerByCardId(
   const customer = await Customer.findOne({
     cardId,
     isActive: true,
+    walletEnabled: true,
   }).lean();
 
   if (!customer) {
-    return failure("No active customer found with this Card ID");
+    return failure("No wallet member found with this Card ID");
   }
 
   return success(toCustomerDTO(customer));
@@ -307,4 +326,160 @@ export async function verifyCustomersByPhone(
   }
 
   return success(customers.map((customer) => toCustomerDTO(customer)));
+}
+
+export async function createQuickCustomer(
+  formData: FormData
+): Promise<ActionResult<CustomerDTO>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = createQuickCustomerSchema.safeParse({
+    name: formData.get("name"),
+    phone: formData.get("phone") || undefined,
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const phone = parsed.data.phone.trim();
+
+  if (phone) {
+    const existing = await Customer.findOne({ phone });
+    if (existing) {
+      return failure("A customer with this phone number already exists");
+    }
+  }
+
+  let customer;
+  try {
+    customer = await Customer.create({
+      name: parsed.data.name.trim(),
+      ...(phone ? { phone } : {}),
+      isStudent: false,
+      balance: 0,
+      walletEnabled: false,
+    });
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === 11000
+    ) {
+      return failure("A customer with this phone number already exists");
+    }
+
+    console.error("createQuickCustomer failed:", error);
+    return failure("Failed to create customer");
+  }
+
+  revalidatePath("/customers");
+  revalidateCounterPaths(customer._id.toString());
+
+  return success(toCustomerDTO(customer));
+}
+
+/** @deprecated Use createQuickCustomer */
+export async function createNotebookCustomer(
+  formData: FormData
+): Promise<ActionResult<CustomerDTO>> {
+  return createQuickCustomer(formData);
+}
+
+export async function updateCustomerNotes(
+  formData: FormData
+): Promise<ActionResult<CustomerDTO>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = updateCustomerNotesSchema.safeParse({
+    customerId: formData.get("customerId"),
+    notes: formData.get("notes") ?? "",
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const customer = await Customer.findById(parsed.data.customerId);
+  if (!customer || !customer.isActive) {
+    return failure("Customer not found");
+  }
+
+  customer.notes = parsed.data.notes.trim();
+  await customer.save();
+
+  revalidatePath(`/customers/${customer._id.toString()}`);
+
+  return success(toCustomerDTO(customer));
+}
+
+export async function enableWalletMembership(
+  formData: FormData
+): Promise<ActionResult<CustomerDTO>> {
+  const authResult = await authorizePermission("CUSTOMER_REGISTER");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = enableWalletMembershipSchema.safeParse({
+    customerId: formData.get("customerId"),
+    phone: formData.get("phone") || undefined,
+    isStudent: formData.get("isStudent"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const customer = await Customer.findById(parsed.data.customerId);
+  if (!customer || !customer.isActive) {
+    return failure("Customer not found");
+  }
+
+  if (customer.walletEnabled) {
+    return failure("Customer already has wallet membership");
+  }
+
+  const phone = parsed.data.phone?.trim() || customer.phone.trim();
+  if (!phone) {
+    return failure("Phone number is required for wallet membership");
+  }
+
+  const duplicate = await Customer.findOne({
+    phone,
+    _id: { $ne: customer._id },
+  });
+  if (duplicate) {
+    return failure("A customer with this phone number already exists");
+  }
+
+  customer.phone = phone;
+  if (!customer.cardId?.trim()) {
+    customer.cardId = await generateCardId();
+  }
+  customer.walletEnabled = true;
+  customer.isStudent = parsed.data.isStudent ?? false;
+  if (customer.isStudent) {
+    customer.studentStatusChangedAt = new Date();
+    customer.studentStatusChangedBy = authResult.session.user.username;
+  }
+  await customer.save();
+
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customer._id.toString()}`);
+
+  return success(toCustomerDTO(customer));
 }

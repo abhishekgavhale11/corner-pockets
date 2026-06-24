@@ -17,11 +17,13 @@ type LeanCustomer = {
   cardId: string;
   name: string;
   phone: string;
+  notes?: string;
   isStudent: boolean;
   studentStatusChangedAt?: Date;
   studentStatusChangedBy?: string;
   detailChanges?: LeanCustomerDetailChange[];
   balance: number;
+  walletEnabled?: boolean;
   isActive: boolean;
   createdAt: Date;
 };
@@ -54,9 +56,10 @@ export function toCustomerDTO(customer: LeanCustomer): CustomerDTO {
 
   return {
     id: customer._id.toString(),
-    cardId: customer.cardId,
+    cardId: customer.cardId ?? "",
     name: customer.name,
     phone: customer.phone,
+    notes: customer.notes,
     isStudent: customer.isStudent,
     studentStatusChangedAt: customer.studentStatusChangedAt?.toISOString(),
     studentStatusChangedBy: customer.studentStatusChangedBy,
@@ -70,6 +73,7 @@ export function toCustomerDTO(customer: LeanCustomer): CustomerDTO {
       })),
     })),
     balance: customer.balance,
+    walletEnabled: customer.walletEnabled ?? true,
     isActive: customer.isActive,
     createdAt: customer.createdAt.toISOString(),
   };

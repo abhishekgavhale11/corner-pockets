@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth/config";
 import type { StaffRole } from "@/lib/auth/roles";
-import { Header } from "@/components/layout/Header";
-import { NavTabs } from "@/components/layout/NavTabs";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { TopBar } from "@/components/layout/TopBar";
 
 export default async function DashboardLayout({
   children,
@@ -12,14 +12,15 @@ export default async function DashboardLayout({
   const role = (session?.user?.role ?? "STAFF") as StaffRole;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header
-        staffName={session?.user?.name ?? "Staff"}
-        staffRole={role}
-      />
-      <NavTabs role={role} />      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-        {children}
-      </main>
+    <div className="flex min-h-screen bg-gray-50">
+      <Sidebar role={role} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TopBar
+          staffName={session?.user?.name ?? "Staff"}
+          staffRole={role}
+        />
+        <main className="flex-1 overflow-auto p-1.5 sm:p-2">{children}</main>
+      </div>
     </div>
   );
 }

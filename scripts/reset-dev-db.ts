@@ -10,6 +10,10 @@ import Customer from "../src/models/Customer";
 import Transaction from "../src/models/Transaction";
 import Counter from "../src/models/Counter";
 import Staff from "../src/models/Staff";
+import NotebookEntry from "../src/models/NotebookEntry";
+import NotebookSettlement from "../src/models/NotebookSettlement";
+import NotebookSettlementReversal from "../src/models/NotebookSettlementReversal";
+import TableSession from "../src/models/TableSession";
 
 async function reset() {
   assertDevDatabaseAllowed("Database reset");
@@ -23,17 +27,35 @@ async function reset() {
 
   await connectDB();
 
-  const [customerCount, transactionCount, counterCount, staffCount] =
-    await Promise.all([
-      Customer.countDocuments(),
-      Transaction.countDocuments(),
-      Counter.countDocuments(),
-      Staff.countDocuments(),
-    ]);
+  const [
+    customerCount,
+    transactionCount,
+    counterCount,
+    staffCount,
+    entryCount,
+    settlementCount,
+    reversalCount,
+    sessionCount,
+  ] = await Promise.all([
+    Customer.countDocuments(),
+    Transaction.countDocuments(),
+    Counter.countDocuments(),
+    Staff.countDocuments(),
+    NotebookEntry.countDocuments(),
+    NotebookSettlement.countDocuments(),
+    NotebookSettlementReversal.countDocuments(),
+    TableSession.countDocuments(),
+  ]);
 
-  await Customer.deleteMany({});
-  await Transaction.deleteMany({});
-  await Counter.deleteMany({});
+  await Promise.all([
+    Customer.deleteMany({}),
+    Transaction.deleteMany({}),
+    Counter.deleteMany({}),
+    NotebookEntry.deleteMany({}),
+    NotebookSettlement.deleteMany({}),
+    NotebookSettlementReversal.deleteMany({}),
+    TableSession.deleteMany({}),
+  ]);
 
   let removedStaff = 0;
   if (includeStaff) {
@@ -42,9 +64,13 @@ async function reset() {
   }
 
   console.log("\nRemoved:");
-  console.log(`  Customers:    ${customerCount}`);
-  console.log(`  Transactions: ${transactionCount}`);
-  console.log(`  Counters:     ${counterCount}`);
+  console.log(`  Customers:              ${customerCount}`);
+  console.log(`  Transactions:           ${transactionCount}`);
+  console.log(`  Counters:               ${counterCount}`);
+  console.log(`  Notebook entries:       ${entryCount}`);
+  console.log(`  Notebook settlements:   ${settlementCount}`);
+  console.log(`  Settlement reversals:   ${reversalCount}`);
+  console.log(`  Table sessions:         ${sessionCount}`);
   if (includeStaff) {
     console.log(`  Staff:        ${removedStaff}`);
   } else {

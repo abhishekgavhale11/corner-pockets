@@ -1,0 +1,112 @@
+import type { NotebookEntryType } from "@/lib/constants/notebook-entry-types";
+
+export const COUNTER_RATE_TYPES = ["REGULAR", "HAPPY_HOUR"] as const;
+export type CounterRateType = (typeof COUNTER_RATE_TYPES)[number];
+
+export const SNOOKER_GAMES = ["SINGLES", "INDIVIDUAL", "SHUFFLE"] as const;
+export type SnookerGame = (typeof SNOOKER_GAMES)[number];
+
+export const SNOOKER_GAME_LABELS: Record<SnookerGame, string> = {
+  SINGLES: "Singles",
+  INDIVIDUAL: "Individual",
+  SHUFFLE: "Shuffle",
+};
+
+type RatedEntryType = "SNOOKER" | "MINI" | "POOL";
+
+const RATE_TABLE: Record<
+  RatedEntryType,
+  Record<CounterRateType, number | Record<SnookerGame, number>>
+> = {
+  SNOOKER: {
+    REGULAR: { SINGLES: 160, INDIVIDUAL: 180, SHUFFLE: 130 },
+    HAPPY_HOUR: { SINGLES: 130, INDIVIDUAL: 150, SHUFFLE: 100 },
+  },
+  MINI: {
+    REGULAR: 260,
+    HAPPY_HOUR: 210,
+  },
+  POOL: {
+    REGULAR: 240,
+    HAPPY_HOUR: 200,
+  },
+};
+
+/** Legacy amounts for entries created before rate type was stored. */
+export const LEGACY_AMOUNT_SNOOKER_LABELS: Record<number, SnookerGame> = {
+  160: "SINGLES",
+  130: "SINGLES",
+  150: "SINGLES",
+  180: "INDIVIDUAL",
+  190: "INDIVIDUAL",
+  120: "SHUFFLE",
+  100: "SHUFFLE",
+};
+
+export function isRatedCounterEntryType(
+  type: NotebookEntryType
+): type is RatedEntryType {
+  return type === "SNOOKER" || type === "MINI" || type === "POOL";
+}
+
+export function resolveCounterRateAmount(input: {
+  type: RatedEntryType;
+  rateType: CounterRateType;
+  snookerGame?: SnookerGame;
+}): number | null {
+  const rates = RATE_TABLE[input.type][input.rateType];
+
+  if (input.type === "SNOOKER") {
+    if (!input.snookerGame) return null;
+    return (rates as Record<SnookerGame, number>)[input.snookerGame] ?? null;
+  }
+
+  return typeof rates === "number" ? rates : null;
+}
+
+export function getRateOptionsForPreset(input: {
+  type: RatedEntryType;
+  snookerGame?: SnookerGame;
+}): { rateType: CounterRateType; amount: number }[] {
+  return COUNTER_RATE_TYPES.map((rateType) => ({
+    rateType,
+    amount:
+      resolveCounterRateAmount({
+        type: input.type,
+        rateType,
+        snookerGame: input.snookerGame,
+      }) ?? 0,
+  }));
+}
+
+export function inferSnookerGameFromAmount(amount: number): SnookerGame | undefined {
+  return LEGACY_AMOUNT_SNOOKER_LABELS[amount];
+}
+
+export function counterRateTypeSuffix(rateType?: CounterRateType): string {
+  return rateType === "HAPPY_HOUR" ? " (HH)" : "";
+}
+
+export function inferRateTypeFromStoredAmount(
+  type: RatedEntryType,
+  amount: number,
+  snookerGame?: SnookerGame
+): CounterRateType | undefined {
+  const happyHourAmount = resolveCounterRateAmount({
+    type,
+    rateType: "HAPPY_HOUR",
+    snookerGame,
+  });
+  if (happyHourAmount !== null && amount === happyHourAmount) {
+    return "HAPPY_HOUR";
+  }
+  const regularAmount = resolveCounterRateAmount({
+    type,
+    rateType: "REGULAR",
+    snookerGame,
+  });
+  if (regularAmount !== null && amount === regularAmount) {
+    return "REGULAR";
+  }
+  return undefined;
+}

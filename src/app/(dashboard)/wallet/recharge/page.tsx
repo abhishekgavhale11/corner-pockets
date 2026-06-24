@@ -1,5 +1,4 @@
 import { WalletRechargeFlow } from "@/components/wallet/WalletRechargeFlow";
-import { getPlansForCustomer } from "@/lib/constants/recharge-plans";
 
 export default function WalletRechargePage() {
   return (
@@ -10,12 +9,7 @@ export default function WalletRechargePage() {
           Verify the customer using Card ID or phone before recharging.
         </p>
       </div>
-      <WalletRechargeFlow
-        plansForCustomer={(customer) => getPlansForCustomer(customer.isStudent)}
-        walletLabelForCustomer={(customer) =>
-          customer.isStudent ? "Student Wallet" : "Club Wallet"
-        }
-      />
+      <WalletRechargeFlow />
     </div>
   );
 }

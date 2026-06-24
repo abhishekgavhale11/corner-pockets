@@ -13,7 +13,7 @@ export default auth((req) => {
   const isLoggedIn = !!req.auth;
   const isLoginPage = req.nextUrl.pathname === "/login";
   const role = req.auth?.user?.role as StaffRole | undefined;
-  const homePath = role ? getDefaultHomePath(role) : "/dashboard";
+  const homePath = role ? getDefaultHomePath(role) : "/login";
 
   if (!isLoggedIn && !isLoginPage) {
     return NextResponse.redirect(new URL("/login", req.url));
@@ -31,8 +31,21 @@ export default auth((req) => {
 
   if (isLoggedIn && role) {
     if (
-      req.nextUrl.pathname === "/dashboard" &&
-      !hasPermission(role, "DASHBOARD_VIEW")
+      (req.nextUrl.pathname.startsWith("/notebook") ||
+        req.nextUrl.pathname.startsWith("/counter") ||
+        req.nextUrl.pathname.startsWith("/checkout")) &&
+      !hasPermission(role, "NOTEBOOK_VIEW")
+    ) {
+      return NextResponse.redirect(new URL("/customers", req.url));
+    }
+
+    if (req.nextUrl.pathname === "/dashboard") {
+      return NextResponse.redirect(new URL(getDefaultHomePath(role), req.url));
+    }
+
+    if (
+      req.nextUrl.pathname.startsWith("/admin") &&
+      !hasPermission(role, "STAFF_VIEW")
     ) {
       return NextResponse.redirect(new URL("/customers", req.url));
     }

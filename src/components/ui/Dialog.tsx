@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/Button";
@@ -25,18 +26,35 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
     }
   }, [open]);
 
+  const handleBackdropClick = (e: MouseEvent<HTMLDialogElement>) => {
+    if (e.target === dialogRef.current) {
+      onClose();
+    }
+  };
+
   return (
     <dialog
       ref={dialogRef}
       className={cn(
-        "w-[calc(100%-2rem)] max-w-md rounded-xl border-0 bg-white p-0 shadow-xl backdrop:bg-black/50",
+        "fixed left-1/2 top-1/2 m-0 max-h-[min(90vh,640px)] w-[min(calc(100vw-2rem),28rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border-0 bg-white p-0 shadow-xl backdrop:bg-black/50",
         "open:animate-in open:fade-in"
       )}
       onClose={onClose}
+      onClick={handleBackdropClick}
     >
-      <div className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-        <div className="mt-4">{children}</div>
+      <div className="max-h-[min(90vh,640px)] overflow-y-auto p-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-md p-1 text-lg leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          >
+            ✕
+          </button>
+        </div>
+        {children}
       </div>
     </dialog>
   );

@@ -13,6 +13,7 @@ interface MongooseCache {
 
 declare global {
   var mongooseCache: MongooseCache | undefined;
+  var customerIndexesReady: Promise<void> | undefined;
 }
 
 const cached: MongooseCache = global.mongooseCache ?? {
@@ -22,6 +23,21 @@ const cached: MongooseCache = global.mongooseCache ?? {
 
 if (!global.mongooseCache) {
   global.mongooseCache = cached;
+}
+
+async function ensureCustomerIndexes() {
+  if (!global.customerIndexesReady) {
+    global.customerIndexesReady = (async () => {
+      try {
+        const Customer = (await import("@/models/Customer")).default;
+        await Customer.syncIndexes();
+      } catch (error) {
+        console.warn("[corner-pockets] Customer index sync failed:", error);
+      }
+    })();
+  }
+
+  await global.customerIndexesReady;
 }
 
 export async function connectDB(): Promise<typeof mongoose> {
@@ -52,5 +68,6 @@ export async function connectDB(): Promise<typeof mongoose> {
   }
 
   cached.conn = await cached.promise;
+  await ensureCustomerIndexes();
   return cached.conn;
 }

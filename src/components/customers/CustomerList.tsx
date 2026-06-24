@@ -1,57 +1,83 @@
 import Link from "next/link";
-import { formatCurrency } from "@/lib/utils/format";
+import {
+  getCustomerMembershipLabel,
+  hasMembershipCardId,
+} from "@/lib/utils/customer-display";
 import type { CustomerDTO } from "@/types";
-import { Badge } from "@/components/ui/Badge";
-import { Card } from "@/components/ui/Card";
+import { cn } from "@/lib/utils/cn";
 
 interface CustomerListProps {
   customers: CustomerDTO[];
 }
 
+function membershipClass(label: string): string {
+  if (label === "Student") return "text-violet-700";
+  if (label === "Member") return "text-emerald-700";
+  return "text-gray-500";
+}
+
 export function CustomerList({ customers }: CustomerListProps) {
   if (customers.length === 0) {
     return (
-      <Card className="text-center">
-        <p className="text-gray-600">No customers found.</p>
-        <Link
-          href="/customers/new"
-          className="mt-4 inline-block font-medium text-emerald-800 hover:underline"
-        >
-          Register your first customer
-        </Link>
-      </Card>
+      <p className="py-4 text-center text-[14px] text-gray-500">No customers found.</p>
     );
   }
 
   return (
-    <div className="space-y-3">
-      {customers.map((customer) => (
-        <Link key={customer.id} href={`/customers/${customer.id}`}>
-          <Card className="transition-colors hover:border-emerald-300 hover:bg-emerald-50/30">
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate font-semibold text-gray-900">
+    <div className="overflow-x-auto border border-gray-200 bg-white">
+      <table className="w-full border-collapse text-left">
+        <thead>
+          <tr className="border-b border-gray-200 bg-gray-50 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+            <th className="px-3 py-1.5">Name</th>
+            <th className="whitespace-nowrap px-2 py-1.5">Type</th>
+            <th className="whitespace-nowrap px-2 py-1.5">Card ID</th>
+            <th className="whitespace-nowrap px-3 py-1.5">Phone</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {customers.map((customer) => {
+            const typeLabel = getCustomerMembershipLabel(customer);
+            const cardId = hasMembershipCardId(customer)
+              ? customer.cardId
+              : "—";
+            const phone = customer.phone?.trim() || "—";
+
+            return (
+              <tr key={customer.id} className="hover:bg-gray-50">
+                <td className="px-3 py-1.5">
+                  <Link
+                    href={`/customers/${customer.id}`}
+                    className="text-[15px] font-bold leading-snug text-gray-900 hover:text-emerald-800"
+                  >
                     {customer.name}
-                  </p>
-                  {customer.isStudent && (
-                    <Badge variant="success">Student</Badge>
-                  )}
-                </div>
-                <p className="truncate text-sm text-gray-500">
-                  {customer.cardId} · {customer.phone}
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="text-lg font-bold text-emerald-800">
-                  {formatCurrency(customer.balance)}
-                </p>
-                <p className="text-xs text-gray-500">balance</p>
-              </div>
-            </div>
-          </Card>
-        </Link>
-      ))}
+                  </Link>
+                </td>
+                <td className="whitespace-nowrap px-2 py-1.5">
+                  <Link
+                    href={`/customers/${customer.id}`}
+                    className={cn(
+                      "text-[13px] font-semibold",
+                      membershipClass(typeLabel)
+                    )}
+                  >
+                    {typeLabel}
+                  </Link>
+                </td>
+                <td className="whitespace-nowrap px-2 py-1.5 font-mono text-[13px] tabular-nums text-gray-700">
+                  <Link href={`/customers/${customer.id}`} className="block">
+                    {cardId}
+                  </Link>
+                </td>
+                <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[13px] tabular-nums text-gray-700">
+                  <Link href={`/customers/${customer.id}`} className="block">
+                    {phone}
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

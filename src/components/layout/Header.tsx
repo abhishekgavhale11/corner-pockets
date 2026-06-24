@@ -13,13 +13,13 @@ export function Header({ staffName, staffRole }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-emerald-900/20 bg-emerald-900 text-white">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-2 sm:px-4">
         <div>
           <Link href={homePath} className="block">
-            <p className="text-xs font-medium uppercase tracking-wider text-emerald-200">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-emerald-200">
               Snooker Club
             </p>
-            <h1 className="text-lg font-bold sm:text-xl">Corner Pockets</h1>
+            <h1 className="text-base font-bold sm:text-lg">Corner Pockets</h1>
           </Link>
         </div>
 
