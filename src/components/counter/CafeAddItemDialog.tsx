@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { cn } from "@/lib/utils/cn";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
 
 const ADDABLE_ITEMS = CAFE_QUICK_ITEMS.filter((item) => item.key !== "food");
 type AddableType = (typeof ADDABLE_ITEMS)[number]["type"] | "FOOD";
@@ -132,6 +133,9 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
       formData.set("items", JSON.stringify(items));
       const result = await addCafeItems(formData);
       if (result.success) {
+        if (target.kind === "customer") {
+          invalidateCustomerGlanceCache();
+        }
         onClose();
         router.refresh();
         return;

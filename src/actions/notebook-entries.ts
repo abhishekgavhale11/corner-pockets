@@ -6,7 +6,7 @@ import { authorizePermission } from "@/lib/auth/session";
 import { getNotebookReversalReasonLabel } from "@/lib/constants/notebook-payments";
 import type { NotebookReversalReasonKey } from "@/lib/constants/notebook-payments";
 import { CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/constants/notebook-payments";
-import { CAFE_SECTION } from "@/lib/constants/counter-sections";
+import { CAFE_SECTION, isBigSnookerSection } from "@/lib/constants/counter-sections";
 import {
   ACTIVE_TABLE_SESSION_STATUSES,
   OPEN_TABLE_SESSION_STATUSES,
@@ -20,6 +20,8 @@ import {
   createNotebookEntrySchema,
   createQuickCounterEntrySchema,
   createRummyCounterEntrySchema,
+  createSnookerFrameEntrySchema,
+  updateSnookerFrameEntrySchema,
   correctCounterEntrySchema,
   correctCafeEntrySchema,
   setEntryContributorsSchema,
@@ -28,8 +30,10 @@ import {
 } from "@/lib/validators/notebook";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import { formatCurrency } from "@/lib/utils/format";
+import { applyTimeToDate } from "@/lib/utils/format-time";
 import { getEntryDisplayLabel } from "@/lib/utils/notebook-entry-label";
 import { buildSnookerAmountCorrectionChanges } from "@/lib/utils/entry-corrections";
+import { buildCustomerTodayGlance } from "@/lib/utils/customer-today-glance";
 import {
   inferRateTypeFromStoredAmount,
   inferSnookerGameFromAmount,
@@ -43,7 +47,7 @@ import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
 import TableSession from "@/models/TableSession";
 import type { ICustomer } from "@/models/Customer";
-import type { NotebookEntryDTO, OpenTabSummaryDTO, CustomerPendingItemDTO } from "@/types";
+import type { NotebookEntryDTO, OpenTabSummaryDTO, CustomerPendingItemDTO, CustomerOpenTabSummaryDTO, CustomerTodayGlanceDTO } from "@/types";
 import type { CafeTableId } from "@/lib/constants/counter-sections";
 import {
   buildTableOpenTabSummaries,
@@ -162,6 +166,156 @@ export async function createRummyCounterEntry(
   });
 
   revalidateCounterPaths();
+
+  return success(toNotebookEntryDTO(entry));
+}
+
+export async function createSnookerFrameEntry(
+  formData: FormData
+): Promise<ActionResult<NotebookEntryDTO>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = createSnookerFrameEntrySchema.safeParse({
+    section: formData.get("section"),
+    frameType: formData.get("frameType"),
+    amount: formData.get("amount"),
+    playerCount: formData.get("playerCount") || undefined,
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const { section, frameType, amount, playerCount } = parsed.data;
+
+  if (frameType === "RUMMY") {
+    const entry = await NotebookEntry.create({
+      section,
+      type: "RUMMY",
+      amount,
+      playerCount,
+      customerName: "",
+      phoneNumber: "",
+      status: "PENDING",
+      createdBy: authResult.session.user.username,
+      createdByStaffId: authResult.session.user.id,
+    });
+
+    revalidateCounterPaths();
+    return success(toNotebookEntryDTO(entry));
+  }
+
+  const rateType = inferRateTypeFromStoredAmount(
+    "SNOOKER",
+    amount,
+    frameType
+  );
+
+  const entry = await NotebookEntry.create({
+    section,
+    type: "SNOOKER",
+    amount,
+    snookerGame: frameType,
+    rateType,
+    customerName: "",
+    phoneNumber: "",
+    status: "PENDING",
+    createdBy: authResult.session.user.username,
+    createdByStaffId: authResult.session.user.id,
+  });
+
+  revalidateCounterPaths();
+  return success(toNotebookEntryDTO(entry));
+}
+
+export async function updateSnookerFrameEntry(
+  formData: FormData
+): Promise<ActionResult<NotebookEntryDTO>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = updateSnookerFrameEntrySchema.safeParse({
+    entryId: formData.get("entryId"),
+    frameType: formData.get("frameType"),
+    amount: formData.get("amount"),
+    playerCount: formData.get("playerCount") || undefined,
+    entryTime: formData.get("entryTime"),
+    customerId: formData.get("customerId") || undefined,
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const entry = await NotebookEntry.findById(parsed.data.entryId);
+  if (!entry) {
+    return failure("Entry not found");
+  }
+
+  if (!isBigSnookerSection(entry.section)) {
+    return failure("Only Big Snooker frame entries can be edited here");
+  }
+
+  if (entry.status !== "PENDING" && entry.status !== "PAID") {
+    return failure("Only pending or paid entries can be edited");
+  }
+
+  if (entry.type !== "SNOOKER" && entry.type !== "RUMMY") {
+    return failure("Only frame entries can be edited");
+  }
+
+  const hasContributors = Boolean(entry.contributors && entry.contributors.length > 0);
+
+  const { frameType, amount, playerCount, entryTime, customerId } = parsed.data;
+
+  if (frameType === "RUMMY") {
+    entry.type = "RUMMY";
+    entry.amount = amount;
+    entry.playerCount = playerCount;
+    entry.snookerGame = undefined;
+    entry.rateType = undefined;
+  } else {
+    entry.type = "SNOOKER";
+    entry.amount = amount;
+    entry.snookerGame = frameType;
+    entry.rateType =
+      inferRateTypeFromStoredAmount("SNOOKER", amount, frameType) ?? undefined;
+    entry.playerCount = undefined;
+  }
+
+  entry.createdAt = applyTimeToDate(entry.createdAt, entryTime);
+  entry.markModified("createdAt");
+
+  if (!hasContributors && customerId) {
+    const customer = await Customer.findById(customerId);
+    if (!customer || !customer.isActive) {
+      return failure("Customer not found");
+    }
+
+    const currentCustomerId = entry.customerId?.toString();
+    if (currentCustomerId !== customerId) {
+      entry.customerId = customer._id;
+      entry.customerName = customer.name;
+      entry.phoneNumber = customer.phone;
+      if (!entry.assignedAt) {
+        entry.assignedAt = new Date();
+        entry.assignedBy = authResult.session.user.username;
+      }
+    }
+  }
+
+  await entry.save();
+
+  revalidateCounterPaths(entry.customerId?.toString());
 
   return success(toNotebookEntryDTO(entry));
 }
@@ -583,6 +737,19 @@ export async function setEntryContributors(
     return failure("Only pending entries can have contributors assigned");
   }
 
+  if (parsed.data.contributors.length === 0) {
+    entry.contributors = [];
+    entry.customerId = undefined;
+    entry.customerName = "";
+    entry.phoneNumber = "";
+    entry.assignedAt = undefined;
+    entry.assignedBy = undefined;
+    await entry.save();
+
+    revalidateCounterPaths();
+    return success(toNotebookEntryDTO(entry));
+  }
+
   const total = parsed.data.contributors.reduce((sum, row) => sum + row.amount, 0);
   if (total !== entry.amount) {
     return failure(
@@ -667,8 +834,12 @@ export async function getOpenTabs(
     status: { $in: ["STOPPED", "ENDED", "CHECKOUT_PENDING"] },
   }).lean();
 
+  const payableSessions = checkoutSessions.filter((session) =>
+    isPoolMiniTableId(session.tableId)
+  );
+
   const sessionTabs = buildSessionOpenTabSummaries({
-    sessions: checkoutSessions.map((session) => ({
+    sessions: payableSessions.map((session) => ({
       id: session._id.toString(),
       sessionNumber: session.sessionNumber,
       tableSessionNumber:
@@ -706,7 +877,7 @@ export async function getOpenTabs(
           pendingCount: totals.pendingCount,
         });
       })
-      .filter((row): row is OpenTabSummaryDTO => row !== null);
+      .filter((row): row is CustomerOpenTabSummaryDTO => row !== null);
   }
 
   let results: OpenTabSummaryDTO[] = [
@@ -855,6 +1026,39 @@ export async function getCustomerTabEntries(
   customerId: string
 ): Promise<NotebookEntryDTO[]> {
   return getCustomerPendingEntries(customerId);
+}
+
+export async function getCustomerTodayGlance(
+  customerId: string
+): Promise<CustomerTodayGlanceDTO> {
+  const authResult = await authorizePermission("NOTEBOOK_VIEW");
+  if (!("session" in authResult)) {
+    return {
+      frameCount: 0,
+      frameTotal: 0,
+      cafeTotal: 0,
+      grandTotal: 0,
+      frames: [],
+      cafe: [],
+    };
+  }
+
+  await connectDB();
+
+  const { start, end } = getDayBounds();
+
+  const entries = await NotebookEntry.find({
+    createdAt: { $gte: start, $lte: end },
+    status: { $ne: "CANCELLED" },
+    $or: [{ customerId }, { "contributors.customerId": customerId }],
+  })
+    .sort({ createdAt: 1 })
+    .lean();
+
+  return buildCustomerTodayGlance(
+    entries.map((entry) => toNotebookEntryDTO(entry)),
+    customerId
+  );
 }
 
 export async function reverseNotebookEntry(

@@ -17,7 +17,6 @@ import {
   updateCustomerNotesSchema,
 } from "@/lib/validators/notebook";
 import { toCustomerDTO } from "@/lib/mappers";
-import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import {
   normalizeCardId,
   normalizePhone,
@@ -27,6 +26,7 @@ import {
   phoneVerificationSchema,
 } from "@/lib/validators/transaction";
 import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
+import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import type { CustomerDTO, PaginatedResult } from "@/types";
 
 export async function getCustomers(
@@ -205,6 +205,7 @@ export async function updateCustomerDetails(
     customerId: formData.get("customerId"),
     name: formData.get("name"),
     phone: formData.get("phone"),
+    cardId: formData.get("cardId"),
   });
 
   if (!parsed.success) {
@@ -215,13 +216,26 @@ export async function updateCustomerDetails(
 
   const name = parsed.data.name.trim();
   const phone = parsed.data.phone.trim();
+  const nextCardId = parsed.data.cardId
+    ? normalizeCardId(parsed.data.cardId)
+    : "";
 
   const customer = await Customer.findById(parsed.data.customerId);
   if (!customer || !customer.isActive) {
     return failure("Customer not found");
   }
 
-  if (customer.name === name && customer.phone === phone) {
+  const currentCardId = customer.cardId?.trim() ?? "";
+
+  if (customer.walletEnabled && !nextCardId) {
+    return failure("Card ID is required for wallet members");
+  }
+
+  if (
+    customer.name === name &&
+    customer.phone === phone &&
+    currentCardId === nextCardId
+  ) {
     return failure("No changes to save");
   }
 
@@ -235,7 +249,18 @@ export async function updateCustomerDetails(
     }
   }
 
-  const changes: { field: "name" | "phone"; from: string; to: string }[] = [];
+  if (customer.walletEnabled && nextCardId !== currentCardId) {
+    const existingCard = await Customer.findOne({
+      cardId: nextCardId,
+      _id: { $ne: customer._id },
+    });
+    if (existingCard) {
+      return failure("A customer with this Card ID already exists");
+    }
+  }
+
+  const changes: { field: "name" | "phone" | "cardId"; from: string; to: string }[] =
+    [];
 
   if (customer.name !== name) {
     changes.push({ field: "name", from: customer.name, to: name });
@@ -245,8 +270,15 @@ export async function updateCustomerDetails(
     changes.push({ field: "phone", from: customer.phone, to: phone });
   }
 
+  if (customer.walletEnabled && nextCardId !== currentCardId) {
+    changes.push({ field: "cardId", from: currentCardId, to: nextCardId });
+  }
+
   customer.name = name;
   customer.phone = phone;
+  if (customer.walletEnabled) {
+    customer.cardId = nextCardId;
+  }
   customer.detailChanges.push({
     changedAt: new Date(),
     changedBy: authResult.session.user.username,

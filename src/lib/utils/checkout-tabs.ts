@@ -5,7 +5,9 @@ import {
 } from "@/lib/constants/counter-sections";
 import { isBigSnookerSection } from "@/lib/constants/counter-sections";
 import { sectionLabel } from "@/lib/constants/notebook-sections";
-import { isPoolMiniTableId } from "@/lib/constants/table-sessions";
+import {
+  isPoolMiniTableId,
+} from "@/lib/constants/table-sessions";
 import { formatTableSessionLabel } from "@/lib/utils/session-display";
 import {
   entryHasContributors,
@@ -25,9 +27,9 @@ export function isCafeTableId(section: string): section is CafeTableId {
 
 export function isUnassignedTableGameEntry(entry: NotebookEntryDTO): boolean {
   if (isPoolMiniTableId(entry.section)) return false;
+  if (entry.sessionId) return false;
   return (
     isCafeTableId(entry.section) &&
-    !entry.sessionId &&
     !entry.customerId &&
     !entryHasContributors(entry) &&
     isEntryCheckoutEligible(entry)
@@ -75,7 +77,9 @@ export function buildTableOpenTabSummaries(
 
   for (const entry of entries) {
     const tableId = getTableIdForCheckoutEntry(entry);
-    if (!tableId || isPoolMiniTableId(tableId)) continue;
+    if (!tableId || isPoolMiniTableId(tableId) || isBigSnookerSection(tableId)) {
+      continue;
+    }
 
     const existing = map.get(tableId) ?? { pendingAmount: 0, pendingCount: 0 };
     existing.pendingAmount += entry.amount;
@@ -100,7 +104,7 @@ export function buildSessionOpenTabSummaries(input: {
     id: string;
     sessionNumber: number;
     tableSessionNumber: number;
-    tableId: import("@/lib/constants/table-sessions").PoolMiniTableId;
+    tableId: import("@/lib/constants/table-sessions").TableSessionTableId;
     gameChargeAmount: number;
     startedAt: string;
   }[];
@@ -160,12 +164,9 @@ export function isSessionCheckoutEntry(
 }
 
 export function groupCheckoutTabs(tabs: OpenTabSummaryDTO[]) {
-  const bigSnooker = tabs.filter(
-    (tab): tab is TableOpenTabSummaryDTO =>
-      tab.kind === "table" && isBigSnookerSection(tab.tableId)
-  );
   const poolMini = tabs.filter(
-    (tab): tab is SessionOpenTabSummaryDTO => tab.kind === "session"
+    (tab): tab is SessionOpenTabSummaryDTO =>
+      tab.kind === "session" && isPoolMiniTableId(tab.tableId)
   );
   const customers = tabs.filter(
     (tab): tab is CustomerOpenTabSummaryDTO => tab.kind === "customer"
@@ -177,11 +178,9 @@ export function groupCheckoutTabs(tabs: OpenTabSummaryDTO[]) {
   });
 
   return {
-    bigSnooker,
     poolMini,
     customers,
     summaries: {
-      bigSnooker: summarize(bigSnooker),
       poolMini: summarize(poolMini),
       customers: summarize(customers),
     },

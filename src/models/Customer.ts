@@ -1,7 +1,7 @@
 import mongoose, { Schema, type Document, type Model } from "mongoose";
 
 export interface ICustomerDetailFieldChange {
-  field: "name" | "phone";
+  field: "name" | "phone" | "cardId";
   from: string;
   to: string;
 }
@@ -30,7 +30,7 @@ export interface ICustomer extends Document {
 
 const customerDetailFieldChangeSchema = new Schema<ICustomerDetailFieldChange>(
   {
-    field: { type: String, enum: ["name", "phone"], required: true },
+    field: { type: String, enum: ["name", "phone", "cardId"], required: true },
     from: { type: String, required: true, trim: true },
     to: { type: String, required: true, trim: true },
   },

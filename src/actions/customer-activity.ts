@@ -46,7 +46,10 @@ export async function getCustomerActivity(
   const includeCounter =
     filter === "all" || filter === "counter" || filter === "cafe";
   const includePayments = filter === "all" || filter === "payments";
-  const includeWallet = filter === "all" || filter === "wallet";
+  const includeWallet =
+    filter === "all" ||
+    filter === "transactions" ||
+    filter === "reversals";
   const includeReversals = filter === "all" || filter === "reversals";
 
   if (includeCounter) {
@@ -220,18 +223,29 @@ export async function getCustomerActivity(
   if (includeWallet) {
     const transactions = await Transaction.find({ customerId })
       .sort({ createdAt: -1 })
-      .limit(50)
+      .limit(filter === "transactions" ? 100 : 50)
       .lean();
 
     for (const tx of transactions) {
+      const isReversal = Boolean(tx.isReversal);
+      if (filter === "reversals" && !isReversal) {
+        continue;
+      }
+
       events.push({
         id: `tx-${tx._id.toString()}`,
-        kind: tx.type === "credit" ? "WALLET_RECHARGE" : "WALLET_DEDUCT",
+        kind:
+          tx.type === "credit" && !isReversal
+            ? "WALLET_RECHARGE"
+            : "WALLET_DEDUCT",
         timestamp: tx.createdAt.toISOString(),
         title: tx.description,
         amount: tx.amount ?? tx.creditedAmount ?? tx.paidAmount,
         staffUsername: tx.staffUsername,
         reversalReason: tx.reversalReason,
+        transactionId: tx._id.toString(),
+        walletRechargeReversed: Boolean(tx.reversedAt),
+        walletTransactionIsReversal: isReversal,
       });
     }
   }

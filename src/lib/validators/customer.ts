@@ -53,9 +53,18 @@ export const customerSearchSchema = z.object({
 export const customerActivityFilterSchema = z.object({
   customerId: z.string().min(1),
   filter: z
-    .enum(["all", "counter", "cafe", "payments", "wallet", "reversals"])
+    .enum([
+      "all",
+      "counter",
+      "cafe",
+      "payments",
+      "wallet",
+      "transactions",
+      "reversals",
+    ])
     .optional()
-    .default("all"),
+    .default("all")
+    .transform((value) => (value === "wallet" ? "transactions" : value)),
 });
 
 export const updateStudentStatusSchema = z.object({
@@ -69,6 +78,11 @@ export const updateCustomerDetailsSchema = createCustomerSchema
   .pick({ name: true, phone: true })
   .extend({
     customerId: z.string().min(1, "Customer is required"),
+    cardId: z
+      .string()
+      .max(20, "Card ID is too long")
+      .optional()
+      .transform((value) => value?.trim() ?? ""),
   });
 
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;

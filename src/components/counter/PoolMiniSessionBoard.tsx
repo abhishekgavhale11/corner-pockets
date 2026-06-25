@@ -30,6 +30,9 @@ import { Button } from "@/components/ui/Button";
 import { StartSessionDialog } from "@/components/counter/StartSessionDialog";
 import { SessionHistoryRow } from "@/components/counter/SessionHistoryRow";
 import { CustomerPickerDialog } from "@/components/customers/CustomerPickerDialog";
+import { CafeAddItemDialog } from "@/components/counter/CafeAddItemDialog";
+import { CafeQuickButton } from "@/components/counter/CafeQuickButton";
+import { useCafeAddItem } from "@/components/counter/useCafeAddItem";
 import { cn } from "@/lib/utils/cn";
 
 interface TableSessionCardProps {
@@ -39,6 +42,7 @@ interface TableSessionCardProps {
   summary: PoolMiniTableSummaryDTO;
   history: TableSessionHistoryDTO[];
   onStart: () => void;
+  onAddCafe: () => void;
 }
 
 function statusBadge(status: TableSessionDTO["status"] | "AVAILABLE") {
@@ -58,6 +62,7 @@ export function TableSessionCard({
   summary,
   history,
   onStart,
+  onAddCafe,
 }: TableSessionCardProps) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
@@ -150,15 +155,20 @@ export function TableSessionCard({
           <h3 className="text-[15px] font-bold text-gray-900">
             {sectionLabel(tableId)}
           </h3>
-          <span
-            className={cn(
-              "inline-flex items-center gap-1.5 text-xs font-semibold",
-              badge.text
+          <div className="flex flex-col items-end gap-1">
+            {session && (
+              <CafeQuickButton onClick={onAddCafe} disabled={isPending} />
             )}
-          >
-            <span className={cn("h-2 w-2 rounded-full", badge.dot)} />
-            {badge.label}
-          </span>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 text-xs font-semibold",
+                badge.text
+              )}
+            >
+              <span className={cn("h-2 w-2 rounded-full", badge.dot)} />
+              {badge.label}
+            </span>
+          </div>
         </div>
         <div className="mt-2 grid grid-cols-3 gap-2 text-center text-[11px]">
           <div className="rounded-md bg-gray-50 px-1 py-1.5">
@@ -271,6 +281,15 @@ export function TableSessionCard({
                 >
                   Assign
                 </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={onAddCafe}
+                >
+                  Cafe
+                </Button>
                 {session.status === "ACTIVE" && (
                   <Button
                     type="button"
@@ -364,6 +383,8 @@ export function PoolMiniSessionBoard({ tables }: PoolMiniSessionBoardProps) {
   const [startTable, setStartTable] = useState<PoolMiniTableId | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const { cafeTarget, closeCafe, openCafeForSession, openCafeForTable } =
+    useCafeAddItem();
 
   const handleStart = (tableId: PoolMiniTableId, rateType: string) => {
     setStartError(null);
@@ -396,6 +417,21 @@ export function PoolMiniSessionBoard({ tables }: PoolMiniSessionBoardProps) {
               setStartError(null);
               setStartTable(table.tableId);
             }}
+            onAddCafe={() => {
+              if (table.session) {
+                openCafeForSession(
+                  table.session,
+                  sectionLabel(table.tableId)
+                );
+                return;
+              }
+              const pending = table.pendingCheckouts[0];
+              if (pending) {
+                void openCafeForTable(table.tableId, sectionLabel(table.tableId), {
+                  sessionId: pending.id,
+                });
+              }
+            }}
           />
         ))}
       </div>
@@ -410,6 +446,8 @@ export function PoolMiniSessionBoard({ tables }: PoolMiniSessionBoardProps) {
         isPending={isPending}
         error={startError}
       />
+
+      <CafeAddItemDialog target={cafeTarget} onClose={closeCafe} />
     </>
   );
 }

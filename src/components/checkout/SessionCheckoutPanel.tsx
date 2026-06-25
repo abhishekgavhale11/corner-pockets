@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils/cn";
 
 const PAYMENT_METHODS: { id: NotebookPaymentMethod; label: string }[] = [
   { id: "CASH", label: "Cash" },
-  { id: "GPay", label: "GPay" },
+  { id: "GPAY", label: "GPay" },
   { id: "WALLET", label: "Wallet" },
 ];
 

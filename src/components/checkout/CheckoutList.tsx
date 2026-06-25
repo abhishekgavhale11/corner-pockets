@@ -734,12 +734,7 @@ export function CheckoutList({
           <p className="text-sm text-gray-500">No pending bills.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-3 xl:gap-6">
-          {renderSection(
-            "Big Snooker",
-            checkoutGroups.summaries.bigSnooker,
-            checkoutGroups.bigSnooker
-          )}
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:gap-6">
           {renderSection(
             "Pool & Mini",
             checkoutGroups.summaries.poolMini,

@@ -1,4 +1,10 @@
-import type { PoolMiniTableId } from "@/lib/constants/table-sessions";
+import type {
+  BigSnookerTableId,
+  PoolMiniTableId,
+  TableSessionTableId,
+} from "@/lib/constants/table-sessions";
+import { isBigSnookerTableId } from "@/lib/constants/table-sessions";
+import { sectionLabel } from "@/lib/constants/notebook-sections";
 import type { TableSessionAuditEntryDTO } from "@/types";
 import { formatClockTime } from "@/lib/utils/session-timer";
 
@@ -8,35 +14,44 @@ const TABLE_SHORT_NAMES: Record<PoolMiniTableId, string> = {
   POOL_2: "Pool 2",
 };
 
-export function getTableShortName(tableId: PoolMiniTableId): string {
+export function getTableShortName(tableId: TableSessionTableId): string {
+  if (isBigSnookerTableId(tableId)) {
+    return sectionLabel(tableId as BigSnookerTableId);
+  }
   return TABLE_SHORT_NAMES[tableId];
 }
 
 /** Staff-facing label: "Pool 1 - Session 2" or "Mini" */
 export function formatTableSessionLabel(
-  tableId: PoolMiniTableId,
+  tableId: TableSessionTableId,
   tableSessionNumber: number
 ): string {
   if (tableId === "MINI_SNOOKER") {
     return "Mini";
   }
-  const short = getTableShortName(tableId);
+  if (isBigSnookerTableId(tableId)) {
+    return `${sectionLabel(tableId)} - Session ${tableSessionNumber}`;
+  }
+  const short = getTableShortName(tableId as PoolMiniTableId);
   return `${short} - Session ${tableSessionNumber}`;
 }
 
 export function formatTableSessionLabelWithTable(
-  tableId: PoolMiniTableId,
+  tableId: TableSessionTableId,
   tableSessionNumber: number
 ): string {
   return formatTableSessionLabel(tableId, tableSessionNumber);
 }
 
 export function formatCheckoutSessionTitle(
-  tableId: PoolMiniTableId,
+  tableId: TableSessionTableId,
   tableSessionNumber: number
 ): string {
   if (tableId === "MINI_SNOOKER") {
     return `Mini Session ${tableSessionNumber}`;
+  }
+  if (isBigSnookerTableId(tableId)) {
+    return `${sectionLabel(tableId)} Session ${tableSessionNumber}`;
   }
   return formatTableSessionLabel(tableId, tableSessionNumber);
 }

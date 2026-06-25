@@ -48,6 +48,7 @@ export function toTableSessionDTO(
     tableName: sectionLabel(session.tableId),
     status,
     rateType: session.rateType,
+    billingMethod: session.billingMethod,
     startedAt: session.startedAt.toISOString(),
     pausedAt: session.pausedAt?.toISOString(),
     endedAt: session.endedAt?.toISOString(),

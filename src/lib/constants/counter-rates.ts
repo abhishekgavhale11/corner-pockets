@@ -12,7 +12,7 @@ export const SNOOKER_GAME_LABELS: Record<SnookerGame, string> = {
   SHUFFLE: "Shuffle",
 };
 
-type RatedEntryType = "SNOOKER" | "MINI" | "POOL";
+type RatedEntryType = "SNOOKER" | "MINI" | "POOL" | "BIG_SNOOKER_TIME";
 
 const RATE_TABLE: Record<
   RatedEntryType,
@@ -30,6 +30,10 @@ const RATE_TABLE: Record<
     REGULAR: 240,
     HAPPY_HOUR: 200,
   },
+  BIG_SNOOKER_TIME: {
+    REGULAR: 320,
+    HAPPY_HOUR: 260,
+  },
 };
 
 /** Legacy amounts for entries created before rate type was stored. */
@@ -45,8 +49,24 @@ export const LEGACY_AMOUNT_SNOOKER_LABELS: Record<number, SnookerGame> = {
 
 export function isRatedCounterEntryType(
   type: NotebookEntryType
-): type is RatedEntryType {
+): type is Exclude<RatedEntryType, "BIG_SNOOKER_TIME"> {
   return type === "SNOOKER" || type === "MINI" || type === "POOL";
+}
+
+export function resolveBigSnookerHourlyRate(
+  rateType: CounterRateType
+): number {
+  return resolveCounterRateAmount({ type: "BIG_SNOOKER_TIME", rateType }) ?? 0;
+}
+
+export function defaultSnookerFrameAmount(snookerGame: SnookerGame): number {
+  return (
+    resolveCounterRateAmount({
+      type: "SNOOKER",
+      rateType: "REGULAR",
+      snookerGame,
+    }) ?? 0
+  );
 }
 
 export function resolveCounterRateAmount(input: {
@@ -61,13 +81,38 @@ export function resolveCounterRateAmount(input: {
     return (rates as Record<SnookerGame, number>)[input.snookerGame] ?? null;
   }
 
+  if (input.type === "BIG_SNOOKER_TIME") {
+    return typeof rates === "number" ? rates : null;
+  }
+
   return typeof rates === "number" ? rates : null;
+}
+
+export function getSnookerFrameAmountPresets(
+  snookerGame: SnookerGame
+): { amount: number; label: string }[] {
+  return getRateOptionsForPreset({ type: "SNOOKER", snookerGame }).map(
+    ({ rateType, amount }) => ({
+      amount,
+      label:
+        rateType === "REGULAR"
+          ? `${amount} (Regular)`
+          : `${amount} (Happy Hour)`,
+    })
+  );
 }
 
 export function getRateOptionsForPreset(input: {
   type: RatedEntryType;
   snookerGame?: SnookerGame;
 }): { rateType: CounterRateType; amount: number }[] {
+  if (input.type === "BIG_SNOOKER_TIME") {
+    return COUNTER_RATE_TYPES.map((rateType) => ({
+      rateType,
+      amount: resolveBigSnookerHourlyRate(rateType),
+    }));
+  }
+
   return COUNTER_RATE_TYPES.map((rateType) => ({
     rateType,
     amount:

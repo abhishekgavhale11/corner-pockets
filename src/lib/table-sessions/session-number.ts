@@ -1,4 +1,4 @@
-import type { PoolMiniTableId } from "@/lib/constants/table-sessions";
+import type { TableSessionTableId } from "@/lib/constants/table-sessions";
 import Counter from "@/models/Counter";
 import TableSession from "@/models/TableSession";
 
@@ -23,7 +23,7 @@ export async function generateTableSessionNumber(): Promise<number> {
 
 /** Per-table daily session number for staff-facing labels. */
 export async function generateTableLocalSessionNumber(
-  tableId: PoolMiniTableId
+  tableId: TableSessionTableId
 ): Promise<number> {
   const { start, end } = getDayBounds();
   const count = await TableSession.countDocuments({

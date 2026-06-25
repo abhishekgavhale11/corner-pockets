@@ -1,7 +1,7 @@
 import type { CustomerDTO, TransactionDTO } from "@/types";
 
 type LeanCustomerDetailFieldChange = {
-  field: "name" | "phone";
+  field: "name" | "phone" | "cardId";
   from: string;
   to: string;
 };

@@ -1,0 +1,194 @@
+"use client";
+
+import { useState } from "react";
+import { searchNotebookCustomers } from "@/actions/notebook-ledger";
+import type { CustomerDTO } from "@/types";
+import { formatCurrency } from "@/lib/utils/format";
+import { formatCustomerContactLine } from "@/lib/utils/customer-display";
+import { Input } from "@/components/ui/Input";
+import { Label } from "@/components/ui/Label";
+
+export type ContributorRow = {
+  customerId: string;
+  customerName: string;
+  amount: string;
+};
+
+interface ContributorsSplitFieldsProps {
+  totalAmount: number;
+  rows: ContributorRow[];
+  onRowsChange: (rows: ContributorRow[]) => void;
+  disabled?: boolean;
+}
+
+export function ContributorsSplitFields({
+  totalAmount,
+  rows,
+  onRowsChange,
+  disabled = false,
+}: ContributorsSplitFieldsProps) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<CustomerDTO[]>([]);
+
+  const total = rows.reduce((sum, row) => {
+    const amount = Number.parseInt(row.amount, 10);
+    return sum + (Number.isFinite(amount) ? amount : 0);
+  }, 0);
+  const remaining = totalAmount - total;
+
+  const searchCustomers = async (q: string) => {
+    const customers = await searchNotebookCustomers(q.trim() || undefined);
+    setResults(customers);
+  };
+
+  const addCustomer = (customer: CustomerDTO) => {
+    if (rows.some((row) => row.customerId === customer.id)) return;
+
+    const left = Math.max(0, totalAmount - total);
+    onRowsChange([
+      ...rows,
+      {
+        customerId: customer.id,
+        customerName: customer.name,
+        amount: left > 0 ? String(left) : "",
+      },
+    ]);
+    setQuery("");
+    setResults([]);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label>Contributors</Label>
+        <p className="text-[11px] text-gray-500">
+          Remaining{" "}
+          <span
+            className={
+              remaining === 0
+                ? "font-semibold text-emerald-700"
+                : "font-semibold text-amber-700"
+            }
+          >
+            {formatCurrency(remaining)}
+          </span>
+        </p>
+      </div>
+
+      <Input
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          void searchCustomers(e.target.value);
+        }}
+        onFocus={() => void searchCustomers(query)}
+        placeholder="Search to add contributor"
+        disabled={disabled}
+        className="text-sm"
+      />
+      {results.length > 0 && (
+        <ul className="max-h-28 overflow-y-auto rounded border border-gray-200">
+          {results.map((customer) => (
+            <li key={customer.id}>
+              <button
+                type="button"
+                className="w-full px-2 py-1.5 text-left text-xs hover:bg-emerald-50"
+                disabled={disabled}
+                onClick={() => addCustomer(customer)}
+              >
+                <span className="font-medium">{customer.name}</span>
+                <span className="ml-2 text-gray-500">
+                  {formatCustomerContactLine(customer)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="space-y-2">
+        {rows.length === 0 ? (
+          <p className="text-xs text-gray-500">
+            No contributors yet — optional, you can add them later.
+          </p>
+        ) : (
+          rows.map((row, index) => (
+            <div
+              key={row.customerId}
+              className="flex items-center gap-2 rounded-md border border-gray-100 bg-gray-50 px-2 py-1.5"
+            >
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900">
+                {row.customerName}
+              </span>
+              <div className="relative shrink-0">
+                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">
+                  ₹
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={row.amount}
+                  placeholder="0"
+                  disabled={disabled}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "");
+                    onRowsChange(
+                      rows.map((item, i) =>
+                        i === index ? { ...item, amount: digits } : item
+                      )
+                    );
+                  }}
+                  className="w-20 rounded-md border border-gray-300 bg-white py-1.5 pl-5 pr-2 text-right text-sm text-gray-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600/20 disabled:opacity-60"
+                />
+              </div>
+              <button
+                type="button"
+                aria-label={`Remove ${row.customerName}`}
+                disabled={disabled}
+                className="shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-60"
+                onClick={() =>
+                  onRowsChange(
+                    rows.filter((item) => item.customerId !== row.customerId)
+                  )
+                }
+              >
+                ✕
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function validateContributorRows(
+  rows: ContributorRow[],
+  totalAmount: number,
+  options?: { requireAtLeastOne?: boolean }
+): string | null {
+  if (rows.length === 0) {
+    return options?.requireAtLeastOne ? "Add at least one contributor" : null;
+  }
+
+  const total = rows.reduce((sum, row) => {
+    const amount = Number.parseInt(row.amount, 10);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return sum;
+    }
+    return sum + amount;
+  }, 0);
+
+  if (total !== totalAmount) {
+    return `Contributor total must equal ${formatCurrency(totalAmount)}`;
+  }
+
+  for (const row of rows) {
+    const amount = Number.parseInt(row.amount, 10);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return "Enter a valid amount for each contributor";
+    }
+  }
+
+  return null;
+}

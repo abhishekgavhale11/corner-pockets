@@ -12,7 +12,7 @@ export function CustomerActions({ customerId }: CustomerActionsProps) {
   return (
     <Card>
       <CardTitle className="mb-4">Actions</CardTitle>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Link href={`${base}/recharge`}>
           <Button fullWidth size="lg">
             Recharge
@@ -21,11 +21,6 @@ export function CustomerActions({ customerId }: CustomerActionsProps) {
         <Link href={`${base}/deduct`}>
           <Button variant="danger" fullWidth size="lg">
             Deduct
-          </Button>
-        </Link>
-        <Link href={`${base}/transactions`}>
-          <Button variant="secondary" fullWidth size="lg">
-            Transactions
           </Button>
         </Link>
       </div>

@@ -26,17 +26,19 @@ export default async function CustomerDetailPage({
 
   const activityFilter =
     typeof sp.activity === "string" ? sp.activity : "all";
+  const openRecharge = sp.recharge === "1";
   const activity = await getCustomerActivity(id, activityFilter);
 
   const canEditDetails = hasPermission(role, "CUSTOMER_EDIT_DETAILS");
-  const canReverseSettlements = hasPermission(role, "NOTEBOOK_SETTLEMENT_REVERSE");
+  const canReverseRecharges = hasPermission(role, "TRANSACTION_REVERSE");
 
   return (
     <CustomerDetailView
       customer={customer}
       activity={activity}
       canEditDetails={canEditDetails}
-      canReverseSettlements={canReverseSettlements}
+      canReverseRecharges={canReverseRecharges}
+      initialRechargeOpen={openRecharge}
     />
   );
 }

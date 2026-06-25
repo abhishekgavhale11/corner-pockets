@@ -34,8 +34,8 @@ import { StartSessionDialog } from "@/components/counter/StartSessionDialog";
 import { Input } from "@/components/ui/Input";
 import {
   CafeAddItemDialog,
-  type CafeAddItemTarget,
 } from "@/components/counter/CafeAddItemDialog";
+import { useCafeAddItem } from "@/components/counter/useCafeAddItem";
 import { cn } from "@/lib/utils/cn";
 import { entryTypeLabel } from "@/lib/constants/notebook-entry-types";
 
@@ -449,7 +449,9 @@ function MiniSessionLedgerRow({
 
   const timeLabel = session
     ? formatTime(session.startedAt)
-    : formatTime(item.row.startedAt);
+    : item.kind === "history"
+      ? formatTime(item.row.startedAt)
+      : "—";
 
   const timerLabel = isActive && live
     ? formatActiveDuration(live.activeMs)
@@ -470,8 +472,10 @@ function MiniSessionLedgerRow({
 
   const assigned = session
     ? formatAssignedCustomers(session.assignedCustomerNames)
-    : item.row.customerNames.length > 0
-      ? item.row.customerNames.join(", ")
+    : item.kind === "history"
+      ? item.row.customerNames.length > 0
+        ? item.row.customerNames.join(", ")
+        : "Unassigned"
       : "Unassigned";
 
   const statusLabel = isActive
@@ -480,9 +484,11 @@ function MiniSessionLedgerRow({
       : "Active"
     : isStopped
       ? "Stopped"
-      : item.row.paymentStatus === "PENDING"
-        ? "Unpaid"
-        : paymentStatusLabel(item.row.paymentStatus);
+      : item.kind === "history"
+        ? item.row.paymentStatus === "PENDING"
+          ? "Unpaid"
+          : paymentStatusLabel(item.row.paymentStatus)
+        : "Unpaid";
 
   const statusBadgeClass = isActive
     ? session!.status === "PAUSED"
@@ -757,9 +763,8 @@ export function MiniSessionBoard({
   const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showStart, setShowStart] = useState(false);
-  const [cafeTarget, setCafeTarget] = useState<CafeAddItemTarget | null>(
-    null
-  );
+  const { cafeTarget, closeCafe, openCafeForSession, openCafeForTable } =
+    useCafeAddItem();
   const [startError, setStartError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -806,14 +811,16 @@ export function MiniSessionBoard({
     return rows;
   }, [session, pendingCheckouts, history]);
 
-  const openCafeForSession = (targetSession: TableSessionDTO) => {
-    setCafeTarget({
-      kind: "table",
-      tableId: "MINI_SNOOKER",
-      name: "Mini",
-      sessionId: targetSession.id,
-      hasActiveSession: targetSession.status === "ACTIVE",
-    });
+  const openCafeForItem = (item: MiniSessionLedgerItem) => {
+    if (item.kind === "active" || item.kind === "stopped") {
+      openCafeForSession(item.session);
+      return;
+    }
+    if (item.kind === "history" && item.row.paymentStatus === "PENDING") {
+      void openCafeForTable("MINI_SNOOKER", "Mini", {
+        sessionId: item.row.sessionId,
+      });
+    }
   };
 
   const handleStart = (rateType: string) => {
@@ -946,9 +953,7 @@ export function MiniSessionBoard({
                       return next;
                     })
                   }
-                  onAddCafe={() => {
-                    if (rowSession) openCafeForSession(rowSession);
-                  }}
+                  onAddCafe={() => openCafeForItem(item)}
                   onSaveBill={saveBillAmounts}
                   editingAmount={editingSessionId === id}
                   onStartEditAmount={() => {
@@ -980,10 +985,7 @@ export function MiniSessionBoard({
         error={startError}
       />
 
-      <CafeAddItemDialog
-        target={cafeTarget}
-        onClose={() => setCafeTarget(null)}
-      />
+      <CafeAddItemDialog target={cafeTarget} onClose={closeCafe} />
     </>
   );
 }

@@ -8,6 +8,7 @@ import {
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/Button";
+import { CustomerGlanceHoverTarget } from "@/components/counter/CafeCustomerGlanceHover";
 
 interface CafeCustomerTabsProps {
   tabs: CafeOpenTab[];
@@ -54,30 +55,60 @@ export function CafeCustomerTabs({
               tab.kind === "table" && !expanded && "border-l-2 border-l-amber-400"
             )}
           >
-            <button
-              type="button"
-              onClick={() => onToggleExpand(expanded ? null : tab.tabKey)}
-              className={cn(
-                "w-full px-1.5 py-1 text-left leading-tight",
-                expanded ? "bg-emerald-50/80" : "hover:bg-gray-50"
-              )}
-            >
-              <div className="flex items-baseline justify-between gap-1">
-                <span className="truncate text-[15px] font-bold text-gray-900">
-                  {tabTitle(tab)}
-                </span>
-                <span className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
-                  {formatCurrency(tabAmount(tab))}
-                </span>
-              </div>
-              <p className="truncate text-[11px] text-gray-600">
-                {tab.lines.length > 0
-                  ? formatCafeTabSummary(tab.lines)
-                  : tab.kind === "table"
-                    ? "No cafe items yet"
-                    : "No items yet"}
-              </p>
-            </button>
+            {tab.kind === "customer" ? (
+              <CustomerGlanceHoverTarget
+                customerId={tab.customerId}
+                variant="popover"
+                className="relative"
+                popoverClassName="sm:left-0 sm:right-auto"
+              >
+                <button
+                  type="button"
+                  onClick={() => onToggleExpand(expanded ? null : tab.tabKey)}
+                  className={cn(
+                    "w-full px-1.5 py-1 text-left leading-tight",
+                    expanded ? "bg-emerald-50/80" : "hover:bg-gray-50"
+                  )}
+                >
+                  <div className="flex items-baseline justify-between gap-1">
+                    <span className="truncate text-[15px] font-bold text-gray-900">
+                      {tabTitle(tab)}
+                    </span>
+                    <span className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
+                      {formatCurrency(tabAmount(tab))}
+                    </span>
+                  </div>
+                  <p className="truncate text-[11px] text-gray-600">
+                    {tab.lines.length > 0
+                      ? formatCafeTabSummary(tab.lines)
+                      : "No items yet"}
+                  </p>
+                </button>
+              </CustomerGlanceHoverTarget>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onToggleExpand(expanded ? null : tab.tabKey)}
+                className={cn(
+                  "w-full px-1.5 py-1 text-left leading-tight",
+                  expanded ? "bg-emerald-50/80" : "hover:bg-gray-50"
+                )}
+              >
+                <div className="flex items-baseline justify-between gap-1">
+                  <span className="truncate text-[15px] font-bold text-gray-900">
+                    {tabTitle(tab)}
+                  </span>
+                  <span className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
+                    {formatCurrency(tabAmount(tab))}
+                  </span>
+                </div>
+                <p className="truncate text-[11px] text-gray-600">
+                  {tab.lines.length > 0
+                    ? formatCafeTabSummary(tab.lines)
+                    : "No cafe items yet"}
+                </p>
+              </button>
+            )}
 
             {expanded && (
               <div className="border-t border-gray-200 px-1.5 py-1">

@@ -11,12 +11,14 @@ interface CafeNewTabDialogProps {
   open: boolean;
   onClose: () => void;
   onCreated: (customer: CustomerDTO) => void;
+  submitLabel?: string;
 }
 
 export function CafeNewTabDialog({
   open,
   onClose,
   onCreated,
+  submitLabel = "Create & Add Item",
 }: CafeNewTabDialogProps) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -95,7 +97,7 @@ export function CafeNewTabDialog({
               className="h-10 flex-1 text-sm font-semibold"
               disabled={isPending}
             >
-              {isPending ? "Creating..." : "Create & Add Item"}
+              {isPending ? "Creating..." : submitLabel}
             </Button>
             <Button
               type="button"

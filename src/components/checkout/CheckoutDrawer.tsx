@@ -62,7 +62,12 @@ export function CheckoutDrawer({ tab, entries, onClose }: CheckoutDrawerProps) {
 
   if (!tab) return null;
 
-  const title = tab.kind === "table" ? tab.tableName : tab.customerName;
+  const title =
+    tab.kind === "table"
+      ? tab.tableName
+      : tab.kind === "session"
+        ? tab.displayLabel
+        : tab.customerName;
   const customerId = tab.kind === "customer" ? tab.customerId : null;
   const walletEnabled = tab.kind === "customer" ? tab.walletEnabled : false;
   const cardId = tab.kind === "customer" ? tab.cardId : undefined;

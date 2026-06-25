@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { correctCounterEntry } from "@/actions/notebook-entries";
+import { correctCounterEntry, setEntryContributors } from "@/actions/notebook-entries";
 import { searchNotebookCustomers } from "@/actions/notebook-ledger";
 import {
   getRateOptionsForPreset,
@@ -19,6 +19,17 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { formatCustomerContactLine } from "@/lib/utils/customer-display";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
+import {
+  BillingModeToggle,
+  type EntryBillingMode,
+} from "@/components/counter/BillingModeToggle";
+import {
+  ContributorsSplitFields,
+  validateContributorRows,
+  type ContributorRow,
+} from "@/components/counter/ContributorsSplitFields";
+import { assignCounterEntryCustomer } from "@/actions/notebook-entries";
 
 interface EntryCorrectionDialogProps {
   entry: NotebookEntryDTO | null;
@@ -36,6 +47,8 @@ export function EntryCorrectionDialog({
   const [amount, setAmount] = useState("");
   const [players, setPlayers] = useState("");
   const [reason, setReason] = useState("");
+  const [billingMode, setBillingMode] = useState<EntryBillingMode>("single");
+  const [contributorRows, setContributorRows] = useState<ContributorRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -43,6 +56,15 @@ export function EntryCorrectionDialog({
 
   useEffect(() => {
     if (!open || !entry) return;
+    const hasSplit = Boolean(entry.contributors && entry.contributors.length > 0);
+    setBillingMode(hasSplit ? "split" : "single");
+    setContributorRows(
+      entry.contributors?.map((contributor) => ({
+        customerId: contributor.customerId,
+        customerName: contributor.customerName,
+        amount: String(contributor.amount),
+      })) ?? []
+    );
     setSelectedCustomerId(entry.customerId ?? "");
     setAmount(String(entry.amount));
     setPlayers(entry.playerCount ? String(entry.playerCount) : "4");
@@ -70,17 +92,30 @@ export function EntryCorrectionDialog({
       return;
     }
 
+    const parsedAmount = Number.parseInt(amount, 10);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError("Enter a valid amount");
+      return;
+    }
+
+    if (billingMode === "split" && contributorRows.length > 0) {
+      const contributorError = validateContributorRows(
+        contributorRows,
+        parsedAmount
+      );
+      if (contributorError) {
+        setError(contributorError);
+        return;
+      }
+    }
+
     const formData = new FormData();
     formData.set("entryId", entry.id);
     formData.set("correctionReason", reason.trim());
+    formData.set("amount", String(parsedAmount));
 
-    if (selectedCustomerId) {
+    if (billingMode === "single" && selectedCustomerId) {
       formData.set("customerId", selectedCustomerId);
-    }
-
-    const parsedAmount = Number.parseInt(amount, 10);
-    if (Number.isFinite(parsedAmount) && parsedAmount > 0) {
-      formData.set("amount", String(parsedAmount));
     }
 
     if (entry.type === "RUMMY") {
@@ -95,21 +130,71 @@ export function EntryCorrectionDialog({
     setError(null);
     startTransition(async () => {
       const result = await correctCounterEntry(formData);
-      if (result.success) {
-        router.refresh();
-        onClose();
+      if (!result.success) {
+        setError(result.error);
         return;
       }
-      setError(result.error);
+
+      if (billingMode === "split") {
+        const splitFormData = new FormData();
+        splitFormData.set("entryId", entry.id);
+        splitFormData.set(
+          "contributors",
+          JSON.stringify(
+            contributorRows.map((row) => ({
+              customerId: row.customerId,
+              amount: Number.parseInt(row.amount, 10),
+            }))
+          )
+        );
+        const splitResult = await setEntryContributors(splitFormData);
+        if (!splitResult.success) {
+          setError(splitResult.error);
+          return;
+        }
+      } else if (entry.contributors && entry.contributors.length > 0) {
+        const clearFormData = new FormData();
+        clearFormData.set("entryId", entry.id);
+        clearFormData.set("contributors", "[]");
+        const clearResult = await setEntryContributors(clearFormData);
+        if (!clearResult.success) {
+          setError(clearResult.error);
+          return;
+        }
+        if (selectedCustomerId) {
+          const assignFormData = new FormData();
+          assignFormData.set("entryId", entry.id);
+          assignFormData.set("customerId", selectedCustomerId);
+          const assignResult = await assignCounterEntryCustomer(assignFormData);
+          if (!assignResult.success) {
+            setError(assignResult.error);
+            return;
+          }
+        }
+      }
+
+      invalidateCustomerGlanceCache();
+      router.refresh();
+      onClose();
     });
   };
 
   const canChangeCustomer = Boolean(entry?.assignedAt);
+  const showBillingToggle =
+    entry.type === "RUMMY" || entry.type === "SNOOKER";
 
   return (
     <Dialog open={open} onClose={onClose} title="Correct Entry">
       <div className="space-y-3">
-        {canChangeCustomer && (
+        {showBillingToggle && (
+          <BillingModeToggle
+            value={billingMode}
+            onChange={setBillingMode}
+            disabled={isPending}
+          />
+        )}
+
+        {billingMode === "single" && canChangeCustomer && (
           <div>
             <Label htmlFor="correction-customer">Customer</Label>
             <Input
@@ -148,6 +233,15 @@ export function EntryCorrectionDialog({
               </ul>
             )}
           </div>
+        )}
+
+        {billingMode === "split" && (
+          <ContributorsSplitFields
+            totalAmount={Number.parseInt(amount, 10) || entry.amount}
+            rows={contributorRows}
+            onRowsChange={setContributorRows}
+            disabled={isPending}
+          />
         )}
 
         {entry.type === "SNOOKER" && (

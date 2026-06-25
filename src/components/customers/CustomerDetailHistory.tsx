@@ -9,6 +9,7 @@ interface CustomerDetailHistoryProps {
 const fieldLabels = {
   name: "Name",
   phone: "Phone",
+  cardId: "Card ID",
 } as const;
 
 export function CustomerDetailHistory({
@@ -20,7 +21,7 @@ export function CustomerDetailHistory({
 
       {detailChanges.length === 0 ? (
         <p className="text-sm text-gray-500">
-          No name or phone changes recorded yet.
+          No name, phone, or card ID changes recorded yet.
         </p>
       ) : (
         <ul className="divide-y divide-gray-100">

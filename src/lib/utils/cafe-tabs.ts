@@ -79,7 +79,7 @@ function cafeLineKey(entry: NotebookEntryDTO): string {
   return entry.type;
 }
 
-function buildLinesFromEntries(
+export function buildLinesFromEntries(
   customerEntries: NotebookEntryDTO[]
 ): CafeTabLine[] {
   const lineMap = new Map<string, CafeTabLine>();

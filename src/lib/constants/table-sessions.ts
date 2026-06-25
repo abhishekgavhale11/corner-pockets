@@ -1,8 +1,26 @@
-import { POOL_MINI_SECTIONS } from "@/lib/constants/counter-sections";
+import {
+  POOL_MINI_SECTIONS,
+  SNOOKER_TABLE_SECTIONS,
+} from "@/lib/constants/counter-sections";
 
 export const POOL_MINI_TABLE_IDS = POOL_MINI_SECTIONS;
 
 export type PoolMiniTableId = (typeof POOL_MINI_TABLE_IDS)[number];
+
+export const BIG_SNOOKER_TABLE_IDS = SNOOKER_TABLE_SECTIONS;
+
+export type BigSnookerTableId = (typeof BIG_SNOOKER_TABLE_IDS)[number];
+
+export const SESSION_TABLE_IDS = [
+  ...POOL_MINI_TABLE_IDS,
+  ...BIG_SNOOKER_TABLE_IDS,
+] as const;
+
+export type TableSessionTableId = (typeof SESSION_TABLE_IDS)[number];
+
+export const SESSION_BILLING_METHODS = ["FRAME", "TIME"] as const;
+
+export type SessionBillingMethod = (typeof SESSION_BILLING_METHODS)[number];
 
 export const TABLE_SESSION_STATUSES = [
   "ACTIVE",
@@ -56,6 +74,18 @@ export const TABLE_SESSION_AUDIT_LABELS: Record<TableSessionAuditAction, string>
 
 export function isPoolMiniTableId(section: string): section is PoolMiniTableId {
   return (POOL_MINI_TABLE_IDS as readonly string[]).includes(section);
+}
+
+export function isBigSnookerTableId(
+  section: string
+): section is BigSnookerTableId {
+  return (BIG_SNOOKER_TABLE_IDS as readonly string[]).includes(section);
+}
+
+export function isSessionTableId(
+  section: string
+): section is TableSessionTableId {
+  return (SESSION_TABLE_IDS as readonly string[]).includes(section);
 }
 
 /** Map legacy CLOSED rows to PAID. */

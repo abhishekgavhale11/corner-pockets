@@ -1,6 +1,9 @@
 import { z } from "zod";
-import { COUNTER_RATE_TYPES } from "@/lib/constants/counter-rates";
-import { POOL_MINI_TABLE_IDS } from "@/lib/constants/table-sessions";
+import { COUNTER_RATE_TYPES, SNOOKER_GAMES } from "@/lib/constants/counter-rates";
+import {
+  BIG_SNOOKER_TABLE_IDS,
+  POOL_MINI_TABLE_IDS,
+} from "@/lib/constants/table-sessions";
 
 export const tableSessionActionSchema = z.object({
   sessionId: z.string().min(1, "Session is required"),
@@ -9,6 +12,19 @@ export const tableSessionActionSchema = z.object({
 export const startTableSessionSchema = z.object({
   tableId: z.enum(POOL_MINI_TABLE_IDS),
   rateType: z.enum(COUNTER_RATE_TYPES),
+});
+
+export const startBigSnookerSessionSchema = z.object({
+  tableId: z.enum(BIG_SNOOKER_TABLE_IDS),
+});
+
+export const setBigSnookerSessionGameSchema = z.object({
+  sessionId: z.string().min(1, "Session is required"),
+  snookerGame: z.enum(SNOOKER_GAMES),
+  amount: z.coerce
+    .number()
+    .int("Amount must be a whole number")
+    .positive("Amount must be greater than zero"),
 });
 
 export const assignTableSessionCustomersSchema = z.object({

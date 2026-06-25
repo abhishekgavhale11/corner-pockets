@@ -6,10 +6,17 @@ import { CAFE_SECTION } from "@/lib/constants/counter-sections";
 import {
   ACTIVE_TABLE_SESSION_STATUSES,
   UNPAID_TABLE_SESSION_STATUSES,
+  isBigSnookerTableId,
+  isPoolMiniTableId,
   poolMiniGameType,
+  type BigSnookerTableId,
   type PoolMiniTableId,
+  type TableSessionTableId,
 } from "@/lib/constants/table-sessions";
 import { sectionLabel } from "@/lib/constants/notebook-sections";
+import {
+  inferRateTypeFromStoredAmount,
+} from "@/lib/constants/counter-rates";
 import { toTableSessionDTO } from "@/lib/mappers/table-session";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import { toCustomerDTO } from "@/lib/mappers";
@@ -21,10 +28,12 @@ import {
 import { computeActivePlayMs } from "@/lib/utils/session-timer";
 import {
   startTableSessionSchema,
+  startBigSnookerSessionSchema,
   tableSessionActionSchema,
   assignTableSessionCustomersSchema,
   updateSessionGameAmountSchema,
   updateSessionBillAmountsSchema,
+  setBigSnookerSessionGameSchema,
 } from "@/lib/validators/table-sessions";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
@@ -49,6 +58,17 @@ import { formatTableSessionLabel } from "@/lib/utils/session-display";
 import { formatCafeItemLabel } from "@/lib/utils/notebook-entry-label";
 import Customer from "@/models/Customer";
 import mongoose from "mongoose";
+
+export type BigSnookerSessionBoardData = {
+  tables: {
+    tableId: BigSnookerTableId;
+    session: TableSessionDTO | null;
+    pendingCheckouts: TableSessionDTO[];
+    summary: PoolMiniTableSummaryDTO;
+    history: TableSessionHistoryDTO[];
+    canStartNewSession: boolean;
+  }[];
+};
 
 export type PoolMiniSessionBoardData = {
   tables: {
@@ -79,14 +99,15 @@ async function sumCafeChargesForSession(sessionId: string): Promise<number> {
   return entries.reduce((sum, entry) => sum + entry.amount, 0);
 }
 
-async function findActiveSessionForTable(tableId: PoolMiniTableId) {
+
+async function findActiveSessionForTable(tableId: TableSessionTableId) {
   return TableSession.findOne({
     tableId,
     status: { $in: [...ACTIVE_TABLE_SESSION_STATUSES] },
   }).sort({ startedAt: -1 });
 }
 
-async function findPendingCheckoutSessionsForTable(tableId: PoolMiniTableId) {
+async function findPendingCheckoutSessionsForTable(tableId: TableSessionTableId) {
   return TableSession.find({
     tableId,
     status: { $in: [...UNPAID_TABLE_SESSION_STATUSES] },
@@ -469,6 +490,41 @@ export async function stopTableSession(
     session.pausedAt = undefined;
   }
 
+  const activeMs = computeActivePlayMs({
+    status: "ENDED",
+    startedAt: session.startedAt,
+    pausedAt: undefined,
+    endedAt: now,
+    totalPausedMs: session.totalPausedMs,
+    now,
+  });
+
+  if (isBigSnookerTableId(session.tableId)) {
+    session.status = "STOPPED";
+    session.endedAt = now;
+    session.activePlayMs = activeMs;
+    session.gameChargeAmount = 0;
+    session.rateType = undefined;
+    session.hourlyRate = 0;
+    appendAudit(
+      session,
+      "STOPPED",
+      authResult.session.user.username,
+      authResult.session.user.id
+    );
+    await session.save();
+
+    const cafeChargeAmount = await sumCafeChargesForSession(
+      session._id.toString()
+    );
+    revalidateCounterPaths();
+    return success(toTableSessionDTO(session, cafeChargeAmount));
+  }
+
+  if (!session.rateType) {
+    return failure("Session rate type is missing");
+  }
+
   const billing = calculateSessionGameCharge({
     tableId: session.tableId,
     rateType: session.rateType,
@@ -521,6 +577,275 @@ export async function stopTableSession(
     authResult.session.user.username,
     authResult.session.user.id
   );
+  await session.save();
+
+  const cafeChargeAmount = await sumCafeChargesForSession(session._id.toString());
+  revalidateCounterPaths();
+  return success(toTableSessionDTO(session, cafeChargeAmount));
+}
+
+export async function startBigSnookerSession(
+  formData: FormData
+): Promise<ActionResult<TableSessionDTO>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = startBigSnookerSessionSchema.safeParse({
+    tableId: formData.get("tableId"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const existing = await findActiveSessionForTable(parsed.data.tableId);
+  if (existing) {
+    const label = formatTableSessionLabel(
+      existing.tableId,
+      existing.tableSessionNumber ?? existing.sessionNumber
+    );
+    return failure(
+      `${sectionLabel(existing.tableId)} already has a session in play (${label}). Stop it before starting another.`
+    );
+  }
+
+  try {
+    const [sessionNumber, tableSessionNumber] = await Promise.all([
+      generateTableSessionNumber(),
+      generateTableLocalSessionNumber(parsed.data.tableId),
+    ]);
+    const now = new Date();
+
+    const session = await TableSession.create({
+      sessionNumber,
+      tableSessionNumber,
+      tableId: parsed.data.tableId,
+      status: "ACTIVE",
+      startedAt: now,
+      totalPausedMs: 0,
+      activePlayMs: 0,
+      hourlyRate: 0,
+      gameChargeAmount: 0,
+      auditLog: [
+        {
+          action: "STARTED",
+          at: now,
+          by: authResult.session.user.username,
+          byStaffId: new mongoose.Types.ObjectId(authResult.session.user.id),
+        },
+      ],
+      createdBy: authResult.session.user.username,
+      createdByStaffId: new mongoose.Types.ObjectId(authResult.session.user.id),
+    });
+
+    revalidateCounterPaths();
+    return success(toTableSessionDTO(session, 0));
+  } catch (error) {
+    console.error("startBigSnookerSession failed:", error);
+    return failure("Failed to start session");
+  }
+}
+
+export async function getBigSnookerSessionBoardData(): Promise<BigSnookerSessionBoardData> {
+  const authResult = await authorizePermission("NOTEBOOK_VIEW");
+  if (!("session" in authResult)) {
+    return {
+      tables: ["BIG_SNOOKER_1", "BIG_SNOOKER_2", "BIG_SNOOKER_3"].map(
+        (tableId) => ({
+          tableId: tableId as BigSnookerTableId,
+          session: null,
+          pendingCheckouts: [],
+          summary: { revenueToday: 0, sessionsToday: 0, pendingCount: 0 },
+          history: [],
+          canStartNewSession: true,
+        })
+      ),
+    };
+  }
+
+  await connectDB();
+
+  const { start, end } = getDayBounds();
+  const tableIds: BigSnookerTableId[] = [
+    "BIG_SNOOKER_1",
+    "BIG_SNOOKER_2",
+    "BIG_SNOOKER_3",
+  ];
+
+  const todaySessions = await TableSession.find({
+    tableId: { $in: tableIds },
+    startedAt: { $gte: start, $lte: end },
+  })
+    .sort({ startedAt: -1 })
+    .lean();
+
+  const sessionIds = todaySessions.map((s) => s._id);
+  const allEntries = sessionIds.length
+    ? await NotebookEntry.find({ sessionId: { $in: sessionIds } }).lean()
+    : [];
+
+  const entryIds = allEntries.map((e) => e._id);
+  const allSettlements =
+    entryIds.length > 0
+      ? await NotebookSettlement.find({
+          entryIds: { $in: entryIds },
+        })
+          .sort({ createdAt: 1 })
+          .lean()
+      : [];
+
+  const tables = await Promise.all(
+    tableIds.map(async (tableId) => {
+      const [activeSession, pendingSessions] = await Promise.all([
+        findActiveSessionForTable(tableId),
+        findPendingCheckoutSessionsForTable(tableId),
+      ]);
+
+      const tableTodaySessions = todaySessions.filter(
+        (s) => s.tableId === tableId
+      );
+
+      const historyRows = tableTodaySessions
+        .filter(isHistorySessionRow)
+        .map((session) => {
+          const sessionEntryIds = new Set(
+            allEntries
+              .filter(
+                (e) => e.sessionId?.toString() === session._id.toString()
+              )
+              .map((e) => e._id.toString())
+          );
+          const settlements = allSettlements.filter((settlement) =>
+            settlement.entryIds.some((id) =>
+              sessionEntryIds.has(id.toString())
+            )
+          );
+          return buildTableSessionHistoryRow(
+            session,
+            allEntries,
+            settlements
+          );
+        });
+
+      const historyIds = new Set(historyRows.map((row) => row.sessionId));
+      for (const pending of pendingSessions) {
+        const pendingId = pending._id.toString();
+        if (historyIds.has(pendingId)) continue;
+        const sessionEntryIds = new Set(
+          allEntries
+            .filter((e) => e.sessionId?.toString() === pendingId)
+            .map((e) => e._id.toString())
+        );
+        const settlements = allSettlements.filter((settlement) =>
+          settlement.entryIds.some((id) => sessionEntryIds.has(id.toString()))
+        );
+        historyRows.push(
+          buildTableSessionHistoryRow(pending, allEntries, settlements)
+        );
+      }
+
+      const history = historyRows.sort(
+        (a, b) =>
+          new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+      );
+
+      const revenueToday = history
+        .filter((row) => row.paymentStatus === "PAID")
+        .reduce((sum, row) => sum + row.totalAmount, 0);
+
+      const pendingCount = history.filter(
+        (row) =>
+          row.paymentStatus === "PENDING" || row.paymentStatus === "REVERSED"
+      ).length;
+
+      return {
+        tableId,
+        session: activeSession ? await toSessionDto(activeSession) : null,
+        pendingCheckouts: await Promise.all(
+          pendingSessions.map((row) => toSessionDto(row))
+        ),
+        summary: {
+          revenueToday,
+          sessionsToday: tableTodaySessions.length,
+          pendingCount,
+        },
+        history,
+        canStartNewSession: !activeSession,
+      };
+    })
+  );
+
+  return { tables };
+}
+
+export async function setBigSnookerSessionGameCharge(
+  formData: FormData
+): Promise<ActionResult<TableSessionDTO>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = setBigSnookerSessionGameSchema.safeParse({
+    sessionId: formData.get("sessionId"),
+    snookerGame: formData.get("snookerGame"),
+    amount: formData.get("amount"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const session = await TableSession.findById(parsed.data.sessionId);
+  if (!session) {
+    return failure("Session not found");
+  }
+  if (!isBigSnookerTableId(session.tableId)) {
+    return failure("Game charge only applies to Big Snooker time sessions");
+  }
+  if (session.status !== "STOPPED") {
+    return failure("Set the game charge after the session is stopped");
+  }
+
+  const amount = Math.round(parsed.data.amount);
+  const rateType =
+    inferRateTypeFromStoredAmount("SNOOKER", amount, parsed.data.snookerGame) ??
+    "REGULAR";
+
+  if (session.gameEntryId) {
+    const entry = await NotebookEntry.findById(session.gameEntryId);
+    if (!entry) {
+      return failure("Game entry not found");
+    }
+    entry.amount = amount;
+    entry.snookerGame = parsed.data.snookerGame;
+    entry.rateType = rateType;
+    await entry.save();
+  } else {
+    const gameEntry = await NotebookEntry.create({
+      section: session.tableId,
+      type: "SNOOKER",
+      amount,
+      snookerGame: parsed.data.snookerGame,
+      rateType,
+      sessionId: session._id,
+      customerName: "",
+      phoneNumber: "",
+      status: "PENDING",
+      createdBy: authResult.session.user.username,
+      createdByStaffId: new mongoose.Types.ObjectId(authResult.session.user.id),
+    });
+    session.gameEntryId = gameEntry._id;
+  }
+
+  session.rateType = rateType;
+  session.gameChargeAmount = amount;
   await session.save();
 
   const cafeChargeAmount = await sumCafeChargesForSession(session._id.toString());
@@ -733,7 +1058,11 @@ export async function updateSessionBillAmounts(
     ? session.gameChargeAmount
     : Math.round(parsed.data.gameAmount);
 
-  if (!cafeOnly) {
+  const canEditSingleGameEntry =
+    isPoolMiniTableId(session.tableId) ||
+    (isBigSnookerTableId(session.tableId) && Boolean(session.gameEntryId));
+
+  if (!cafeOnly && canEditSingleGameEntry) {
     if (gameAmount > 0) {
       if (session.gameEntryId) {
         const entry = await NotebookEntry.findById(session.gameEntryId);
@@ -741,7 +1070,7 @@ export async function updateSessionBillAmounts(
           entry.amount = gameAmount;
           await entry.save();
         }
-      } else {
+      } else if (isPoolMiniTableId(session.tableId)) {
         const gameType = poolMiniGameType(session.tableId);
         const gameEntry = await NotebookEntry.create({
           section: session.tableId,

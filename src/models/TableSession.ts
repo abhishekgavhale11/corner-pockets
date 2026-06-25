@@ -1,8 +1,9 @@
 import type { CounterRateType } from "@/lib/constants/counter-rates";
 import type {
-  PoolMiniTableId,
+  SessionBillingMethod,
   TableSessionAuditAction,
   TableSessionStatus,
+  TableSessionTableId,
 } from "@/lib/constants/table-sessions";
 import mongoose, { Schema, type Document, type Model } from "mongoose";
 
@@ -21,9 +22,10 @@ export interface ITableSessionAssignedCustomer {
 export interface ITableSession extends Document {
   sessionNumber: number;
   tableSessionNumber: number;
-  tableId: PoolMiniTableId;
+  tableId: TableSessionTableId;
   status: TableSessionStatus;
-  rateType: CounterRateType;
+  rateType?: CounterRateType;
+  billingMethod?: SessionBillingMethod;
   startedAt: Date;
   pausedAt?: Date;
   endedAt?: Date;
@@ -73,7 +75,14 @@ const tableSessionSchema = new Schema<ITableSession>(
     tableSessionNumber: { type: Number, min: 1 },
     tableId: {
       type: String,
-      enum: ["MINI_SNOOKER", "POOL_1", "POOL_2"],
+      enum: [
+        "MINI_SNOOKER",
+        "POOL_1",
+        "POOL_2",
+        "BIG_SNOOKER_1",
+        "BIG_SNOOKER_2",
+        "BIG_SNOOKER_3",
+      ],
       required: true,
     },
     status: {
@@ -92,7 +101,10 @@ const tableSessionSchema = new Schema<ITableSession>(
     rateType: {
       type: String,
       enum: ["REGULAR", "HAPPY_HOUR"],
-      required: true,
+    },
+    billingMethod: {
+      type: String,
+      enum: ["FRAME", "TIME"],
     },
     startedAt: { type: Date, required: true },
     pausedAt: { type: Date },

@@ -280,91 +280,55 @@ export async function reverseTransaction(
         throw new Error("Customer not found");
       }
 
+      if (original.type !== "credit") {
+        throw new Error("Only wallet recharges can be reversed");
+      }
+
       const staffUsername = session.user.username;
-      const originalTypeLabel =
-        original.type === "credit" ? "recharge" : "debit";
       const reversalReasonLabel = getReversalReasonLabel(
         parsed.data.reversalReason as ReversalReasonKey,
         parsed.data.reversalReasonOther
       );
-      const reversalDescription = `Reversal of ${originalTypeLabel} from ${formatDate(original.createdAt)} — ${reversalReasonLabel}`;
+      const reversalDescription = `Reversal of recharge from ${formatDate(original.createdAt)} — ${reversalReasonLabel}`;
 
-      if (original.type === "credit") {
-        const creditAmount = original.creditedAmount ?? 0;
-        if (creditAmount <= 0) {
-          throw new Error("Invalid recharge amount to reverse");
-        }
-        if (customer.balance < creditAmount) {
-          throw new Error(
-            `Insufficient balance to reverse recharge. Available: ₹${customer.balance.toLocaleString("en-IN")}`
-          );
-        }
-
-        const balanceAfter = customer.balance - creditAmount;
-        customer.balance = balanceAfter;
-        await customer.save({ session: dbSession });
-
-        const [reversal] = await Transaction.create(
-          [
-            {
-              customerId: customer._id,
-              type: "debit",
-              amount: creditAmount,
-              balanceAfter,
-              description: reversalDescription,
-              staffId: session.user.id,
-              staffUsername,
-              isReversal: true,
-              reversesTransactionId: original._id,
-            },
-          ],
-          { session: dbSession }
-        );
-
-        original.reversedAt = new Date();
-        original.reversedBy = staffUsername;
-        original.reversalReason = reversalReasonLabel;
-        original.reversalTransactionId = reversal._id;
-        await original.save({ session: dbSession });
-
-        reversalDoc = reversal;
-      } else {
-        const debitAmount = original.amount ?? 0;
-        if (debitAmount <= 0) {
-          throw new Error("Invalid debit amount to reverse");
-        }
-
-        const balanceAfter = customer.balance + debitAmount;
-        customer.balance = balanceAfter;
-        await customer.save({ session: dbSession });
-
-        const [reversal] = await Transaction.create(
-          [
-            {
-              customerId: customer._id,
-              type: "credit",
-              paidAmount: debitAmount,
-              bonusAmount: 0,
-              creditedAmount: debitAmount,
-              balanceAfter,
-              description: reversalDescription,
-              staffId: session.user.id,
-              staffUsername,
-              isReversal: true,
-              reversesTransactionId: original._id,
-            },
-          ],
-          { session: dbSession }
-        );
-
-        original.reversedAt = new Date();
-        original.reversedBy = staffUsername;
-        original.reversalReason = reversalReasonLabel;
-        original.reversalTransactionId = reversal._id;
-        await original.save({ session: dbSession });
-
-        reversalDoc = reversal;
+      const creditAmount = original.creditedAmount ?? 0;
+      if (creditAmount <= 0) {
+        throw new Error("Invalid recharge amount to reverse");
       }
+      if (customer.balance < creditAmount) {
+        throw new Error(
+          `Insufficient balance to reverse recharge. Available: ₹${customer.balance.toLocaleString("en-IN")}`
+        );
+      }
+
+      const balanceAfter = customer.balance - creditAmount;
+      customer.balance = balanceAfter;
+      await customer.save({ session: dbSession });
+
+      const [reversal] = await Transaction.create(
+        [
+          {
+            customerId: customer._id,
+            type: "debit",
+            amount: creditAmount,
+            balanceAfter,
+            description: reversalDescription,
+            staffId: session.user.id,
+            staffUsername,
+            isReversal: true,
+            reversesTransactionId: original._id,
+          },
+        ],
+        { session: dbSession }
+      );
+
+      original.reversedAt = new Date();
+      original.reversedBy = staffUsername;
+      original.reversalReason = reversalReasonLabel;
+      original.reversalTransactionId = reversal._id;
+      await original.save({ session: dbSession });
+
+      reversalDoc = reversal;
     });
 
     if (!reversalDoc) {

@@ -1,5 +1,5 @@
 export interface CustomerDetailFieldChangeDTO {
-  field: "name" | "phone";
+  field: "name" | "phone" | "cardId";
   from: string;
   to: string;
 }
@@ -77,6 +77,9 @@ export interface CustomerActivityEventDTO {
   correctionSummary?: NotebookEntryCorrectionChangeDTO[];
   corrections?: NotebookEntryCorrectionDTO[];
   settlementId?: string;
+  transactionId?: string;
+  walletRechargeReversed?: boolean;
+  walletTransactionIsReversal?: boolean;
 }
 
 export interface PaginatedResult<T> {
@@ -115,6 +118,21 @@ export interface NotebookEntryContributorDTO {
   paymentMethod?: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
   settlementId?: string;
   paidAt?: string;
+}
+
+export interface FrameGlanceLineDTO {
+  label: string;
+  quantity: number;
+  amount: number;
+}
+
+export interface CustomerTodayGlanceDTO {
+  frameCount: number;
+  frameTotal: number;
+  cafeTotal: number;
+  grandTotal: number;
+  frames: FrameGlanceLineDTO[];
+  cafe: import("@/lib/utils/cafe-tabs").CafeTabLine[];
 }
 
 export interface CustomerPendingItemDTO {
@@ -211,10 +229,11 @@ export interface TableSessionDTO {
   sessionNumber: number;
   tableSessionNumber: number;
   displayLabel: string;
-  tableId: import("@/lib/constants/table-sessions").PoolMiniTableId;
+  tableId: import("@/lib/constants/table-sessions").TableSessionTableId;
   tableName: string;
   status: import("@/lib/constants/table-sessions").TableSessionStatus;
-  rateType: import("@/lib/constants/counter-rates").CounterRateType;
+  rateType?: import("@/lib/constants/counter-rates").CounterRateType;
+  billingMethod?: import("@/lib/constants/table-sessions").SessionBillingMethod;
   startedAt: string;
   pausedAt?: string;
   endedAt?: string;
@@ -280,7 +299,7 @@ export interface SessionOpenTabSummaryDTO {
   sessionNumber: number;
   tableSessionNumber: number;
   displayLabel: string;
-  tableId: import("@/lib/constants/table-sessions").PoolMiniTableId;
+  tableId: import("@/lib/constants/table-sessions").TableSessionTableId;
   tableName: string;
   startedAt: string;
   gameAmount: number;
@@ -304,6 +323,13 @@ export type CompactSessionCheckoutLineDTO =
       label: string;
       amount: number;
     };
+
+export interface SessionSnookerFrameLineDTO {
+  entryId: string;
+  label: string;
+  snookerGame: import("@/lib/constants/counter-rates").SnookerGame;
+  amount: number;
+}
 
 export interface SessionCafeEditItemDTO {
   entryId: string;

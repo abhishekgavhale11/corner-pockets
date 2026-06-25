@@ -1,17 +1,22 @@
 import type { CounterRateType } from "@/lib/constants/counter-rates";
-import { resolveCounterRateAmount } from "@/lib/constants/counter-rates";
+import { resolveBigSnookerHourlyRate, resolveCounterRateAmount } from "@/lib/constants/counter-rates";
 import {
+  isBigSnookerTableId,
   poolMiniGameType,
   type PoolMiniTableId,
   type TableSessionStatus,
+  type TableSessionTableId,
 } from "@/lib/constants/table-sessions";
 import { computeActivePlayMs } from "@/lib/utils/session-timer";
 
 export function resolveHourlyRate(
-  tableId: PoolMiniTableId,
+  tableId: TableSessionTableId,
   rateType: CounterRateType
 ): number {
-  const type = poolMiniGameType(tableId);
+  if (isBigSnookerTableId(tableId)) {
+    return resolveBigSnookerHourlyRate(rateType);
+  }
+  const type = poolMiniGameType(tableId as PoolMiniTableId);
   return resolveCounterRateAmount({ type, rateType }) ?? 0;
 }
 
@@ -25,7 +30,7 @@ export function calculateGameChargeFromActiveMs(
 }
 
 export function calculateSessionGameCharge(input: {
-  tableId: import("@/lib/constants/table-sessions").PoolMiniTableId;
+  tableId: TableSessionTableId;
   rateType: CounterRateType;
   startedAt: string | Date;
   pausedAt?: string | Date | null;

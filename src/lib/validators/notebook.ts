@@ -111,6 +111,76 @@ export const createRummyCounterEntrySchema = z.object({
     .max(100000, "Amount is too large"),
 });
 
+export const createSnookerFrameEntrySchema = z
+  .object({
+    section: z.enum(SNOOKER_TABLE_SECTIONS),
+    frameType: z.enum(["SINGLES", "INDIVIDUAL", "SHUFFLE", "RUMMY"]),
+    amount: z.coerce
+      .number()
+      .int("Amount must be a whole number")
+      .positive("Amount must be greater than zero")
+      .max(100000, "Amount is too large"),
+    playerCount: z.coerce
+      .number()
+      .int("Players must be a whole number")
+      .min(2, "At least 2 players")
+      .max(20, "Too many players")
+      .optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.frameType === "RUMMY" && data.playerCount === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Player count is required for Rummy",
+        path: ["playerCount"],
+      });
+    }
+    if (data.frameType !== "RUMMY" && data.playerCount !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Player count is only valid for Rummy",
+        path: ["playerCount"],
+      });
+    }
+  });
+
+export const updateSnookerFrameEntrySchema = z
+  .object({
+    entryId: z.string().min(1, "Entry is required"),
+    frameType: z.enum(["SINGLES", "INDIVIDUAL", "SHUFFLE", "RUMMY"]),
+    amount: z.coerce
+      .number()
+      .int("Amount must be a whole number")
+      .positive("Amount must be greater than zero")
+      .max(100000, "Amount is too large"),
+    playerCount: z.coerce
+      .number()
+      .int("Players must be a whole number")
+      .min(2, "At least 2 players")
+      .max(20, "Too many players")
+      .optional(),
+    entryTime: z
+      .string()
+      .regex(/^\d{2}:\d{2}$/, "Enter a valid time"),
+    customerId: z.string().min(1).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.frameType === "RUMMY" && data.playerCount === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Player count is required for Rummy",
+        path: ["playerCount"],
+      });
+    }
+    if (data.frameType !== "RUMMY" && data.playerCount !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Player count is only valid for Rummy",
+        path: ["playerCount"],
+      });
+    }
+  });
+
 export const correctCounterEntrySchema = z.object({
   entryId: z.string().min(1, "Entry is required"),
   correctionReason: z
@@ -134,14 +204,12 @@ export const correctCounterEntrySchema = z.object({
 
 export const setEntryContributorsSchema = z.object({
   entryId: z.string().min(1, "Entry is required"),
-  contributors: z
-    .array(
-      z.object({
-        customerId: z.string().min(1),
-        amount: z.coerce.number().int().positive().max(100000),
-      })
-    )
-    .min(1, "Add at least one contributor"),
+  contributors: z.array(
+    z.object({
+      customerId: z.string().min(1),
+      amount: z.coerce.number().int().positive().max(100000),
+    })
+  ),
 });
 
 export const assignCounterEntryCustomerSchema = z.object({

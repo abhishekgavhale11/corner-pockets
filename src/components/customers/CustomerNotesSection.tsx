@@ -26,21 +26,21 @@ export function CustomerNotesSection({ customer }: CustomerNotesSectionProps) {
   );
 
   return (
-    <form action={formAction} className="flex items-start gap-1">
+    <form action={formAction} className="flex items-start gap-2">
       <input type="hidden" name="customerId" value={customer.id} />
       <Textarea
         id="customer-notes"
         name="notes"
         defaultValue={customer.notes ?? ""}
-        rows={1}
-        className="min-h-[24px] flex-1 resize-none py-0.5 text-[11px]"
+        rows={2}
+        className="min-h-[2.5rem] flex-1 resize-none py-1.5 text-sm"
         placeholder="Notes…"
       />
-      <Button type="submit" size="sm" className="h-6 shrink-0 px-2 text-[10px]" disabled={isPending}>
+      <Button type="submit" size="sm" className="shrink-0" disabled={isPending}>
         {isPending ? "…" : "Save"}
       </Button>
       {state?.error && (
-        <p className="text-[9px] text-red-600">{state.error}</p>
+        <p className="text-xs text-red-600">{state.error}</p>
       )}
     </form>
   );

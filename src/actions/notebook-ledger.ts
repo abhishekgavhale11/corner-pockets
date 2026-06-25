@@ -99,7 +99,8 @@ export async function getRecentNotebookCustomers(
 }
 
 export async function searchNotebookCustomers(
-  query?: string
+  query?: string,
+  options?: { alphabetical?: boolean }
 ): Promise<CustomerDTO[]> {
   const authResult = await authorizePermission("NOTEBOOK_VIEW");
   if (!("session" in authResult)) {
@@ -110,6 +111,15 @@ export async function searchNotebookCustomers(
   const term = parsed.success ? parsed.data.query?.trim() : undefined;
 
   if (!term) {
+    if (options?.alphabetical) {
+      await connectDB();
+      const customers = await Customer.find({ isActive: true })
+        .collation({ locale: "en", strength: 2 })
+        .sort({ name: 1 })
+        .limit(500)
+        .lean();
+      return customers.map((customer) => toCustomerDTO(customer));
+    }
     return getRecentNotebookCustomers();
   }
 
@@ -123,8 +133,9 @@ export async function searchNotebookCustomers(
       { cardId: { $regex: term, $options: "i" } },
     ],
   })
+    .collation({ locale: "en", strength: 2 })
     .sort({ name: 1 })
-    .limit(20)
+    .limit(options?.alphabetical ? 50 : 20)
     .lean();
 
   return customers.map((customer) => toCustomerDTO(customer));

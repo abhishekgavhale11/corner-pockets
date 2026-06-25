@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { VerificationMethod } from "@/lib/constants/verification";
+import { verificationMethodForKnownCustomer } from "@/lib/constants/verification";
 import { getPlansForCustomer } from "@/lib/constants/recharge-plans";
 import type { CustomerDTO } from "@/types";
 import { CustomerVerification } from "@/components/wallet/CustomerVerification";
@@ -12,17 +13,37 @@ type WalletStep = "verify" | "confirm" | "operate";
 
 interface WalletRechargeFlowProps {
   initialCardId?: string;
+  initialCustomer?: CustomerDTO;
+}
+
+function initialStep(customer?: CustomerDTO): WalletStep {
+  return customer ? "operate" : "verify";
 }
 
 export function WalletRechargeFlow({
   initialCardId,
+  initialCustomer,
 }: WalletRechargeFlowProps) {
-  const [step, setStep] = useState<WalletStep>("verify");
-  const [customer, setCustomer] = useState<CustomerDTO | null>(null);
+  const [step, setStep] = useState<WalletStep>(() =>
+    initialStep(initialCustomer)
+  );
+  const [customer, setCustomer] = useState<CustomerDTO | null>(
+    initialCustomer ?? null
+  );
   const [verificationMethod, setVerificationMethod] =
-    useState<VerificationMethod | null>(null);
+    useState<VerificationMethod | null>(() =>
+      initialCustomer
+        ? verificationMethodForKnownCustomer(initialCustomer)
+        : null
+    );
 
   const resetFlow = () => {
+    if (initialCustomer) {
+      setStep("operate");
+      setCustomer(initialCustomer);
+      setVerificationMethod(verificationMethodForKnownCustomer(initialCustomer));
+      return;
+    }
     setStep("verify");
     setCustomer(null);
     setVerificationMethod(null);
@@ -64,13 +85,15 @@ export function WalletRechargeFlow({
           walletLabel={walletLabel}
           verificationMethod={verificationMethod}
         />
-        <button
-          type="button"
-          onClick={resetFlow}
-          className="text-sm font-medium text-emerald-800 hover:underline"
-        >
-          Verify a different customer
-        </button>
+        {!initialCustomer && (
+          <button
+            type="button"
+            onClick={resetFlow}
+            className="text-sm font-medium text-emerald-800 hover:underline"
+          >
+            Verify a different customer
+          </button>
+        )}
       </div>
     );
   }

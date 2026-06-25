@@ -4,7 +4,6 @@ import { useState } from "react";
 import type { NotebookSection } from "@/lib/constants/notebook-sections";
 import { sectionLabel } from "@/lib/constants/notebook-sections";
 import type { NotebookEntryDTO } from "@/types";
-import { SNOOKER_QUICK_PRESETS } from "@/lib/constants/counter-sections";
 import {
   getPresetsForSection,
   type NotebookPreset,
@@ -12,6 +11,8 @@ import {
 import type { SnookerQuickPreset } from "@/lib/constants/counter-sections";
 import { CompactLedgerRow } from "@/components/counter/CompactLedgerRow";
 import { CounterLedgerTable } from "@/components/counter/CounterLedgerTable";
+import { SnookerFrameAddRow } from "@/components/counter/SnookerFrameAddRow";
+import { SnookerFrameEditDialog } from "@/components/counter/SnookerFrameEditDialog";
 import { AssignCustomerDrawer } from "@/components/counter/AssignCustomerDrawer";
 import { RummyEntryDialog } from "@/components/counter/RummyEntryDialog";
 import { EntryCorrectionDialog } from "@/components/counter/EntryCorrectionDialog";
@@ -44,14 +45,11 @@ export function CounterSectionColumn({
   const [historyEntry, setHistoryEntry] = useState<NotebookEntryDTO | null>(null);
   const [splitEntry, setSplitEntry] = useState<NotebookEntryDTO | null>(null);
   const [ratePreset, setRatePreset] = useState<RatedEntryPreset | null>(null);
+  const [editFrameEntry, setEditFrameEntry] = useState<NotebookEntryDTO | null>(
+    null
+  );
 
-  const quickButtons = snookerQuick
-    ? SNOOKER_QUICK_PRESETS
-    : getPresetsForSection(section);
-
-  const openRateDialog = (preset: RatedEntryPreset) => {
-    setRatePreset(preset);
-  };
+  const quickButtons = snookerQuick ? [] : getPresetsForSection(section);
 
   const toRatedPreset = (
     btn: SnookerQuickPreset | NotebookPreset
@@ -83,7 +81,7 @@ export function CounterSectionColumn({
 
     const ratedPreset = toRatedPreset(btn);
     if (ratedPreset) {
-      openRateDialog(ratedPreset);
+      setRatePreset(ratedPreset);
     }
   };
 
@@ -94,27 +92,34 @@ export function CounterSectionColumn({
           {sectionLabel(section)}
         </h3>
       </div>
-      <div className="flex gap-1 border-b border-gray-100 p-1.5">
-        {quickButtons.map((btn) => (
-          <button
-            key={btn.key}
-            type="button"
-            onClick={() => handleQuickClick(btn)}
-            className="flex-1 rounded-md bg-emerald-800 px-2 py-2 text-[12px] font-bold text-white hover:bg-emerald-900"
-          >
-            + {btn.label}
-          </button>
-        ))}
-      </div>
-      <CounterLedgerTable>
+      {quickButtons.length > 0 && (
+        <div className="flex gap-1 border-b border-gray-100 p-1.5">
+          {quickButtons.map((btn) => (
+            <button
+              key={btn.key}
+              type="button"
+              onClick={() => handleQuickClick(btn)}
+              className="flex-1 rounded-md bg-emerald-800 px-2 py-2 text-[12px] font-bold text-white hover:bg-emerald-900"
+            >
+              + {btn.label}
+            </button>
+          ))}
+        </div>
+      )}
+      <CounterLedgerTable
+        toolbar={
+          snookerQuick ? <SnookerFrameAddRow section={section} /> : undefined
+        }
+      >
         {entries.map((entry) => (
           <CompactLedgerRow
             key={entry.id}
             entry={entry}
+            frameEditable={snookerQuick}
+            onEditFrame={setEditFrameEntry}
             onUnassignedAction={setUnassignedEntry}
             onCorrect={setCorrectEntry}
             onShowCorrectionHistory={setHistoryEntry}
-            onManageSplit={setSplitEntry}
           />
         ))}
       </CounterLedgerTable>
@@ -135,6 +140,10 @@ export function CounterSectionColumn({
         onClose={() => setUnassignedEntry(null)}
         onAssign={(entry) => setAssignEntry(entry)}
         onSplit={(entry) => setSplitEntry(entry)}
+      />
+      <SnookerFrameEditDialog
+        entry={editFrameEntry}
+        onClose={() => setEditFrameEntry(null)}
       />
       <RummyEntryDialog
         createSection={rummySection}

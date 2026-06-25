@@ -39,6 +39,22 @@ export type SnookerQuickPreset =
       isRummy: true;
     };
 
+export const SNOOKER_FRAME_TYPES = [
+  "SINGLES",
+  "INDIVIDUAL",
+  "SHUFFLE",
+  "RUMMY",
+] as const;
+
+export type SnookerFrameType = (typeof SNOOKER_FRAME_TYPES)[number];
+
+export const SNOOKER_FRAME_TYPE_LABELS: Record<SnookerFrameType, string> = {
+  SINGLES: "Singles",
+  INDIVIDUAL: "Individual",
+  SHUFFLE: "Shuffle",
+  RUMMY: "Rummy",
+};
+
 export const SNOOKER_QUICK_PRESETS: SnookerQuickPreset[] = [
   {
     key: "singles",

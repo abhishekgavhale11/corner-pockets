@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/utils/format";
 import { formatTime } from "@/lib/utils/format-time";
 import { getEntryDisplayLabel } from "@/lib/utils/notebook-entry-label";
 import { CustomerPickerDialog } from "@/components/customers/CustomerPickerDialog";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
 
 interface AssignCustomerDrawerProps {
   entry: NotebookEntryDTO | null;
@@ -27,6 +28,7 @@ export function AssignCustomerDrawer({ entry, onClose }: AssignCustomerDrawerPro
       formData.set("customerId", customerId);
       const result = await assignCounterEntryCustomer(formData);
       if (result.success) {
+        invalidateCustomerGlanceCache(customerId);
         router.refresh();
         onClose();
       }

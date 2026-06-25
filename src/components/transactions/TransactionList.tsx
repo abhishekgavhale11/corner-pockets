@@ -95,6 +95,7 @@ function TransactionItem({
 
   const canReverse =
     canReverseTransactions &&
+    tx.type === "credit" &&
     !tx.isReversal &&
     !tx.reversedAt &&
     !tx.reversesTransactionId;
@@ -229,7 +230,7 @@ function TransactionItem({
               }}
               disabled={isPending}
             >
-              Reverse Transaction
+              Reverse Recharge
             </Button>
           )}
         </div>
@@ -241,9 +242,8 @@ function TransactionItem({
         title="Confirm Reversal"
       >
         <p className="text-sm text-gray-600">
-          Reverse the {transactionTypeLabel(tx)} from {formatDate(tx.createdAt)}?
-          A new reversal entry will be created and this transaction will be marked
-          as reversed.
+          Reverse the recharge from {formatDate(tx.createdAt)}? A new reversal
+          entry will be created and this recharge will be marked as reversed.
         </p>
 
         <div className="mt-4 space-y-4">

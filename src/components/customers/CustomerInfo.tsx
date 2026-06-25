@@ -50,7 +50,7 @@ export function CustomerInfo({
             size="sm"
             onClick={() => setIsEditing(true)}
           >
-            Edit name & phone
+            Edit name, phone & card
           </Button>
         )}
       </div>
@@ -82,6 +82,21 @@ export function CustomerInfo({
               placeholder="10-digit mobile number"
             />
           </div>
+
+          {customer.walletEnabled && (
+            <div>
+              <Label htmlFor="edit-card-id">Card ID</Label>
+              <Input
+                id="edit-card-id"
+                name="cardId"
+                defaultValue={customer.cardId}
+                required
+                placeholder="e.g. CP0001"
+                className="uppercase"
+                autoCapitalize="characters"
+              />
+            </div>
+          )}
 
           {state?.error && (
             <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
