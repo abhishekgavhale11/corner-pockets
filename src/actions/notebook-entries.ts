@@ -1,6 +1,7 @@
 "use server";
 
 import mongoose from "mongoose";
+import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/db/connect";
 import { authorizePermission } from "@/lib/auth/session";
 import { getNotebookReversalReasonLabel } from "@/lib/constants/notebook-payments";
@@ -15,6 +16,8 @@ import {
 } from "@/lib/constants/table-sessions";
 import {
   assignCounterEntryCustomerSchema,
+  assignCheckoutBillToCustomerSchema,
+  dismissCheckoutBillSchema,
   addCafeItemsSchema,
   cancelCounterEntrySchema,
   createNotebookEntrySchema,
@@ -42,24 +45,35 @@ import {
 } from "@/lib/constants/counter-rates";
 import type { NotebookEntryCorrectionChangeDTO } from "@/types";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
-import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
+import { revalidateCounterPaths, revalidateCustomerFinancials } from "@/lib/utils/revalidate-counter";
+import { parseCheckoutCustomerId } from "@/lib/utils/checkout-navigation";
 import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
 import TableSession from "@/models/TableSession";
+import { closeTableSessionAfterSettlement, ensureSessionGameEntryForCheckout } from "@/actions/table-sessions";
 import type { ICustomer } from "@/models/Customer";
 import type { NotebookEntryDTO, OpenTabSummaryDTO, CustomerPendingItemDTO, CustomerOpenTabSummaryDTO, CustomerTodayGlanceDTO } from "@/types";
 import type { CafeTableId } from "@/lib/constants/counter-sections";
 import {
   buildTableOpenTabSummaries,
   buildSessionOpenTabSummaries,
-  isSessionCheckoutEntry,
   isTableCheckoutEntry,
   toCustomerOpenTabSummary,
 } from "@/lib/utils/checkout-tabs";
 import {
-  getPendingObligations,
+  entryAmountRemaining,
+  entryHasContributors,
+  getCheckoutQueueObligations,
+  getLedgerObligations,
   isEntryCheckoutEligible,
+  isSessionPayableEntry,
+  sessionEntryAmountRemaining,
 } from "@/lib/utils/entry-contributors";
+import { freezeCounterPaySnapshot, ensureCounterPaySnapshot } from "@/lib/utils/freeze-counter-pay-snapshot";
+import { reconcileEntryPaymentFields } from "@/lib/wallet/reconcile-entry-payments";
+import { linkEntryToActiveVisitBill, linkEntriesToActiveVisitBill } from "@/lib/visit-bill/attach-entry";
+import { linkSplitEntryToContributorVisits } from "@/lib/visit-bill/link-split-entry";
+import { getCustomerBillSlice } from "@/lib/visit-bill/customer-bill-slice";
 
 export async function createQuickCounterEntry(
   formData: FormData
@@ -648,6 +662,11 @@ export async function createNotebookEntry(
     createdByStaffId: authResult.session.user.id,
   });
 
+  await linkEntryToActiveVisitBill(entry, {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  });
+
   revalidateCounterPaths(customer._id.toString());
 
   return success(toNotebookEntryDTO(entry));
@@ -695,11 +714,273 @@ export async function assignCounterEntryCustomer(
   entry.phoneNumber = customer.phone;
   entry.assignedAt = new Date();
   entry.assignedBy = authResult.session.user.username;
-  await entry.save();
+  await linkEntryToActiveVisitBill(entry, {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  });
 
   revalidateCounterPaths(customer._id.toString());
 
   return success(toNotebookEntryDTO(entry));
+}
+
+export async function assignCheckoutBillToCustomer(
+  formData: FormData
+): Promise<ActionResult<{ assignedCount: number }>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  let entryIds: string[] = [];
+  try {
+    entryIds = JSON.parse(String(formData.get("entryIds") ?? "[]"));
+  } catch {
+    return failure("Invalid bill lines");
+  }
+
+  const parsed = assignCheckoutBillToCustomerSchema.safeParse({
+    customerId: formData.get("customerId"),
+    entryIds: entryIds.length > 0 ? entryIds : undefined,
+    sessionId: formData.get("sessionId") || undefined,
+    tableId: formData.get("tableId") || undefined,
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const customer = await Customer.findById(parsed.data.customerId);
+  if (!customer || !customer.isActive) {
+    return failure("Customer not found");
+  }
+
+  let resolvedEntryIds = parsed.data.entryIds ?? [];
+
+  if (resolvedEntryIds.length === 0 && parsed.data.sessionId) {
+    await ensureSessionGameEntryForCheckout(parsed.data.sessionId, {
+      id: authResult.session.user.id,
+      username: authResult.session.user.username,
+    });
+    const sessionEntries = await NotebookEntry.find({
+      sessionId: parsed.data.sessionId,
+      status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
+    }).lean();
+    resolvedEntryIds = sessionEntries
+      .map((entry) => toNotebookEntryDTO(entry))
+      .filter((dto) => isSessionPayableEntry(dto, parsed.data.sessionId!))
+      .map((dto) => dto.id);
+  }
+
+  if (resolvedEntryIds.length === 0 && parsed.data.tableId) {
+    const tableId = parsed.data.tableId as CafeTableId;
+    const tableEntries = await NotebookEntry.find({
+      status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
+    })
+      .sort({ createdAt: 1 })
+      .lean();
+    resolvedEntryIds = tableEntries
+      .map((entry) => toNotebookEntryDTO(entry))
+      .filter((dto) => isTableCheckoutEntry(dto, tableId))
+      .map((dto) => dto.id);
+  }
+
+  if (resolvedEntryIds.length === 0) {
+    return failure("No payable lines on this bill. Please refresh and try again.");
+  }
+
+  const entries = await NotebookEntry.find({
+    _id: { $in: resolvedEntryIds },
+    status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
+  });
+
+  if (entries.length !== resolvedEntryIds.length) {
+    return failure(
+      "One or more bill lines are no longer open. Please refresh and try again."
+    );
+  }
+
+  const assignedAt = new Date();
+  const assignedBy = authResult.session.user.username;
+  let assignedCount = 0;
+
+  for (const entry of entries) {
+    if (entryHasContributors({ contributors: entry.contributors })) {
+      return failure("Split bills must be settled from the counter first");
+    }
+    if (entry.customerId) {
+      if (entry.customerId.toString() !== parsed.data.customerId) {
+        return failure("One or more bill lines belong to another customer");
+      }
+    } else {
+      entry.customerId = customer._id;
+      entry.customerName = customer.name;
+      entry.phoneNumber = customer.phone;
+      entry.assignedAt = assignedAt;
+      entry.assignedBy = assignedBy;
+      assignedCount += 1;
+    }
+
+    if (!entry.assignedAt) {
+      entry.assignedAt = assignedAt;
+      entry.assignedBy = assignedBy;
+    }
+    if (!entry.checkoutDismissedAt) {
+      entry.checkoutDismissedAt = assignedAt;
+      entry.checkoutDismissedBy = assignedBy;
+      freezeCounterPaySnapshot(entry);
+    }
+  }
+
+  await linkEntriesToActiveVisitBill(entries, {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  });
+
+  await Promise.all(entries.map((entry) => entry.save()));
+
+  await reconcileEntryPaymentFields(resolvedEntryIds);
+
+  const dismissedEntries = await NotebookEntry.find({
+    _id: { $in: resolvedEntryIds },
+    checkoutDismissedAt: { $exists: true, $ne: null },
+  });
+  for (const entry of dismissedEntries) {
+    if (ensureCounterPaySnapshot(entry)) {
+      await entry.save();
+    }
+  }
+
+  if (parsed.data.sessionId) {
+    const session = await TableSession.findById(parsed.data.sessionId);
+    if (session) {
+      const alreadyAssigned = session.assignedCustomers.some(
+        (row) => row.customerId.toString() === parsed.data.customerId
+      );
+      if (!alreadyAssigned) {
+        session.assignedCustomers.push({
+          customerId: customer._id,
+          customerName: customer.name,
+        });
+        await session.save();
+      }
+    }
+
+    const allAssignedToCustomer = entries.every(
+      (entry) => entry.customerId?.toString() === parsed.data.customerId
+    );
+    if (assignedCount > 0 || allAssignedToCustomer) {
+      await closeTableSessionAfterSettlement(parsed.data.sessionId);
+    }
+  }
+
+  revalidateCustomerFinancials(customer._id.toString());
+  revalidatePath("/checkout");
+
+  if (assignedCount === 0) {
+    const allAssignedToCustomer = entries.every(
+      (entry) => entry.customerId?.toString() === parsed.data.customerId
+    );
+    if (!allAssignedToCustomer) {
+      return failure(
+        "Could not add to balance. Select a customer and try again."
+      );
+    }
+  }
+
+  return success({ assignedCount: assignedCount || entries.length });
+}
+
+export async function dismissCheckoutBill(
+  formData: FormData
+): Promise<ActionResult<{ dismissedCount: number }>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  let entryIds: string[] = [];
+  try {
+    entryIds = JSON.parse(String(formData.get("entryIds") ?? "[]"));
+  } catch {
+    return failure("Invalid bill lines");
+  }
+
+  const parsed = dismissCheckoutBillSchema.safeParse({
+    customerId: formData.get("customerId"),
+    entryIds: entryIds.length > 0 ? entryIds : undefined,
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const customer = await Customer.findById(parsed.data.customerId);
+  if (!customer || !customer.isActive) {
+    return failure("Customer not found");
+  }
+
+  let resolvedEntryIds = parsed.data.entryIds ?? [];
+
+  if (resolvedEntryIds.length === 0) {
+    const pendingItems = await getCustomerPendingItems(parsed.data.customerId);
+    resolvedEntryIds = pendingItems
+      .filter((item) => !item.entry.checkoutDismissedAt)
+      .map((item) => item.entry.id);
+  }
+
+  if (resolvedEntryIds.length === 0) {
+    return failure("No open bill lines to dismiss");
+  }
+
+  const entries = await NotebookEntry.find({
+    _id: { $in: resolvedEntryIds },
+    status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
+  });
+
+  if (entries.length !== resolvedEntryIds.length) {
+    return failure(
+      "One or more bill lines are no longer open. Please refresh and try again."
+    );
+  }
+
+  const dismissedAt = new Date();
+  const dismissedBy = authResult.session.user.username;
+  let dismissedCount = 0;
+
+  for (const entry of entries) {
+    const dto = toNotebookEntryDTO(entry);
+    const owesCustomer = getCheckoutQueueObligations(dto).some(
+      (obligation) => obligation.customerId === parsed.data.customerId
+    );
+    if (!owesCustomer) {
+      return failure("One or more bill lines belong to another customer");
+    }
+
+    if (!entry.assignedAt && entry.customerId) {
+      entry.assignedAt = dismissedAt;
+      entry.assignedBy = dismissedBy;
+    }
+
+    if (!entry.checkoutDismissedAt) {
+      entry.checkoutDismissedAt = dismissedAt;
+      entry.checkoutDismissedBy = dismissedBy;
+      freezeCounterPaySnapshot(entry);
+      dismissedCount += 1;
+    }
+
+    await entry.save();
+  }
+
+  await reconcileEntryPaymentFields(resolvedEntryIds);
+  revalidateCustomerFinancials(customer._id.toString());
+  revalidatePath("/checkout");
+
+  return success({ dismissedCount });
 }
 
 export async function setEntryContributors(
@@ -777,7 +1058,14 @@ export async function setEntryContributors(
   entry.phoneNumber = "";
   entry.assignedAt = undefined;
   entry.assignedBy = undefined;
+  entry.visitId = undefined;
+  entry.billId = undefined;
   await entry.save();
+
+  await linkSplitEntryToContributorVisits(entry, {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  });
 
   revalidateCounterPaths();
   for (const row of contributorDocs) {
@@ -800,6 +1088,7 @@ export async function getOpenTabs(
   });
 
   const query = parsed.success ? parsed.data.query?.trim() : undefined;
+  const forceCustomerId = parseCheckoutCustomerId(searchParams);
 
   await connectDB();
 
@@ -807,17 +1096,16 @@ export async function getOpenTabs(
     status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
   }).lean();
 
-  const entryDtos = entries
-    .map((entry) => toNotebookEntryDTO(entry))
-    .filter((dto) => isEntryCheckoutEligible(dto));
+  const allEntryDtos = entries.map((entry) => toNotebookEntryDTO(entry));
 
   const tabMap = new Map<
     string,
     { pendingAmount: number; pendingCount: number }
   >();
 
-  for (const dto of entryDtos) {
-    for (const obligation of getPendingObligations(dto)) {
+  for (const dto of allEntryDtos) {
+    for (const obligation of getLedgerObligations(dto)) {
+      if (obligation.amount <= 0) continue;
       const existing = tabMap.get(obligation.customerId) ?? {
         pendingAmount: 0,
         pendingCount: 0,
@@ -828,7 +1116,7 @@ export async function getOpenTabs(
     }
   }
 
-  const tableTabs = buildTableOpenTabSummaries(entryDtos);
+  const tableTabs = buildTableOpenTabSummaries(allEntryDtos);
 
   const checkoutSessions = await TableSession.find({
     status: { $in: ["STOPPED", "ENDED", "CHECKOUT_PENDING"] },
@@ -848,14 +1136,14 @@ export async function getOpenTabs(
       gameChargeAmount: session.gameChargeAmount,
       startedAt: session.startedAt.toISOString(),
     })),
-    entries: entryDtos,
+    entries: allEntryDtos,
   });
 
   if (tabMap.size === 0 && tableTabs.length === 0 && sessionTabs.length === 0) {
     return [];
   }
 
-  let customerTabs: OpenTabSummaryDTO[] = [];
+  let customerTabs: CustomerOpenTabSummaryDTO[] = [];
 
   if (tabMap.size > 0) {
     const customers = await Customer.find({
@@ -878,6 +1166,39 @@ export async function getOpenTabs(
         });
       })
       .filter((row): row is CustomerOpenTabSummaryDTO => row !== null);
+  }
+
+  if (forceCustomerId && !customerTabs.some((tab) => tab.customerId === forceCustomerId)) {
+    const forcedCustomer = await Customer.findOne({
+      _id: forceCustomerId,
+      isActive: true,
+    }).lean();
+
+    if (forcedCustomer) {
+      const forcedTotals = { pendingAmount: 0, pendingCount: 0 };
+      for (const dto of allEntryDtos) {
+        for (const obligation of getLedgerObligations(dto)) {
+          if (obligation.customerId !== forceCustomerId) continue;
+          if (obligation.amount <= 0) continue;
+          forcedTotals.pendingAmount += obligation.amount;
+          forcedTotals.pendingCount += 1;
+        }
+      }
+
+      if (forcedTotals.pendingAmount > 0) {
+        customerTabs.push(
+          toCustomerOpenTabSummary({
+            customerId: forcedCustomer._id.toString(),
+            customerName: forcedCustomer.name,
+            phoneNumber: forcedCustomer.phone,
+            cardId: forcedCustomer.cardId,
+            walletEnabled: forcedCustomer.walletEnabled ?? true,
+            pendingAmount: forcedTotals.pendingAmount,
+            pendingCount: forcedTotals.pendingCount,
+          })
+        );
+      }
+    }
   }
 
   let results: OpenTabSummaryDTO[] = [
@@ -936,12 +1257,15 @@ export async function getCustomerPendingItems(
     const dto = toNotebookEntryDTO(entry);
     if (!isEntryCheckoutEligible(dto)) continue;
 
-    for (const obligation of getPendingObligations(dto)) {
+    for (const obligation of getCheckoutQueueObligations(dto)) {
       if (obligation.customerId !== customerId) continue;
+      const slice = getCustomerBillSlice(dto, customerId);
       items.push({
         entry: dto,
         contributionAmount: obligation.amount,
         contributorCustomerId: customerId,
+        lineAmount: slice?.lineTotal,
+        linePaidAmount: slice?.paid,
       });
     }
   }
@@ -959,6 +1283,11 @@ export async function getSessionPendingItems(
 
   await connectDB();
 
+  await ensureSessionGameEntryForCheckout(sessionId, {
+    id: authResult.session.user.id,
+    username: authResult.session.user.username,
+  });
+
   const entries = await NotebookEntry.find({
     sessionId,
     status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
@@ -970,12 +1299,11 @@ export async function getSessionPendingItems(
 
   for (const entry of entries) {
     const dto = toNotebookEntryDTO(entry);
-    if (!isSessionCheckoutEntry(dto, sessionId)) continue;
-    if (dto.customerId) continue;
+    if (!isSessionPayableEntry(dto, sessionId)) continue;
 
     items.push({
       entry: dto,
-      contributionAmount: dto.amount,
+      contributionAmount: sessionEntryAmountRemaining(dto),
       contributorCustomerId: "",
     });
   }
@@ -1007,7 +1335,7 @@ export async function getTablePendingItems(
 
     items.push({
       entry: dto,
-      contributionAmount: dto.amount,
+      contributionAmount: entryAmountRemaining(dto),
       contributorCustomerId: "",
     });
   }
@@ -1215,6 +1543,10 @@ export async function addCafeItems(
 
   const { start, end } = getDayBounds();
   const results: NotebookEntryDTO[] = [];
+  const visitBillStaff = {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  };
 
   let tableSessionId: import("mongoose").Types.ObjectId | undefined;
   if (isTable && parsed.data.tableId && isPoolMiniTableId(parsed.data.tableId)) {
@@ -1282,6 +1614,9 @@ export async function addCafeItems(
         existing.itemNote = item.note.trim();
       }
       await existing.save();
+      if (!isTable && customer) {
+        await linkEntryToActiveVisitBill(existing, visitBillStaff);
+      }
       results.push(toNotebookEntryDTO(existing));
     } else {
       const entry = await NotebookEntry.create({
@@ -1307,6 +1642,9 @@ export async function addCafeItems(
         createdBy: authResult.session.user.username,
         createdByStaffId: authResult.session.user.id,
       });
+      if (!isTable && customer) {
+        await linkEntryToActiveVisitBill(entry, visitBillStaff);
+      }
       results.push(toNotebookEntryDTO(entry));
     }
   }

@@ -225,6 +225,7 @@ export function SnookerFrameEditDialog({
           onFrameTypeChange={handleFrameTypeChange}
           amount={amount}
           onAmountChange={(value) => {
+            setSkipAmountReset(true);
             setAmount(value);
             setError(null);
           }}

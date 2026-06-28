@@ -19,6 +19,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { formatCustomerContactLine } from "@/lib/utils/customer-display";
+import { cn } from "@/lib/utils/cn";
 import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
 import {
   BillingModeToggle,
@@ -271,25 +272,21 @@ export function EntryCorrectionDialog({
 
         {entry.type === "RUMMY" && (
           <div>
-            <Label htmlFor="correction-players">Players</Label>
-            <Input
-              id="correction-players"
-              type="number"
-              min={2}
-              max={20}
-              value={players}
-              onChange={(e) => setPlayers(e.target.value)}
-              className="mt-1 text-sm"
-            />
-            <div className="mt-1.5 flex flex-wrap gap-1">
+            <Label>Players</Label>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
               {RUMMY_PLAYER_PRESETS.map((count) => (
                 <button
                   key={count}
                   type="button"
                   onClick={() => applyRummyPreset(count)}
-                  className="rounded-md bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors",
+                    players === String(count)
+                      ? "border-emerald-700 bg-emerald-700 text-white"
+                      : "border-emerald-200 bg-white text-emerald-900 hover:border-emerald-400 hover:bg-emerald-50"
+                  )}
                 >
-                  {count}
+                  {count}P · ₹{RUMMY_DEFAULT_AMOUNTS[count]}
                 </button>
               ))}
             </div>

@@ -86,6 +86,9 @@ export function SnookerFrameAddRow({ section }: SnookerFrameAddRowProps) {
         frameType={frameType}
         onFrameTypeChange={(type) => {
           setFrameType(type);
+          if (type === "RUMMY") {
+            setPlayerCount("4");
+          }
           setError(null);
         }}
         amount={amount}
@@ -94,7 +97,10 @@ export function SnookerFrameAddRow({ section }: SnookerFrameAddRowProps) {
           setError(null);
         }}
         playerCount={playerCount}
-        onPlayerCountChange={setPlayerCount}
+        onPlayerCountChange={(count) => {
+          setPlayerCount(count);
+          setError(null);
+        }}
         disabled={isPending}
         onKeyDown={handleKeyDown}
         submitSlot={

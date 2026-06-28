@@ -2,8 +2,12 @@ import { notFound } from "next/navigation";
 import { auth } from "@/lib/auth/config";
 import { hasPermission, type StaffRole } from "@/lib/auth/roles";
 import { getCustomerById } from "@/actions/customers";
-import { getCustomerActivity } from "@/actions/customer-activity";
+import {
+  getCustomerFinancials,
+} from "@/actions/customer-ledger";
 import { CustomerDetailView } from "@/components/customers/CustomerDetailView";
+
+export const dynamic = "force-dynamic";
 
 interface CustomerDetailPageProps {
   params: Promise<{ id: string }>;
@@ -24,10 +28,14 @@ export default async function CustomerDetailPage({
     notFound();
   }
 
-  const activityFilter =
-    typeof sp.activity === "string" ? sp.activity : "all";
   const openRecharge = sp.recharge === "1";
-  const activity = await getCustomerActivity(id, activityFilter);
+  const financials = await getCustomerFinancials(id);
+
+  if (!financials) {
+    notFound();
+  }
+
+  const { summary, ledgerLines } = financials;
 
   const canEditDetails = hasPermission(role, "CUSTOMER_EDIT_DETAILS");
   const canReverseRecharges = hasPermission(role, "TRANSACTION_REVERSE");
@@ -35,7 +43,8 @@ export default async function CustomerDetailPage({
   return (
     <CustomerDetailView
       customer={customer}
-      activity={activity}
+      summary={summary}
+      ledgerLines={ledgerLines}
       canEditDetails={canEditDetails}
       canReverseRecharges={canReverseRecharges}
       initialRechargeOpen={openRecharge}

@@ -14,28 +14,76 @@ export function entryHasContributors(
   return Boolean(entry.contributors && entry.contributors.length > 0);
 }
 
+export function contributorAmountRemaining(
+  contributor: Pick<
+    import("@/types").NotebookEntryContributorDTO,
+    "amount" | "paidAmount" | "balanceCollectedAmount" | "status"
+  >
+): number {
+  if (contributor.status === "PAID") {
+    return 0;
+  }
+  return Math.max(
+    0,
+    contributor.amount -
+      (contributor.paidAmount ?? 0) -
+      (contributor.balanceCollectedAmount ?? 0)
+  );
+}
+
+export function entryAmountRemaining(
+  entry: Pick<
+    NotebookEntryDTO,
+    | "amount"
+    | "paidAmount"
+    | "balanceCollectedAmount"
+    | "status"
+    | "counterBalanceAmount"
+  > & { checkoutDismissedAt?: Date | string | null }
+): number {
+  if (entry.status === "PAID" || entry.status === "CANCELLED") {
+    return 0;
+  }
+  if (
+    entry.checkoutDismissedAt &&
+    entry.counterBalanceAmount != null
+  ) {
+    return entry.counterBalanceAmount;
+  }
+  return Math.max(
+    0,
+    entry.amount -
+      (entry.paidAmount ?? 0) -
+      (entry.balanceCollectedAmount ?? 0)
+  );
+}
+
 export function getEntryCheckoutObligations(
   entry: NotebookEntryDTO
 ): ContributorObligation[] {
   if (entryHasContributors(entry)) {
-    return entry.contributors!.map((contributor) => ({
-      customerId: contributor.customerId,
-      customerName: contributor.customerName,
-      amount: contributor.amount,
-      status: contributor.status,
-      paymentMethod: contributor.paymentMethod,
-    }));
+    return entry.contributors!
+      .map((contributor) => ({
+        customerId: contributor.customerId,
+        customerName: contributor.customerName,
+        amount: contributorAmountRemaining(contributor),
+        status: contributor.status,
+        paymentMethod: contributor.paymentMethod,
+      }))
+      .filter((obligation) => obligation.amount > 0);
   }
 
-  if (
-    entry.customerId &&
-    (entry.status === "PENDING" || entry.status === "REVERSED")
-  ) {
+  if (entry.customerId) {
+    const remaining = entryAmountRemaining(entry);
+    if (remaining <= 0) {
+      return [];
+    }
+
     return [
       {
         customerId: entry.customerId,
         customerName: entry.customerName,
-        amount: entry.amount,
+        amount: remaining,
         status: "PENDING",
       },
     ];
@@ -47,17 +95,96 @@ export function getEntryCheckoutObligations(
 export function getPendingObligations(
   entry: NotebookEntryDTO
 ): ContributorObligation[] {
-  return getEntryCheckoutObligations(entry).filter(
-    (obligation) => obligation.status === "PENDING"
+  return getEntryCheckoutObligations(entry);
+}
+
+/** On customer balance after checkout pay-later (not just counter assign). */
+export function isEntryOnCustomerBalance(
+  entry: Pick<NotebookEntryDTO, "status" | "customerId" | "checkoutDismissedAt">
+): boolean {
+  return (
+    entry.status === "PENDING" &&
+    Boolean(entry.customerId) &&
+    Boolean(entry.checkoutDismissedAt)
   );
+}
+
+/** Count toward ledger charges / outstanding (paid history, visit due, or pay-later balance). */
+export function isEntryLedgerChargeable(
+  entry: Pick<
+    NotebookEntryDTO,
+    "status" | "checkoutDismissedAt" | "customerId"
+  >
+): boolean {
+  if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
+    return false;
+  }
+  if (entry.status === "PAID") {
+    return true;
+  }
+  if (entry.status === "PENDING" && entry.customerId) {
+    return true;
+  }
+  return false;
+}
+
+/** Outstanding on the customer's balance — not checkout-queue items still open. */
+export function getLedgerObligations(
+  entry: NotebookEntryDTO
+): ContributorObligation[] {
+  if (!isEntryLedgerChargeable(entry)) {
+    return [];
+  }
+  return getPendingObligations(entry);
+}
+
+export function getCheckoutQueueObligations(
+  entry: NotebookEntryDTO
+): ContributorObligation[] {
+  if (entry.checkoutDismissedAt) {
+    return [];
+  }
+  return getPendingObligations(entry);
+}
+
+export function isEntryInCheckoutQueue(entry: NotebookEntryDTO): boolean {
+  if (entry.status === "CANCELLED") return false;
+  return getCheckoutQueueObligations(entry).length > 0;
 }
 
 export function isEntryCheckoutEligible(entry: NotebookEntryDTO): boolean {
   if (entry.status === "CANCELLED") return false;
+  return getCheckoutQueueObligations(entry).length > 0;
+}
+
+/** Unassigned single-customer entry with amount still owed. */
+export function isUnassignedPayableEntry(entry: NotebookEntryDTO): boolean {
+  if (entry.checkoutDismissedAt) return false;
+  if (entry.status === "CANCELLED" || entry.status === "PAID") return false;
+  if (entry.customerId || entryHasContributors(entry)) return false;
+  return entryAmountRemaining(entry) > 0;
+}
+
+export function sessionEntryAmountRemaining(entry: NotebookEntryDTO): number {
   if (entryHasContributors(entry)) {
-    return getPendingObligations(entry).length > 0;
+    return entry.contributors!.reduce(
+      (sum, contributor) => sum + contributorAmountRemaining(contributor),
+      0
+    );
   }
-  return entry.status === "PENDING" || entry.status === "REVERSED";
+  return entryAmountRemaining(entry);
+}
+
+/** Session line still owed at checkout (unassigned to a customer tab). */
+export function isSessionPayableEntry(
+  entry: NotebookEntryDTO,
+  sessionId: string
+): boolean {
+  if (entry.sessionId !== sessionId) return false;
+  if (entry.checkoutDismissedAt) return false;
+  if (entry.status === "CANCELLED" || entry.status === "PAID") return false;
+  if (entry.customerId) return false;
+  return sessionEntryAmountRemaining(entry) > 0;
 }
 
 export function contributorSummaryLabel(
@@ -78,4 +205,13 @@ function formatInr(amount: number): string {
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+export function sumEntryObligationsForCustomer(
+  entry: NotebookEntryDTO,
+  customerId: string
+): number {
+  return getLedgerObligations(entry)
+    .filter((obligation) => obligation.customerId === customerId)
+    .reduce((sum, obligation) => sum + obligation.amount, 0);
 }

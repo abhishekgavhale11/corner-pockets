@@ -15,6 +15,7 @@ import {
   sectionLedgerSchema,
 } from "@/lib/validators/notebook";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
+import { reconcileEntryPaymentFields, repairCounterSnapshotsForEntries } from "@/lib/wallet/reconcile-entry-payments";
 import { toCustomerDTO } from "@/lib/mappers";
 import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
@@ -55,7 +56,18 @@ export async function getSectionLedger(
     .sort({ createdAt: 1 })
     .lean();
 
-  return entries.map((entry) => toNotebookEntryDTO(entry));
+  const entryIds = entries.map((entry) => entry._id.toString());
+
+  await reconcileEntryPaymentFields(entryIds);
+  await repairCounterSnapshotsForEntries(entryIds);
+
+  const refreshed = await NotebookEntry.find({
+    _id: { $in: entryIds },
+  })
+    .sort({ createdAt: 1 })
+    .lean();
+
+  return refreshed.map((entry) => toNotebookEntryDTO(entry));
 }
 
 export async function getRecentNotebookCustomers(
@@ -139,6 +151,284 @@ export async function searchNotebookCustomers(
     .lean();
 
   return customers.map((customer) => toCustomerDTO(customer));
+}
+
+export type AssignCustomerSuggestionGroupId =
+  | "playing"
+  | "recent"
+  | "frequent"
+  | "others";
+
+export interface AssignCustomerSuggestionGroup {
+  id: AssignCustomerSuggestionGroupId;
+  label: string;
+  customers: CustomerDTO[];
+}
+
+const ASSIGN_SUGGESTION_FREQUENT_LOOKBACK_DAYS = 60;
+const ASSIGN_SUGGESTION_FREQUENT_LIMIT = 20;
+const ASSIGN_SUGGESTION_OTHERS_LIMIT = 150;
+const ASSIGN_SUGGESTION_SEARCH_LIMIT = 80;
+
+function buildCustomerSearchFilter(term: string) {
+  return {
+    isActive: true,
+    $or: [
+      { name: { $regex: term, $options: "i" } },
+      { phone: { $regex: term, $options: "i" } },
+      { cardId: { $regex: term, $options: "i" } },
+    ],
+  };
+}
+
+function customerMatchesSearch(
+  customer: { name: string; phone?: string | null; cardId?: string | null },
+  term: string
+): boolean {
+  const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  return (
+    pattern.test(customer.name) ||
+    pattern.test(customer.phone ?? "") ||
+    pattern.test(customer.cardId ?? "")
+  );
+}
+
+function touchActivity(
+  activityByCustomerId: Map<string, Date>,
+  customerId: string,
+  at: Date
+) {
+  const previous = activityByCustomerId.get(customerId);
+  if (!previous || at > previous) {
+    activityByCustomerId.set(customerId, at);
+  }
+}
+
+export async function getAssignCustomerSuggestions(
+  query?: string
+): Promise<AssignCustomerSuggestionGroup[]> {
+  const authResult = await authorizePermission("NOTEBOOK_VIEW");
+  if (!("session" in authResult)) {
+    return [];
+  }
+
+  const parsed = notebookCustomerSearchSchema.safeParse({ query });
+  const term = parsed.success ? parsed.data.query?.trim() : undefined;
+
+  const { start, end } = getDayBounds();
+  const frequentLookbackStart = new Date(start);
+  frequentLookbackStart.setDate(
+    frequentLookbackStart.getDate() - ASSIGN_SUGGESTION_FREQUENT_LOOKBACK_DAYS
+  );
+
+  await connectDB();
+
+  const [activeSessions, todayEntries, frequentAgg, searchCustomers] =
+    await Promise.all([
+      TableSession.find({
+        status: { $in: [...ACTIVE_TABLE_SESSION_STATUSES] },
+      })
+        .select("assignedCustomers")
+        .lean(),
+      NotebookEntry.find({
+        createdAt: { $gte: start, $lte: end },
+        status: { $ne: "CANCELLED" },
+      })
+        .select("customerId contributors createdAt status")
+        .lean(),
+      NotebookEntry.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: frequentLookbackStart, $lte: end },
+            status: { $ne: "CANCELLED" },
+          },
+        },
+        {
+          $project: {
+            ids: {
+              $setUnion: [
+                {
+                  $cond: [
+                    { $ifNull: ["$customerId", false] },
+                    ["$customerId"],
+                    [],
+                  ],
+                },
+                {
+                  $map: {
+                    input: { $ifNull: ["$contributors", []] },
+                    as: "contributor",
+                    in: "$$contributor.customerId",
+                  },
+                },
+              ],
+            },
+          },
+        },
+        { $unwind: "$ids" },
+        { $group: { _id: "$ids", visitCount: { $sum: 1 } } },
+        { $sort: { visitCount: -1 } },
+        { $limit: ASSIGN_SUGGESTION_FREQUENT_LIMIT + 30 },
+      ]),
+      term
+        ? Customer.find(buildCustomerSearchFilter(term))
+            .collation({ locale: "en", strength: 2 })
+            .sort({ name: 1 })
+            .limit(ASSIGN_SUGGESTION_SEARCH_LIMIT)
+            .lean()
+        : Promise.resolve([]),
+    ]);
+
+  const playingIds = new Set<string>();
+  const playingActivity = new Map<string, Date>();
+  const todayActivity = new Map<string, Date>();
+
+  for (const session of activeSessions) {
+    for (const assigned of session.assignedCustomers ?? []) {
+      const customerId = assigned.customerId.toString();
+      playingIds.add(customerId);
+      touchActivity(playingActivity, customerId, end);
+    }
+  }
+
+  for (const entry of todayEntries) {
+    const entryTime = entry.createdAt;
+    const isOpenBill =
+      entry.status === "PENDING" || entry.status === "REVERSED";
+
+    if (entry.customerId) {
+      const customerId = entry.customerId.toString();
+      touchActivity(todayActivity, customerId, entryTime);
+      if (isOpenBill) {
+        playingIds.add(customerId);
+        touchActivity(playingActivity, customerId, entryTime);
+      }
+    }
+
+    for (const contributor of entry.contributors ?? []) {
+      const customerId = contributor.customerId.toString();
+      touchActivity(todayActivity, customerId, entryTime);
+      if (isOpenBill && contributor.status === "PENDING") {
+        playingIds.add(customerId);
+        touchActivity(playingActivity, customerId, entryTime);
+      }
+    }
+  }
+
+  const recentIds = [...todayActivity.entries()]
+    .filter(([customerId]) => !playingIds.has(customerId))
+    .sort(([, left], [, right]) => right.getTime() - left.getTime())
+    .map(([customerId]) => customerId);
+
+  const recentIdSet = new Set(recentIds);
+
+  const frequentIds = frequentAgg
+    .map((row) => row._id.toString())
+    .filter(
+      (customerId) =>
+        !playingIds.has(customerId) && !recentIdSet.has(customerId)
+    )
+    .slice(0, ASSIGN_SUGGESTION_FREQUENT_LIMIT);
+
+  const prioritizedIds = [
+    ...playingIds,
+    ...recentIds,
+    ...frequentIds,
+    ...searchCustomers.map((customer) => customer._id.toString()),
+  ];
+
+  const uniquePrioritizedIds = [...new Set(prioritizedIds)];
+
+  const prioritizedCustomers = uniquePrioritizedIds.length
+    ? await Customer.find({
+        _id: { $in: uniquePrioritizedIds },
+        isActive: true,
+      }).lean()
+    : [];
+
+  const customerById = new Map(
+    prioritizedCustomers.map((customer) => [
+      customer._id.toString(),
+      customer,
+    ])
+  );
+
+  const usedIds = new Set<string>();
+
+  const takeGroup = (
+    orderedIds: Iterable<string>,
+    sortByActivity?: Map<string, Date>
+  ): CustomerDTO[] => {
+    const ids = [...orderedIds];
+    if (sortByActivity) {
+      ids.sort((left, right) => {
+        const leftTime = sortByActivity.get(left)?.getTime() ?? 0;
+        const rightTime = sortByActivity.get(right)?.getTime() ?? 0;
+        if (leftTime !== rightTime) {
+          return rightTime - leftTime;
+        }
+        const leftName = customerById.get(left)?.name ?? "";
+        const rightName = customerById.get(right)?.name ?? "";
+        return leftName.localeCompare(rightName, undefined, {
+          sensitivity: "base",
+        });
+      });
+    }
+
+    const customers: CustomerDTO[] = [];
+    for (const customerId of ids) {
+      if (usedIds.has(customerId)) continue;
+      const customer = customerById.get(customerId);
+      if (!customer) continue;
+      if (term && !customerMatchesSearch(customer, term)) continue;
+      usedIds.add(customerId);
+      customers.push(toCustomerDTO(customer));
+    }
+    return customers;
+  };
+
+  const groups: AssignCustomerSuggestionGroup[] = [
+    {
+      id: "playing",
+      label: "Currently Playing",
+      customers: takeGroup(playingIds, playingActivity),
+    },
+    {
+      id: "recent",
+      label: "Recent",
+      customers: takeGroup(recentIds, todayActivity),
+    },
+    {
+      id: "frequent",
+      label: "Frequent",
+      customers: takeGroup(frequentIds),
+    },
+  ];
+
+  let others: CustomerDTO[] = [];
+  if (term) {
+    others = searchCustomers
+      .filter((customer) => !usedIds.has(customer._id.toString()))
+      .map((customer) => toCustomerDTO(customer));
+  } else {
+    const remainingCustomers = await Customer.find({
+      isActive: true,
+      _id: { $nin: [...usedIds] },
+    })
+      .collation({ locale: "en", strength: 2 })
+      .sort({ name: 1 })
+      .limit(ASSIGN_SUGGESTION_OTHERS_LIMIT)
+      .lean();
+    others = remainingCustomers.map((customer) => toCustomerDTO(customer));
+  }
+
+  groups.push({
+    id: "others",
+    label: "All Customers",
+    customers: others,
+  });
+
+  return groups.filter((group) => group.customers.length > 0);
 }
 
 export async function getCustomerCardIdMap(

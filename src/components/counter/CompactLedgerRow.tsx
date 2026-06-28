@@ -11,10 +11,12 @@ import {
   getAggregatedCorrections,
 } from "@/lib/utils/entry-corrections";
 import { entryHasContributors } from "@/lib/utils/entry-contributors";
+import { getContributorCounterPayDisplay, counterPayShowsBalanceLabel, counterPayShowsPartialAtCheckout } from "@/lib/utils/counter-pay-display";
 import { CorrectionChangeLine } from "@/components/counter/CorrectionChangeLine";
 import { EntryCorrectionBadge } from "@/components/counter/EntryCorrectionBadge";
 import {
   entryRowClass,
+  PartialPaymentLabel,
   splitContributorRowClass,
   SettlementBadge,
 } from "@/components/counter/SettlementBadge";
@@ -34,14 +36,90 @@ function paymentMethodLabel(method: string): string {
   return method === "CASH" ? "Cash" : method === "GPAY" ? "GPay" : "Wallet";
 }
 
-function ContributorPaymentLabel({ method }: { method?: string }) {
-  if (!method) {
-    return <span className="text-[14px] text-gray-400">—</span>;
+function ContributorPaymentLabel({
+  entry,
+  contributor,
+}: {
+  entry: NotebookEntryDTO;
+  contributor: NonNullable<NotebookEntryDTO["contributors"]>[number];
+}) {
+  const display = getContributorCounterPayDisplay(entry, contributor);
+
+  if (display.frozen) {
+    if (display.paidAmount > 0 && display.balanceAmount > 0) {
+      return (
+        <PartialPaymentLabel
+          paidAmount={display.paidAmount}
+          remaining={display.balanceAmount}
+          onBalance
+        />
+      );
+    }
+    if (counterPayShowsBalanceLabel(display)) {
+      return (
+        <span className="text-[11px] font-bold text-amber-700">
+          {formatCurrency(display.balanceAmount)} Bal
+        </span>
+      );
+    }
+    if (display.paidAmount > 0 && contributor.paymentMethod) {
+      return (
+        <span className="text-[11px] font-bold text-emerald-700">
+          {paymentMethodLabel(contributor.paymentMethod)}
+        </span>
+      );
+    }
+    return <span className="text-[11px] text-gray-400">—</span>;
   }
+
+  if (contributor.status === "PAID" && contributor.paymentMethod) {
+    return (
+      <span className="text-[11px] font-bold text-emerald-700">
+        {paymentMethodLabel(contributor.paymentMethod)}
+      </span>
+    );
+  }
+
+  if (counterPayShowsPartialAtCheckout(display)) {
+    return (
+      <PartialPaymentLabel
+        paidAmount={display.paidAmount}
+        remaining={display.balanceAmount}
+        onBalance={false}
+      />
+    );
+  }
+
+  if (counterPayShowsBalanceLabel(display)) {
+    return (
+      <span className="text-[11px] font-bold text-amber-700">
+        {formatCurrency(display.balanceAmount)} Bal
+      </span>
+    );
+  }
+
+  return <span className="text-[11px] text-gray-400">—</span>;
+}
+
+function PayColumn({
+  payment,
+  editButton,
+  correctionButton,
+}: {
+  payment: ReactNode;
+  editButton?: ReactNode;
+  correctionButton?: ReactNode;
+}) {
   return (
-    <span className="text-[14px] font-bold text-emerald-700">
-      {paymentMethodLabel(method)}
-    </span>
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center justify-end">
+        <div className="min-w-[4.75rem] text-right">{payment}</div>
+        <div className="ml-1 flex h-5 w-5 shrink-0 items-center justify-center">
+          {editButton}
+        </div>
+      </div>
+      {correctionButton}
+    </div>
   );
 }
 
@@ -122,12 +200,12 @@ export function CompactLedgerRow({
     <button
       type="button"
       onClick={handleEditFrameClick}
-      className="shrink-0 rounded p-0.5 text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
+      className="inline-flex h-5 w-5 items-center justify-center rounded text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
       aria-label="Edit frame"
       title="Edit frame"
     >
       <svg
-        className="h-4 w-4"
+        className="h-3.5 w-3.5"
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
@@ -143,6 +221,17 @@ export function CompactLedgerRow({
     </button>
   ) : null;
 
+  const correctionButton =
+    hasCorrections && onShowCorrectionHistory ? (
+      <button
+        type="button"
+        onClick={() => onShowCorrectionHistory(entry)}
+        className="cursor-pointer"
+      >
+        <EntryCorrectionBadge />
+      </button>
+    ) : null;
+
   const timeCell = (
     <span className="font-mono text-[13px] font-medium tabular-nums text-gray-600">
       {formatTime(entry.createdAt)}
@@ -150,14 +239,15 @@ export function CompactLedgerRow({
   );
 
   const payCell = (
-    <div className="flex items-center justify-end gap-1">
-      <SettlementBadge entry={entry} />
-      {editFrameButton}
-    </div>
+    <PayColumn
+      payment={<SettlementBadge entry={entry} />}
+      editButton={editFrameButton}
+      correctionButton={correctionButton}
+    />
   );
 
   const nameClass =
-    "block truncate text-right text-[14px] font-bold hover:text-emerald-800";
+    "block min-w-0 truncate text-left text-[14px] font-bold leading-snug hover:text-emerald-800";
 
   const wrapCustomerGlance = (customerId: string, node: ReactNode) => (
     <CustomerGlanceHoverTarget
@@ -175,6 +265,7 @@ export function CompactLedgerRow({
       <Link
         href={`/customers/${entry.customerId}`}
         className={`${nameClass} text-gray-900`}
+        title={entry.customerName}
       >
         {entry.customerName}
       </Link>
@@ -183,7 +274,7 @@ export function CompactLedgerRow({
     <button
       type="button"
       onClick={handleNameClick}
-      className="w-full text-right text-[13px] font-semibold text-gray-400 hover:text-emerald-800"
+      className="w-full text-left text-[13px] font-semibold text-gray-400 hover:text-emerald-800"
     >
       Unassigned
     </button>
@@ -193,7 +284,8 @@ export function CompactLedgerRow({
       <button
         type="button"
         onClick={handleNameClick}
-        className={`w-full text-right ${nameClass} text-gray-900`}
+        className={`w-full text-left ${nameClass} text-gray-900`}
+        title={entry.customerName}
       >
         {entry.customerName}
       </button>
@@ -202,7 +294,8 @@ export function CompactLedgerRow({
     <button
       type="button"
       onClick={handleNameClick}
-      className={`w-full text-right ${nameClass} text-gray-900`}
+      className={`w-full text-left ${nameClass} text-gray-900`}
+      title={entry.customerName}
     >
       {entry.customerName}
     </button>
@@ -214,7 +307,7 @@ export function CompactLedgerRow({
   const typeCell = (
     <>
       <FieldCell correction={byField.entryType}>
-        <span className="block truncate">
+        <span className="block whitespace-nowrap">
           {typeLabel}
           {qty && <span className="font-normal text-gray-500"> {qty}</span>}
         </span>
@@ -246,50 +339,41 @@ export function CompactLedgerRow({
               <>
                 <td
                   rowSpan={contributors.length}
-                  className="overflow-visible px-2 py-1.5 align-top"
+                  className="overflow-visible whitespace-nowrap py-1.5 pl-2 pr-1 align-top"
                 >
                   {timeCell}
                 </td>
                 <td
                   rowSpan={contributors.length}
-                  className="px-2 py-1.5 align-top text-[14px] font-semibold text-gray-800"
+                  className="whitespace-nowrap px-1.5 py-1.5 align-top text-[14px] font-semibold text-gray-800"
                 >
                   {typeCell}
                 </td>
               </>
             )}
-            <td className="px-2 py-1.5 align-middle text-[14px] font-bold tabular-nums text-gray-900">
-              {formatCurrency(contributor.amount)}
-            </td>
-            <td className="px-2 py-1.5 align-middle text-right">
+            <td className="px-2 py-1.5 align-middle">
               {customerActivityLink(
                 contributor.customerId,
                 contributor.customerName,
-                "block w-full truncate text-right text-[14px] font-bold text-gray-900 hover:text-emerald-800"
+                "block min-w-0 truncate text-left text-[14px] font-bold leading-snug text-gray-900 hover:text-emerald-800"
               )}
             </td>
-            <td className="px-2 py-1.5 align-middle text-right">
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center justify-end gap-1">
+            <td className="whitespace-nowrap px-2 py-1.5 pr-2 align-middle text-right text-[14px] font-bold tabular-nums text-gray-900">
+              {formatCurrency(contributor.amount)}
+            </td>
+            <td className="py-1.5 pl-1 pr-2 align-middle text-right">
+              <PayColumn
+                payment={
                   <ContributorPaymentLabel
-                    method={
-                      contributor.status === "PAID"
-                        ? contributor.paymentMethod
-                        : undefined
-                    }
+                    entry={entry}
+                    contributor={contributor}
                   />
-                  {index === 0 && editFrameButton}
-                </div>
-                {hasCorrections && index === contributors.length - 1 && (
-                  <button
-                    type="button"
-                    onClick={() => onShowCorrectionHistory?.(entry)}
-                    className="cursor-pointer"
-                  >
-                    <EntryCorrectionBadge />
-                  </button>
-                )}
-              </div>
+                }
+                editButton={index === 0 ? editFrameButton : undefined}
+                correctionButton={
+                  index === contributors.length - 1 ? correctionButton : undefined
+                }
+              />
             </td>
           </tr>
         ))}
@@ -299,31 +383,20 @@ export function CompactLedgerRow({
 
   return (
     <tr className={entryRowClass(entry)}>
-      <td className="px-2 py-1.5 align-top">{timeCell}</td>
-      <td className="px-2 py-1.5 align-top text-[14px] font-semibold text-gray-800">
+      <td className="py-1.5 pl-2 pr-1 align-top">{timeCell}</td>
+      <td className="whitespace-nowrap px-1.5 py-1.5 align-top text-[14px] font-semibold text-gray-800">
         {typeCell}
       </td>
-      <td className="px-2 py-1.5 align-top text-[14px] font-bold tabular-nums text-gray-900">
+      <td className="px-2 py-1.5 align-top">
+        <FieldCell correction={byField.customer}>{nameCell}</FieldCell>
+      </td>
+      <td className="whitespace-nowrap px-2 py-1.5 pr-2 align-top text-right text-[14px] font-bold tabular-nums text-gray-900">
         <FieldCell correction={byField.amount}>
           {formatCurrency(entry.amount)}
         </FieldCell>
       </td>
-      <td className="px-2 py-1.5 align-top text-right">
-        <FieldCell correction={byField.customer}>{nameCell}</FieldCell>
-      </td>
-      <td className="px-2 py-1.5 align-top text-right">
-        <div className="flex flex-col items-end gap-1">
-          {payCell}
-          {hasCorrections && (
-            <button
-              type="button"
-              onClick={() => onShowCorrectionHistory?.(entry)}
-              className="cursor-pointer"
-            >
-              <EntryCorrectionBadge />
-            </button>
-          )}
-        </div>
+      <td className="py-1.5 pl-1 pr-2 align-top text-right">
+        {payCell}
       </td>
     </tr>
   );

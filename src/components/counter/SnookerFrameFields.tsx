@@ -10,6 +10,7 @@ import { getSnookerFrameAmountPresets } from "@/lib/constants/counter-rates";
 import {
   RUMMY_DEFAULT_AMOUNTS,
   RUMMY_PLAYER_PRESETS,
+  getRummyDefaultAmount,
 } from "@/lib/constants/snooker-pricing";
 import { cn } from "@/lib/utils/cn";
 
@@ -66,6 +67,7 @@ export function SnookerFrameFields({
     if (frameType === "RUMMY") {
       return RUMMY_PLAYER_PRESETS.map((count) => ({
         amount: RUMMY_DEFAULT_AMOUNTS[count],
+        playerCount: count,
         label: `${count}P · ₹${RUMMY_DEFAULT_AMOUNTS[count]}`,
       }));
     }
@@ -76,6 +78,28 @@ export function SnookerFrameFields({
         .replace(" (Happy Hour)", " HH"),
     }));
   }, [frameType]);
+
+  const applyPreset = (preset: {
+    amount: number;
+    playerCount?: number;
+  }) => {
+    if (frameType === "RUMMY" && preset.playerCount != null) {
+      onPlayerCountChange(String(preset.playerCount));
+      onAmountChange(String(preset.amount));
+      return;
+    }
+    onAmountChange(String(preset.amount));
+  };
+
+  const isPresetActive = (preset: {
+    amount: number;
+    playerCount?: number;
+  }) => {
+    if (frameType === "RUMMY" && preset.playerCount != null) {
+      return playerCount === String(preset.playerCount);
+    }
+    return Number(amount) === preset.amount;
+  };
 
   const isDialog = variant === "dialog";
 
@@ -111,26 +135,6 @@ export function SnookerFrameFields({
           </select>
         </SnookerFrameField>
 
-        {frameType === "RUMMY" && (
-          <SnookerFrameField
-            label="Players"
-            className={cn(isDialog ? "w-full sm:w-[5.5rem] sm:shrink-0" : "w-[5.5rem] shrink-0")}
-          >
-            <select
-              value={playerCount}
-              onChange={(e) => onPlayerCountChange(e.target.value)}
-              className={snookerFrameControlClass}
-              disabled={disabled}
-            >
-              {RUMMY_PLAYER_PRESETS.map((count) => (
-                <option key={count} value={String(count)}>
-                  {count}
-                </option>
-              ))}
-            </select>
-          </SnookerFrameField>
-        )}
-
         <SnookerFrameField
           label="Amount"
           className={cn("min-w-[6.5rem]", isDialog ? "w-full sm:flex-1" : "flex-1")}
@@ -160,16 +164,18 @@ export function SnookerFrameFields({
 
       {frameType && amountPresets.length > 0 && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-medium text-gray-500">Quick:</span>
+          <span className="text-[10px] font-medium text-gray-500">
+            {frameType === "RUMMY" ? "Players:" : "Quick:"}
+          </span>
           {amountPresets.map((preset) => (
             <button
               key={preset.label}
               type="button"
               disabled={disabled}
-              onClick={() => onAmountChange(String(preset.amount))}
+              onClick={() => applyPreset(preset)}
               className={cn(
                 "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors",
-                Number(amount) === preset.amount
+                isPresetActive(preset)
                   ? "border-emerald-700 bg-emerald-700 text-white"
                   : "border-emerald-200 bg-white text-emerald-900 hover:border-emerald-400 hover:bg-emerald-50"
               )}
@@ -191,7 +197,7 @@ export function useSnookerFrameAmountDefaults(
     if (!frameType) return "";
     if (frameType === "RUMMY") {
       const count = Number.parseInt(playerCount, 10);
-      const preset = RUMMY_DEFAULT_AMOUNTS[count as 3 | 4 | 5];
+      const preset = getRummyDefaultAmount(count);
       return preset ? String(preset) : "";
     }
     const defaultAmount = getSnookerFrameAmountPresets(frameType)[0]?.amount;

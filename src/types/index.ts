@@ -62,6 +62,7 @@ export interface CustomerActivityEventDTO {
     | "SETTLEMENT_REVERSAL"
     | "WALLET_RECHARGE"
     | "WALLET_DEDUCT"
+    | "BALANCE_RECORDED"
     | "NOTE";
   timestamp: string;
   title: string;
@@ -114,10 +115,16 @@ export interface NotebookEntryContributorDTO {
   customerId: string;
   customerName: string;
   amount: number;
+  paidAmount?: number;
+  balanceCollectedAmount?: number;
+  counterPaidAmount?: number;
+  counterBalanceAmount?: number;
   status: "PENDING" | "PAID";
   paymentMethod?: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
   settlementId?: string;
   paidAt?: string;
+  visitId?: string;
+  billId?: string;
 }
 
 export interface FrameGlanceLineDTO {
@@ -139,6 +146,9 @@ export interface CustomerPendingItemDTO {
   entry: NotebookEntryDTO;
   contributionAmount: number;
   contributorCustomerId: string;
+  /** Customer's share of the line (split bills). */
+  lineAmount?: number;
+  linePaidAmount?: number;
 }
 
 export interface SettlementContributorPaymentDTO {
@@ -160,6 +170,8 @@ export interface NotebookEntryDTO {
   section: import("@/lib/constants/notebook-sections").NotebookSection;
   type: import("@/lib/constants/notebook-entry-types").NotebookEntryType;
   amount: number;
+  paidAmount?: number;
+  balanceCollectedAmount?: number;
   customerId?: string;
   tableId?: import("@/lib/constants/counter-sections").CafeTableId;
   sessionId?: string;
@@ -187,7 +199,48 @@ export interface NotebookEntryDTO {
   corrections?: NotebookEntryCorrectionDTO[];
   assignedAt?: string;
   assignedBy?: string;
+  checkoutDismissedAt?: string;
+  checkoutDismissedBy?: string;
+  counterPaidAmount?: number;
+  counterBalanceAmount?: number;
+  visitId?: string;
+  billId?: string;
   contributors?: NotebookEntryContributorDTO[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface ActiveVisitBillDTO {
+  visit: VisitDTO;
+  bill: BillDTO;
+}
+
+export interface BillDTO {
+  id: string;
+  publicId: string;
+  visitId?: string;
+  customerId: string;
+  businessDate: string;
+  status: import("@/lib/constants/visit-bill").BillStatus;
+  totalAmount: number;
+  paidAmount: number;
+  dueAmount: number;
+  convertedToOutstandingAt?: string;
+  convertedToOutstandingBy?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface VisitDTO {
+  id: string;
+  publicId: string;
+  customerId: string;
+  billId: string;
+  businessDate: string;
+  status: import("@/lib/constants/visit-bill").VisitStatus;
+  startedAt: string;
+  closedAt?: string;
+  notes?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -388,4 +441,51 @@ export interface DailyClosingDTO {
     section: import("@/lib/constants/notebook-sections").NotebookSection;
     amount: number;
   }[];
+}
+
+export interface CustomerLedgerSummaryDTO {
+  walletBalance: number;
+  outstandingAmount: number;
+  openBillsCount: number;
+  visitCount: number;
+  lastVisitAt: string | null;
+  lastPaymentAt: string | null;
+  lastPaymentAmount: number | null;
+}
+
+export interface CustomerLedgerLineDTO {
+  id: string;
+  timestamp: string;
+  description: string;
+  amount: number;
+  staffUsername: string;
+  walletBalance: number;
+  outstandingBalance: number;
+  balanceLabel: string;
+  transactionId?: string;
+  canReverseRecharge?: boolean;
+}
+
+export interface CustomerOutstandingRowDTO {
+  customerId: string;
+  customerName: string;
+  phoneNumber: string;
+  outstandingAmount: number;
+  openBillsCount: number;
+  lastVisitAt: string | null;
+  lastPaymentAt: string | null;
+  lastPaymentAmount: number | null;
+  walletEnabled: boolean;
+  cardId: string;
+}
+
+export interface CustomerBalancePaymentDTO {
+  id: string;
+  customerId: string;
+  amount: number;
+  appliedAmount: number;
+  paymentMethod: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
+  walletTransactionId?: string;
+  createdBy: string;
+  createdAt: string;
 }

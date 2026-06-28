@@ -7,6 +7,7 @@ import { getEntryDisplayLabel, getRummyActivityLabel } from "@/lib/utils/noteboo
 import { getAggregatedCorrections } from "@/lib/utils/entry-corrections";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import { formatCurrency } from "@/lib/utils/format";
+import { payLaterBalanceAtDismiss } from "@/lib/utils/freeze-counter-pay-snapshot";
 import { customerActivityFilterSchema } from "@/lib/validators/customer";
 import type { CustomerActivityEventDTO } from "@/types";
 import Customer from "@/models/Customer";
@@ -145,6 +146,26 @@ export async function getCustomerActivity(
         correctionSummary,
         corrections: entryDto.corrections,
       });
+
+      if (
+        entry.checkoutDismissedAt &&
+        entry.customerId?.toString() === customerId
+      ) {
+        const balanceAtDismiss = payLaterBalanceAtDismiss(entryDto);
+        if (balanceAtDismiss > 0) {
+          events.push({
+            id: `balance-recorded-${entry._id.toString()}`,
+            kind: "BALANCE_RECORDED",
+            timestamp: entry.checkoutDismissedAt.toISOString(),
+            title: `Pay later — ${entryLabel}`,
+            amount: balanceAtDismiss,
+            staffUsername:
+              entry.checkoutDismissedBy ?? entry.assignedBy ?? entry.createdBy,
+            section: entry.section,
+            entryType: entry.type,
+          });
+        }
+      }
     }
   }
 

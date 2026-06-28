@@ -217,6 +217,32 @@ export const assignCounterEntryCustomerSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
 });
 
+export const assignCheckoutBillToCustomerSchema = z
+  .object({
+    customerId: z.string().min(1, "Customer is required"),
+    entryIds: z.array(z.string().min(1)).optional(),
+    sessionId: z.string().optional(),
+    tableId: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (
+      (!data.entryIds || data.entryIds.length === 0) &&
+      !data.sessionId &&
+      !data.tableId
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Bill has no payable lines",
+        path: ["entryIds"],
+      });
+    }
+  });
+
+export const dismissCheckoutBillSchema = z.object({
+  customerId: z.string().min(1, "Customer is required"),
+  entryIds: z.array(z.string().min(1)).optional(),
+});
+
 export const notebookCustomerSearchSchema = z.object({
   query: z.string().max(100).optional(),
 });
@@ -383,6 +409,24 @@ export const addCafeItemsSchema = z
         code: z.ZodIssueCode.custom,
         message: "Assign to either a customer or a table",
         path: ["customerId"],
+      });
+    }
+  });
+
+export const recordCustomerBalancePaymentSchema = z
+  .object({
+    customerId: z.string().min(1, "Customer is required"),
+    amount: z.coerce.number().int().positive("Enter a valid amount"),
+    paymentMethod: z.enum(NOTEBOOK_PAYMENT_METHODS),
+    verificationMethod: z.enum(VERIFICATION_METHODS).optional(),
+    entryIds: z.array(z.string().min(1)).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.paymentMethod === "WALLET" && !data.verificationMethod) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Wallet verification is required",
+        path: ["verificationMethod"],
       });
     }
   });

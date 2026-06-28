@@ -1,11 +1,20 @@
 import { cn } from "@/lib/utils/cn";
 import type { HTMLAttributes } from "react";
 
-export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
+  padding?: "default" | "none";
+}
+
+export function Card({
+  className,
+  padding = "default",
+  ...props
+}: CardProps) {
   return (
     <div
       className={cn(
-        "rounded-lg border border-gray-200 bg-white p-3 shadow-sm",
+        "rounded-lg border border-gray-200 bg-white",
+        padding === "default" && "p-4",
         className
       )}
       {...props}
@@ -19,7 +28,7 @@ export function CardTitle({
 }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h2
-      className={cn("text-sm font-semibold text-gray-900", className)}
+      className={cn("text-base font-semibold text-gray-900", className)}
       {...props}
     />
   );

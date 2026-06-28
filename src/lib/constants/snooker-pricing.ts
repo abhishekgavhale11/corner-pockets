@@ -32,13 +32,32 @@ export const MINI_SNOOKER_REGULAR_AMOUNT =
 export const POOL_REGULAR_AMOUNT =
   resolveCounterRateAmount({ type: "POOL", rateType: "REGULAR" }) ?? 240;
 
-/** Default Rummy totals by player count. */
-export const RUMMY_DEFAULT_AMOUNTS: Record<3 | 4 | 5, number> = {
-  3: 300,
-  4: 400,
-  5: 750,
+/** Default Rummy totals by player count (3P base, +₹120 per extra player). */
+export const RUMMY_BASE_AMOUNT_3P = 360;
+export const RUMMY_AMOUNT_PER_EXTRA_PLAYER = 120;
+
+export const RUMMY_PLAYER_PRESETS = [3, 4, 5, 6] as const;
+
+export type RummyPlayerPreset = (typeof RUMMY_PLAYER_PRESETS)[number];
+
+function rummyAmountForPlayers(count: RummyPlayerPreset): number {
+  return RUMMY_BASE_AMOUNT_3P + RUMMY_AMOUNT_PER_EXTRA_PLAYER * (count - 3);
+}
+
+export const RUMMY_DEFAULT_AMOUNTS: Record<RummyPlayerPreset, number> = {
+  3: rummyAmountForPlayers(3),
+  4: rummyAmountForPlayers(4),
+  5: rummyAmountForPlayers(5),
+  6: rummyAmountForPlayers(6),
 };
 
-export const RUMMY_PLAYER_PRESETS = [3, 4, 5] as const;
+export function getRummyDefaultAmount(
+  playerCount: number
+): number | undefined {
+  if (!RUMMY_PLAYER_PRESETS.includes(playerCount as RummyPlayerPreset)) {
+    return undefined;
+  }
+  return rummyAmountForPlayers(playerCount as RummyPlayerPreset);
+}
 
 export type { SnookerGame };

@@ -1,5 +1,6 @@
 "use server";
 
+import mongoose from "mongoose";
 import { connectDB } from "@/lib/db/connect";
 import { authorizePermission } from "@/lib/auth/session";
 import { CAFE_SECTION } from "@/lib/constants/counter-sections";
@@ -57,7 +58,6 @@ import { buildCompactSessionCheckoutTimeline } from "@/lib/utils/session-checkou
 import { formatTableSessionLabel } from "@/lib/utils/session-display";
 import { formatCafeItemLabel } from "@/lib/utils/notebook-entry-label";
 import Customer from "@/models/Customer";
-import mongoose from "mongoose";
 
 export type BigSnookerSessionBoardData = {
   tables: {
@@ -891,6 +891,48 @@ export async function closeTableSessionAfterSettlement(
     return;
   }
   session.status = "PAID";
+  await session.save();
+}
+
+/** Ensures a payable notebook line exists for a stopped session checkout. */
+export async function ensureSessionGameEntryForCheckout(
+  sessionId: string,
+  staff: { id: string; username: string }
+): Promise<void> {
+  await connectDB();
+  const session = await TableSession.findById(sessionId);
+  if (!session || session.gameChargeAmount <= 0) {
+    return;
+  }
+  if (!isPoolMiniTableId(session.tableId)) {
+    return;
+  }
+
+  if (session.gameEntryId) {
+    const existingEntry = await NotebookEntry.findById(session.gameEntryId);
+    if (existingEntry) {
+      if (existingEntry.amount !== session.gameChargeAmount) {
+        existingEntry.amount = session.gameChargeAmount;
+        await existingEntry.save();
+      }
+      return;
+    }
+  }
+
+  const gameType = poolMiniGameType(session.tableId);
+  const gameEntry = await NotebookEntry.create({
+    section: session.tableId,
+    type: gameType,
+    amount: session.gameChargeAmount,
+    sessionId: session._id,
+    rateType: session.rateType,
+    customerName: "",
+    phoneNumber: "",
+    status: "PENDING",
+    createdBy: staff.username,
+    createdByStaffId: new mongoose.Types.ObjectId(staff.id),
+  });
+  session.gameEntryId = gameEntry._id;
   await session.save();
 }
 

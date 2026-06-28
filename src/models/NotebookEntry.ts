@@ -30,16 +30,24 @@ export interface INotebookEntryContributor {
   customerId: mongoose.Types.ObjectId;
   customerName: string;
   amount: number;
+  paidAmount?: number;
+  balanceCollectedAmount?: number;
+  counterPaidAmount?: number;
+  counterBalanceAmount?: number;
   status: "PENDING" | "PAID";
   paymentMethod?: NotebookPaymentMethod;
   settlementId?: mongoose.Types.ObjectId;
   paidAt?: Date;
+  visitId?: mongoose.Types.ObjectId;
+  billId?: mongoose.Types.ObjectId;
 }
 
 export interface INotebookEntry extends Document {
   section: NotebookSection;
   type: NotebookEntryType;
   amount: number;
+  paidAmount?: number;
+  balanceCollectedAmount?: number;
   customerId?: mongoose.Types.ObjectId;
   tableId?: CafeTableId;
   sessionId?: mongoose.Types.ObjectId;
@@ -66,6 +74,12 @@ export interface INotebookEntry extends Document {
   corrections: INotebookEntryCorrection[];
   assignedAt?: Date;
   assignedBy?: string;
+  checkoutDismissedAt?: Date;
+  checkoutDismissedBy?: string;
+  counterPaidAmount?: number;
+  counterBalanceAmount?: number;
+  visitId?: mongoose.Types.ObjectId;
+  billId?: mongoose.Types.ObjectId;
   contributors: INotebookEntryContributor[];
   createdBy: string;
   createdByStaffId: mongoose.Types.ObjectId;
@@ -111,6 +125,8 @@ const notebookEntryContributorSchema = new Schema<INotebookEntryContributor>(
     },
     customerName: { type: String, required: true, trim: true },
     amount: { type: Number, required: true, min: 1 },
+    paidAmount: { type: Number, default: 0, min: 0 },
+    balanceCollectedAmount: { type: Number, default: 0, min: 0 },
     status: {
       type: String,
       enum: ["PENDING", "PAID"],
@@ -125,6 +141,18 @@ const notebookEntryContributorSchema = new Schema<INotebookEntryContributor>(
       ref: "NotebookSettlement",
     },
     paidAt: { type: Date },
+    counterPaidAmount: { type: Number, min: 0 },
+    counterBalanceAmount: { type: Number, min: 0 },
+    visitId: {
+      type: Schema.Types.ObjectId,
+      ref: "Visit",
+      index: true,
+    },
+    billId: {
+      type: Schema.Types.ObjectId,
+      ref: "Bill",
+      index: true,
+    },
   },
   { _id: false }
 );
@@ -165,6 +193,8 @@ const notebookEntrySchema = new Schema<INotebookEntry>(
       required: true,
     },
     amount: { type: Number, required: true, min: 1 },
+    paidAmount: { type: Number, default: 0, min: 0 },
+    balanceCollectedAmount: { type: Number, default: 0, min: 0 },
     customerId: {
       type: Schema.Types.ObjectId,
       ref: "Customer",
@@ -228,6 +258,20 @@ const notebookEntrySchema = new Schema<INotebookEntry>(
     corrections: { type: [notebookEntryCorrectionSchema], default: [] },
     assignedAt: { type: Date },
     assignedBy: { type: String, trim: true },
+    checkoutDismissedAt: { type: Date },
+    checkoutDismissedBy: { type: String, trim: true },
+    counterPaidAmount: { type: Number, min: 0 },
+    counterBalanceAmount: { type: Number, min: 0 },
+    visitId: {
+      type: Schema.Types.ObjectId,
+      ref: "Visit",
+      index: true,
+    },
+    billId: {
+      type: Schema.Types.ObjectId,
+      ref: "Bill",
+      index: true,
+    },
     contributors: { type: [notebookEntryContributorSchema], default: [] },
     createdBy: { type: String, required: true, trim: true },
     createdByStaffId: {

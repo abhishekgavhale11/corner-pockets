@@ -4,19 +4,20 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useState } from "react";
 import { updateCustomerDetails } from "@/actions/customers";
-import { formatCurrency } from "@/lib/utils/format";
-import type { CustomerDTO } from "@/types";
+import type { CustomerDTO, CustomerLedgerSummaryDTO } from "@/types";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { CustomerNotesSection } from "@/components/customers/CustomerNotesSection";
 import { ConvertToMemberForm } from "@/components/customers/ConvertToMemberForm";
-import { CustomerActivityTimeline } from "@/components/customers/CustomerActivityTimeline";
+import { CustomerFinancialHistory } from "@/components/customers/CustomerFinancialHistory";
+import { CustomerSummaryCard } from "@/components/customers/CustomerSummaryCard";
 import { RechargeDialog } from "@/components/wallet/RechargeDialog";
-import type { CustomerActivityEventDTO } from "@/types";
+import type { CustomerLedgerLineDTO } from "@/types";
 
 interface CustomerDetailViewProps {
   customer: CustomerDTO;
-  activity: CustomerActivityEventDTO[];
+  summary: CustomerLedgerSummaryDTO;
+  ledgerLines: CustomerLedgerLineDTO[];
   canEditDetails: boolean;
   canReverseRecharges?: boolean;
   initialRechargeOpen?: boolean;
@@ -24,7 +25,8 @@ interface CustomerDetailViewProps {
 
 export function CustomerDetailView({
   customer,
-  activity,
+  summary,
+  ledgerLines,
   canEditDetails,
   canReverseRecharges = false,
   initialRechargeOpen = false,
@@ -40,10 +42,7 @@ export function CustomerDetailView({
     if (params.has("recharge")) {
       params.delete("recharge");
       const qs = params.toString();
-      router.replace(
-        qs ? `${base}?${qs}` : base,
-        { scroll: false }
-      );
+      router.replace(qs ? `${base}?${qs}` : base, { scroll: false });
     }
   };
 
@@ -69,24 +68,14 @@ export function CustomerDetailView({
         ← Customers
       </Link>
 
-      <div className="grid gap-2 lg:grid-cols-[minmax(0,30%)_minmax(0,70%)]">
+      <div className="mb-2 grid gap-2 lg:grid-cols-[minmax(0,34%)_minmax(0,66%)]">
         <div className="space-y-2">
-          <div className="border border-gray-200 bg-white px-3 py-2.5">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h1 className="truncate text-base font-semibold text-gray-900">
-                {customer.name}
-              </h1>
-              {canEditDetails && !isEditing && (
-                <button
-                  type="button"
-                  className="shrink-0 text-xs font-medium text-emerald-700 hover:underline"
-                  onClick={() => setIsEditing(true)}
-                >
-                  Edit
-                </button>
-              )}
-            </div>
+          <CustomerSummaryCard
+            customer={customer}
+            summary={summary}
+          />
 
+          <div className="border border-gray-200 bg-white px-3 py-2.5">
             {isEditing ? (
               <form action={formAction} className="space-y-2">
                 <input type="hidden" name="customerId" value={customer.id} />
@@ -146,15 +135,24 @@ export function CustomerDetailView({
                   </div>
                 )}
                 <div className="flex justify-between gap-3">
-                  <dt className="text-gray-500">Balance</dt>
-                  <dd className="font-semibold text-emerald-800">
-                    {formatCurrency(customer.balance)}
+                  <dt className="text-gray-500">Member</dt>
+                  <dd>
+                    {customer.walletEnabled
+                      ? customer.isStudent
+                        ? "Student"
+                        : "Yes"
+                      : "No"}
                   </dd>
                 </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-gray-500">Member</dt>
-                  <dd>{customer.walletEnabled ? (customer.isStudent ? "Student" : "Yes") : "No"}</dd>
-                </div>
+                {canEditDetails && (
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-emerald-700 hover:underline"
+                    onClick={() => setIsEditing(true)}
+                  >
+                    Edit details
+                  </button>
+                )}
               </dl>
             )}
           </div>
@@ -167,25 +165,23 @@ export function CustomerDetailView({
             <ConvertToMemberForm customer={customer} />
           )}
 
-          <div className="flex flex-wrap gap-2 border border-gray-200 bg-white px-3 py-2">
-            {customer.walletEnabled && (
-              <>
-                <Button size="sm" onClick={() => setRechargeOpen(true)}>
-                  Recharge
+          {customer.walletEnabled && (
+            <div className="flex flex-wrap gap-2 border border-gray-200 bg-white px-3 py-2">
+              <Button size="sm" onClick={() => setRechargeOpen(true)}>
+                Recharge
+              </Button>
+              <Link href={`${base}/deduct`}>
+                <Button size="sm" variant="danger">
+                  Deduct
                 </Button>
-                <Link href={`${base}/deduct`}>
-                  <Button size="sm" variant="danger">
-                    Deduct
-                  </Button>
-                </Link>
-              </>
-            )}
-          </div>
+              </Link>
+            </div>
+          )}
         </div>
 
-        <CustomerActivityTimeline
+        <CustomerFinancialHistory
           customerId={customer.id}
-          events={activity}
+          lines={ledgerLines}
           canReverseRecharges={canReverseRecharges}
           fullHeight
         />

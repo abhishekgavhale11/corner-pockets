@@ -10,8 +10,10 @@ import {
 } from "@/lib/constants/table-sessions";
 import { formatTableSessionLabel } from "@/lib/utils/session-display";
 import {
-  entryHasContributors,
-  isEntryCheckoutEligible,
+  entryAmountRemaining,
+  isSessionPayableEntry,
+  isUnassignedPayableEntry,
+  sessionEntryAmountRemaining,
 } from "@/lib/utils/entry-contributors";
 import type {
   CustomerOpenTabSummaryDTO,
@@ -28,12 +30,7 @@ export function isCafeTableId(section: string): section is CafeTableId {
 export function isUnassignedTableGameEntry(entry: NotebookEntryDTO): boolean {
   if (isPoolMiniTableId(entry.section)) return false;
   if (entry.sessionId) return false;
-  return (
-    isCafeTableId(entry.section) &&
-    !entry.customerId &&
-    !entryHasContributors(entry) &&
-    isEntryCheckoutEligible(entry)
-  );
+  return isCafeTableId(entry.section) && isUnassignedPayableEntry(entry);
 }
 
 export function isUnassignedTableCafeEntry(entry: NotebookEntryDTO): boolean {
@@ -42,9 +39,7 @@ export function isUnassignedTableCafeEntry(entry: NotebookEntryDTO): boolean {
     entry.section === CAFE_SECTION &&
     Boolean(entry.tableId) &&
     !entry.sessionId &&
-    !entry.customerId &&
-    !entryHasContributors(entry) &&
-    isEntryCheckoutEligible(entry)
+    isUnassignedPayableEntry(entry)
   );
 }
 
@@ -81,8 +76,11 @@ export function buildTableOpenTabSummaries(
       continue;
     }
 
+    const remaining = entryAmountRemaining(entry);
+    if (remaining <= 0) continue;
+
     const existing = map.get(tableId) ?? { pendingAmount: 0, pendingCount: 0 };
-    existing.pendingAmount += entry.amount;
+    existing.pendingAmount += remaining;
     existing.pendingCount += 1;
     map.set(tableId, existing);
   }
@@ -112,25 +110,47 @@ export function buildSessionOpenTabSummaries(input: {
 }): SessionOpenTabSummaryDTO[] {
   const cafeBySession = new Map<string, { amount: number; count: number }>();
 
-  for (const entry of input.entries) {
-    if (!entry.sessionId || entry.section !== CAFE_SECTION) continue;
-    if (!isEntryCheckoutEligible(entry) || entry.customerId) continue;
+  const gameBySession = new Map<string, number>();
 
-    const existing = cafeBySession.get(entry.sessionId) ?? {
-      amount: 0,
-      count: 0,
-    };
-    existing.amount += entry.amount;
-    existing.count += 1;
-    cafeBySession.set(entry.sessionId, existing);
+  for (const entry of input.entries) {
+    if (!entry.sessionId || entry.customerId) continue;
+
+    if (entry.section === CAFE_SECTION) {
+      const remaining = sessionEntryAmountRemaining(entry);
+      if (remaining <= 0) continue;
+
+      const existing = cafeBySession.get(entry.sessionId) ?? {
+        amount: 0,
+        count: 0,
+      };
+      existing.amount += remaining;
+      existing.count += 1;
+      cafeBySession.set(entry.sessionId, existing);
+      continue;
+    }
+
+    if (!isSessionPayableEntry(entry, entry.sessionId)) continue;
+    const gameRemaining = sessionEntryAmountRemaining(entry);
+    if (gameRemaining <= 0) continue;
+    gameBySession.set(entry.sessionId, gameRemaining);
   }
 
   return input.sessions
     .map((session) => {
       const cafe = cafeBySession.get(session.id) ?? { amount: 0, count: 0 };
-      const gameCount = session.gameChargeAmount > 0 ? 1 : 0;
+      const gameFromEntry = gameBySession.get(session.id);
+      const hasGameEntry = input.entries.some(
+        (entry) =>
+          entry.sessionId === session.id && entry.section !== CAFE_SECTION
+      );
+      const gameRemaining =
+        gameFromEntry ??
+        (!hasGameEntry && session.gameChargeAmount > 0
+          ? session.gameChargeAmount
+          : 0);
+      const gameCount = gameRemaining > 0 ? 1 : 0;
       const pendingCount = gameCount + cafe.count;
-      const pendingAmount = session.gameChargeAmount + cafe.amount;
+      const pendingAmount = gameRemaining + cafe.amount;
       if (pendingCount === 0) return null;
 
       return {
@@ -146,7 +166,7 @@ export function buildSessionOpenTabSummaries(input: {
         tableId: session.tableId,
         tableName: sectionLabel(session.tableId),
         startedAt: session.startedAt,
-        gameAmount: session.gameChargeAmount,
+        gameAmount: gameRemaining,
         cafeAmount: cafe.amount,
         pendingAmount,
         pendingCount,
@@ -160,13 +180,16 @@ export function isSessionCheckoutEntry(
   entry: NotebookEntryDTO,
   sessionId: string
 ): boolean {
-  return entry.sessionId === sessionId && isEntryCheckoutEligible(entry);
+  return isSessionPayableEntry(entry, sessionId);
 }
 
 export function groupCheckoutTabs(tabs: OpenTabSummaryDTO[]) {
   const poolMini = tabs.filter(
     (tab): tab is SessionOpenTabSummaryDTO =>
       tab.kind === "session" && isPoolMiniTableId(tab.tableId)
+  );
+  const tables = tabs.filter(
+    (tab): tab is TableOpenTabSummaryDTO => tab.kind === "table"
   );
   const customers = tabs.filter(
     (tab): tab is CustomerOpenTabSummaryDTO => tab.kind === "customer"
@@ -179,9 +202,11 @@ export function groupCheckoutTabs(tabs: OpenTabSummaryDTO[]) {
 
   return {
     poolMini,
+    tables,
     customers,
     summaries: {
       poolMini: summarize(poolMini),
+      tables: summarize(tables),
       customers: summarize(customers),
     },
   };

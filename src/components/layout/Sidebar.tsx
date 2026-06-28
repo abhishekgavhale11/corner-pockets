@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { hasPermission, type StaffRole } from "@/lib/auth/roles";
+import { ClubLogo } from "@/components/layout/ClubLogo";
 import { cn } from "@/lib/utils/cn";
 
 const navItems = [
@@ -39,6 +40,13 @@ const navItems = [
     match: (path: string) => path.startsWith("/checkout"),
   },
   {
+    href: "/notebook/balances",
+    label: "Outstanding",
+    permission: "CUSTOMER_SEARCH" as const,
+    icon: "📋",
+    match: (path: string) => path.startsWith("/notebook/balances"),
+  },
+  {
     href: "/customers",
     label: "Customers",
     permission: "CUSTOMER_SEARCH" as const,
@@ -68,9 +76,7 @@ export function Sidebar({ role }: SidebarProps) {
     <aside className="flex w-[272px] shrink-0 flex-col bg-emerald-950 text-white">
       <div className="border-b border-emerald-900/50 px-5 py-4">
         <div className="flex items-center gap-3">
-          <span className="text-[26px] leading-none" aria-hidden>
-            🎱
-          </span>
+          <ClubLogo size={36} />
           <div className="min-w-0">
             <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-emerald-400/90">
               Snooker Club

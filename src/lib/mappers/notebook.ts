@@ -17,6 +17,8 @@ type LeanNotebookEntry = {
   section: NotebookSection;
   type: NotebookEntryType;
   amount: number;
+  paidAmount?: number;
+  balanceCollectedAmount?: number;
   customerId?: { toString(): string };
   tableId?: import("@/lib/constants/counter-sections").CafeTableId;
   sessionId?: { toString(): string };
@@ -52,14 +54,26 @@ type LeanNotebookEntry = {
   }[];
   assignedAt?: Date;
   assignedBy?: string;
+  checkoutDismissedAt?: Date;
+  checkoutDismissedBy?: string;
+  counterPaidAmount?: number;
+  counterBalanceAmount?: number;
+  visitId?: { toString(): string };
+  billId?: { toString(): string };
   contributors?: {
     customerId: { toString(): string };
     customerName: string;
     amount: number;
+    paidAmount?: number;
+    balanceCollectedAmount?: number;
+    counterPaidAmount?: number;
+    counterBalanceAmount?: number;
     status: "PENDING" | "PAID";
     paymentMethod?: NotebookPaymentMethod;
     settlementId?: { toString(): string };
     paidAt?: Date;
+    visitId?: { toString(): string };
+    billId?: { toString(): string };
   }[];
   createdBy: string;
   createdAt: Date;
@@ -94,6 +108,8 @@ export function toNotebookEntryDTO(entry: LeanNotebookEntry): NotebookEntryDTO {
     section: entry.section,
     type: entry.type,
     amount: entry.amount,
+    paidAmount: entry.paidAmount ?? 0,
+    balanceCollectedAmount: entry.balanceCollectedAmount ?? 0,
     customerId,
     tableId: entry.tableId,
     sessionId: entry.sessionId?.toString(),
@@ -130,14 +146,26 @@ export function toNotebookEntryDTO(entry: LeanNotebookEntry): NotebookEntryDTO {
     })),
     assignedAt: entry.assignedAt?.toISOString(),
     assignedBy: entry.assignedBy,
+    checkoutDismissedAt: entry.checkoutDismissedAt?.toISOString(),
+    checkoutDismissedBy: entry.checkoutDismissedBy,
+    counterPaidAmount: entry.counterPaidAmount,
+    counterBalanceAmount: entry.counterBalanceAmount,
+    visitId: entry.visitId?.toString(),
+    billId: entry.billId?.toString(),
     contributors: entry.contributors?.map((contributor) => ({
       customerId: contributor.customerId.toString(),
       customerName: contributor.customerName,
       amount: contributor.amount,
+      paidAmount: contributor.paidAmount ?? 0,
+      balanceCollectedAmount: contributor.balanceCollectedAmount ?? 0,
+      counterPaidAmount: contributor.counterPaidAmount,
+      counterBalanceAmount: contributor.counterBalanceAmount,
       status: contributor.status,
       paymentMethod: contributor.paymentMethod,
       settlementId: contributor.settlementId?.toString(),
       paidAt: contributor.paidAt?.toISOString(),
+      visitId: contributor.visitId?.toString(),
+      billId: contributor.billId?.toString(),
     })),
     createdBy: entry.createdBy,
     createdAt: entry.createdAt.toISOString(),

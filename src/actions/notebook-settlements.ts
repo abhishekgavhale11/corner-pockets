@@ -20,11 +20,27 @@ import NotebookEntry from "@/models/NotebookEntry";
 import NotebookSettlement from "@/models/NotebookSettlement";
 import NotebookSettlementReversal from "@/models/NotebookSettlementReversal";
 import type { NotebookSettlementDTO } from "@/types";
-import { entryHasContributors } from "@/lib/utils/entry-contributors";
+import { entryHasContributors, entryAmountRemaining, contributorAmountRemaining } from "@/lib/utils/entry-contributors";
 import { closeTableSessionAfterSettlement } from "@/actions/table-sessions";
+import { syncBillTotals } from "@/lib/visit-bill/sync-bill-totals";
+import { linkEntriesToActiveVisitBill } from "@/lib/visit-bill/attach-entry";
 
 import { CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/constants/notebook-payments";
 import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
+
+function entryCheckoutSettled(entry: {
+  paidAmount?: number | null;
+  balanceCollectedAmount?: number | null;
+}): number {
+  return (entry.paidAmount ?? 0) + (entry.balanceCollectedAmount ?? 0);
+}
+
+function contributorCheckoutSettled(contributor: {
+  paidAmount?: number | null;
+  balanceCollectedAmount?: number | null;
+}): number {
+  return (contributor.paidAmount ?? 0) + (contributor.balanceCollectedAmount ?? 0);
+}
 
 export async function settleNotebookEntries(
   formData: FormData
@@ -154,23 +170,32 @@ export async function settleNotebookEntries(
           const contributor = entry.contributors.find(
             (row) =>
               row.customerId.toString() === payerCustomerId &&
-              row.status === "PENDING"
+              contributorAmountRemaining(row) > 0
           );
 
-          if (!contributor || contributor.amount !== allocation.amount) {
+          if (!contributor) {
             throw new Error("Invalid contributor allocation");
           }
 
-          contributor.status = "PAID";
-          contributor.paymentMethod = parsed.data.paymentMethod;
-          contributor.settlementId = undefined;
-          contributor.paidAt = new Date();
+          const owed = contributorAmountRemaining(contributor);
+          if (allocation.amount > owed) {
+            throw new Error("Allocation exceeds amount due");
+          }
+
+          contributor.paidAmount =
+            (contributor.paidAmount ?? 0) + allocation.amount;
+
+          if (contributorCheckoutSettled(contributor) >= contributor.amount) {
+            contributor.status = "PAID";
+            contributor.paymentMethod = parsed.data.paymentMethod;
+            contributor.paidAt = new Date();
+          }
 
           contributorPayments.push({
             entryId: entry._id,
             customerId: contributor.customerId,
             customerName: contributor.customerName,
-            amount: contributor.amount,
+            amount: allocation.amount,
           });
 
           affectedCustomerIds.add(contributor.customerId.toString());
@@ -217,19 +242,23 @@ export async function settleNotebookEntries(
             throw new Error("Payer does not match entry customer");
           }
 
-          if (allocation.amount !== entry.amount) {
-            throw new Error("Invalid allocation amount");
+          if (allocation.amount > entryAmountRemaining(entry)) {
+            throw new Error("Allocation exceeds amount due");
           }
 
-          entry.status = "PAID";
-          entry.paymentMethod = parsed.data.paymentMethod;
-          entry.paidByName = parsed.data.paidByName.trim();
-          entry.paidByCustomerId = payerCustomerId
-            ? new mongoose.Types.ObjectId(payerCustomerId)
-            : entry.customerId;
-          entry.walletTransactionId = walletTransactionId
-            ? new mongoose.Types.ObjectId(walletTransactionId)
-            : undefined;
+          entry.paidAmount = (entry.paidAmount ?? 0) + allocation.amount;
+
+          if (entryCheckoutSettled(entry) >= entry.amount) {
+            entry.status = "PAID";
+            entry.paymentMethod = parsed.data.paymentMethod;
+            entry.paidByName = parsed.data.paidByName.trim();
+            entry.paidByCustomerId = payerCustomerId
+              ? new mongoose.Types.ObjectId(payerCustomerId)
+              : entry.customerId;
+            entry.walletTransactionId = walletTransactionId
+              ? new mongoose.Types.ObjectId(walletTransactionId)
+              : undefined;
+          }
           if (entryCustomerId) {
             affectedCustomerIds.add(entryCustomerId);
           }
@@ -294,7 +323,33 @@ export async function settleNotebookEntries(
 
   const settledEntries = await NotebookEntry.find({
     _id: { $in: parsed.data.entryIds },
-  }).select("sessionId");
+  });
+
+  await linkEntriesToActiveVisitBill(settledEntries, {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  });
+
+  const billIds = [
+    ...new Set(
+      settledEntries.flatMap((entry) => {
+        const ids: string[] = [];
+        if (entry.billId) {
+          ids.push(entry.billId.toString());
+        }
+        for (const contributor of entry.contributors ?? []) {
+          if (contributor.billId) {
+            ids.push(contributor.billId.toString());
+          }
+        }
+        return ids;
+      })
+    ),
+  ];
+
+  for (const billId of billIds) {
+    await syncBillTotals(new mongoose.Types.ObjectId(billId));
+  }
 
   const sessionIds = [
     ...new Set(

@@ -13,7 +13,6 @@ import { CompactLedgerRow } from "@/components/counter/CompactLedgerRow";
 import { CounterLedgerTable } from "@/components/counter/CounterLedgerTable";
 import { SnookerFrameAddRow } from "@/components/counter/SnookerFrameAddRow";
 import { SnookerFrameEditDialog } from "@/components/counter/SnookerFrameEditDialog";
-import { AssignCustomerDrawer } from "@/components/counter/AssignCustomerDrawer";
 import { RummyEntryDialog } from "@/components/counter/RummyEntryDialog";
 import { EntryCorrectionDialog } from "@/components/counter/EntryCorrectionDialog";
 import { CorrectionHistoryDialog } from "@/components/counter/CorrectionHistoryDialog";
@@ -38,7 +37,6 @@ export function CounterSectionColumn({
   snookerQuick = false,
   activeMobile = true,
 }: CounterSectionColumnProps) {
-  const [assignEntry, setAssignEntry] = useState<NotebookEntryDTO | null>(null);
   const [unassignedEntry, setUnassignedEntry] = useState<NotebookEntryDTO | null>(null);
   const [rummySection, setRummySection] = useState<NotebookSection | null>(null);
   const [correctEntry, setCorrectEntry] = useState<NotebookEntryDTO | null>(null);
@@ -131,14 +129,9 @@ export function CounterSectionColumn({
       <div className={cn("min-w-0", activeMobile ? "block" : "hidden lg:block")}>
         {column}
       </div>
-      <AssignCustomerDrawer
-        entry={assignEntry}
-        onClose={() => setAssignEntry(null)}
-      />
       <UnassignedEntryDialog
         entry={unassignedEntry}
         onClose={() => setUnassignedEntry(null)}
-        onAssign={(entry) => setAssignEntry(entry)}
         onSplit={(entry) => setSplitEntry(entry)}
       />
       <SnookerFrameEditDialog

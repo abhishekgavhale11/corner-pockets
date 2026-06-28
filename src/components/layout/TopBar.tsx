@@ -1,5 +1,6 @@
 import { signOut } from "@/lib/auth/config";
 import { roleLabel, type StaffRole } from "@/lib/auth/roles";
+import { ClubLogo } from "@/components/layout/ClubLogo";
 
 interface TopBarProps {
   staffName: string;
@@ -16,8 +17,8 @@ export function TopBar({ staffName, staffRole }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5 rounded border border-gray-200 px-2 py-0.5 text-[10px] text-gray-700">
-          <span aria-hidden>🏢</span>
+        <div className="flex items-center gap-2 rounded border border-gray-200 px-2 py-0.5 text-[10px] text-gray-700">
+          <ClubLogo size={16} className="rounded-sm" />
           <span className="font-medium">Corner Pockets</span>
         </div>
         <form

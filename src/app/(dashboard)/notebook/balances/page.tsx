@@ -1,13 +1,14 @@
-import { Card, CardTitle } from "@/components/ui/Card";
+import { getCustomersWithOutstanding } from "@/actions/customer-ledger";
+import { OutstandingPage } from "@/components/customers/OutstandingPage";
 
-export default function BalancesPlaceholderPage() {
-  return (
-    <Card>
-      <CardTitle className="mb-2">Balances (Udhar)</CardTitle>
-      <p className="text-sm text-gray-600">
-        Customer credit tracking will be available in Phase 3. Outstanding credit
-        balances are separate from wallet balances and pending bills.
-      </p>
-    </Card>
-  );
+interface BalancesPageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function BalancesPage({ searchParams }: BalancesPageProps) {
+  const params = await searchParams;
+  const rows = await getCustomersWithOutstanding(params);
+  const initialQuery = typeof params.q === "string" ? params.q : "";
+
+  return <OutstandingPage rows={rows} initialQuery={initialQuery} />;
 }

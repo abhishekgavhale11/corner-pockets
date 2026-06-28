@@ -31,6 +31,7 @@ export function formatActivityTimeParts(timestamp: string): {
 export type ActivityEventCategory =
   | "Counter"
   | "Cafe"
+  | "Balance"
   | "Paid"
   | "Recharge"
   | "Deduct"
@@ -51,6 +52,8 @@ export function activityEventCategory(
       return "Cafe";
     case "COUNTER_ENTRY":
       return "Counter";
+    case "BALANCE_RECORDED":
+      return "Balance";
     case "WALLET_RECHARGE":
       return "Recharge";
     case "NOTE":
@@ -67,6 +70,8 @@ export function activityEventCategoryTone(
     case "Counter":
       return "emerald";
     case "Cafe":
+      return "amber";
+    case "Balance":
       return "amber";
     case "Paid":
       return "sky";
@@ -118,6 +123,8 @@ export function activityEventDescription(
         : "Wallet payment";
     case "NOTE":
       return event.title;
+    case "BALANCE_RECORDED":
+      return "Put on balance — pay later";
     default:
       return event.title;
   }
