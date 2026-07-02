@@ -9,7 +9,7 @@ import {
   SnookerFrameFields,
   useSnookerFrameAmountDefaults,
 } from "@/components/counter/SnookerFrameFields";
-import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 
 interface SnookerFrameAddRowProps {
   section: NotebookSection;

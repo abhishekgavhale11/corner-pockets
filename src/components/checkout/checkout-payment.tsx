@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { NotebookPaymentMethod } from "@/lib/constants/notebook-payments";
 import { formatCurrency } from "@/lib/utils/format";
 import { Button } from "@/components/ui/Button";
@@ -42,10 +42,23 @@ interface PaymentMethodSelectorProps {
 export function PaymentMethodSelector({
   value,
   onChange,
-  walletEnabled = true,
+  walletEnabled,
   compact = false,
   large = false,
 }: PaymentMethodSelectorProps) {
+  const walletDisabled = walletEnabled === false;
+
+  useEffect(() => {
+    if (walletDisabled && value === "WALLET") {
+      onChange("CASH");
+    }
+  }, [walletDisabled, value, onChange]);
+
+  const methodOptions = CHECKOUT_PAYMENT_METHODS.map((option) => ({
+    ...option,
+    disabled: option.value === "WALLET" ? walletDisabled : false,
+  }));
+
   const content = (
     <>
       <p
@@ -59,7 +72,7 @@ export function PaymentMethodSelector({
       <SegmentedControl
         ariaLabel="Payment method"
         value={value}
-        options={CHECKOUT_PAYMENT_METHODS}
+        options={methodOptions}
         onChange={onChange}
         className={
           large
@@ -70,7 +83,7 @@ export function PaymentMethodSelector({
           large ? "min-h-[44px] text-sm font-semibold" : undefined
         }
       />
-      {!walletEnabled ? (
+      {walletDisabled ? (
         <p className="text-xs font-medium text-gray-500">
           Wallet is not enabled for this customer.
         </p>

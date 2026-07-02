@@ -142,6 +142,18 @@ export interface CustomerTodayGlanceDTO {
   cafe: import("@/lib/utils/cafe-tabs").CafeTabLine[];
 }
 
+export interface CustomerVisitGlanceDTO {
+  customerId: string;
+  customerName: string;
+  hasActiveVisit: boolean;
+  visitStartedAt?: string;
+  billTotal: number;
+  paidAmount: number;
+  dueAmount: number;
+  games: FrameGlanceLineDTO[];
+  cafe: import("@/lib/utils/cafe-tabs").CafeTabLine[];
+}
+
 export interface CustomerPendingItemDTO {
   entry: NotebookEntryDTO;
   contributionAmount: number;
@@ -205,6 +217,7 @@ export interface NotebookEntryDTO {
   counterBalanceAmount?: number;
   visitId?: string;
   billId?: string;
+  isLocked?: boolean;
   contributors?: NotebookEntryContributorDTO[];
   createdBy: string;
   createdAt: string;
@@ -225,6 +238,7 @@ export interface BillDTO {
   totalAmount: number;
   paidAmount: number;
   dueAmount: number;
+  lastPaymentAt?: string;
   convertedToOutstandingAt?: string;
   convertedToOutstandingBy?: string;
   createdBy: string;
@@ -392,6 +406,7 @@ export interface SessionCafeEditItemDTO {
   itemNote?: string;
   unitPrice?: number;
   quantity?: number;
+  isLocked?: boolean;
 }
 
 export interface SessionCheckoutDetailsDTO {
@@ -446,6 +461,8 @@ export interface DailyClosingDTO {
 export interface CustomerLedgerSummaryDTO {
   walletBalance: number;
   outstandingAmount: number;
+  activeVisitDueAmount: number;
+  hasActiveVisitWithDue: boolean;
   openBillsCount: number;
   visitCount: number;
   lastVisitAt: string | null;
@@ -453,11 +470,14 @@ export interface CustomerLedgerSummaryDTO {
   lastPaymentAmount: number | null;
 }
 
+export type CustomerLedgerEventKind = "charge" | "payment" | "status";
+
 export interface CustomerLedgerLineDTO {
   id: string;
   timestamp: string;
   description: string;
   amount: number;
+  kind: CustomerLedgerEventKind;
   staffUsername: string;
   walletBalance: number;
   outstandingBalance: number;
@@ -471,6 +491,8 @@ export interface CustomerOutstandingRowDTO {
   customerName: string;
   phoneNumber: string;
   outstandingAmount: number;
+  activeVisitDueAmount: number;
+  hasActiveVisitWithDue: boolean;
   openBillsCount: number;
   lastVisitAt: string | null;
   lastPaymentAt: string | null;

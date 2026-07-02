@@ -162,6 +162,41 @@ The customer may continue playing after a payment. New charges add to the same V
 
 ---
 
+# 6a. Business Rule - Payment Separation
+
+There are two completely separate financial flows. This separation is intentional and mandatory.
+
+## 1) Active Visit Payments (Checkout only)
+
+Managed exclusively through **Checkout**.
+
+Includes:
+
+* Games
+* Cafe items
+* Partial payments
+* Pay Later for the current visit
+
+Rules:
+
+* Customer Page must **never** collect payment for an active visit.
+* Active Visit payment must update the active Visit Bill (Paid/Due) immediately.
+
+## 2) Outstanding Payments (Customer Page only)
+
+Managed exclusively through the **Customer Page**.
+
+Applies only to outstanding balances from previously closed visits.
+
+Rules:
+
+* Checkout must **never** collect outstanding balances.
+* Outstanding collection must not be mixed into active visit checkout flow.
+
+This separation keeps the financial model simple, reduces synchronization issues, and enforces one workflow per balance type.
+
+---
+
 # 7. Due
 
 Due means:

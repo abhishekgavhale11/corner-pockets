@@ -119,9 +119,7 @@ export function getCounterPayDisplay(
     return {
       paidAmount,
       balanceAmount,
-      onBalance:
-        isEntryOnCustomerBalance(entry) ||
-        (Boolean(entry.customerId) && balanceAmount > 0),
+      onBalance: isEntryOnCustomerBalance(entry),
       frozen: false,
     };
   }
@@ -160,9 +158,7 @@ export function getContributorCounterPayDisplay(
   return {
     paidAmount,
     balanceAmount,
-    onBalance:
-      isEntryOnCustomerBalance(entry) ||
-      (balanceAmount > 0 && contributor.status !== "PAID"),
+    onBalance: isEntryOnCustomerBalance(entry),
     frozen: false,
   };
 }

@@ -67,13 +67,6 @@ function renderCounterPayDisplay(
         />
       );
     }
-    if (counterPayShowsBalanceLabel(display)) {
-      return (
-        <span className="text-[11px] font-bold text-amber-700">
-          {formatCurrency(display.balanceAmount)} Bal
-        </span>
-      );
-    }
     return <span className="text-[11px] text-gray-400">—</span>;
   }
 
@@ -147,14 +140,6 @@ export function SettlementBadge({ entry }: { entry: NotebookEntryDTO }) {
         remaining={display.balanceAmount}
         onBalance={false}
       />
-    );
-  }
-
-  if (counterPayShowsBalanceLabel(display)) {
-    return (
-      <span className="text-[11px] font-bold text-amber-700">
-        {formatCurrency(display.balanceAmount)} Bal
-      </span>
     );
   }
 

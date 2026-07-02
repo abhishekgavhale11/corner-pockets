@@ -8,7 +8,10 @@ import {
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/Button";
-import { CustomerGlanceHoverTarget } from "@/components/counter/CafeCustomerGlanceHover";
+import { CustomerPreviewNameButton } from "@/components/counter/CustomerPreviewContext";
+import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
+import { ENTRY_LOCKED_TOOLTIP } from "@/lib/visit-bill/entry-edit-lock-constants";
+import { isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
 
 interface CafeCustomerTabsProps {
   tabs: CafeOpenTab[];
@@ -45,6 +48,9 @@ export function CafeCustomerTabs({
     <ul className="grid gap-0.5 md:grid-cols-2">
       {tabs.map((tab) => {
         const expanded = expandedId === tab.tabKey;
+        const hasEditableEntries = tab.entries.some(
+          (entry) => !isNotebookEntryEditLocked(entry)
+        );
 
         return (
           <li
@@ -56,35 +62,43 @@ export function CafeCustomerTabs({
             )}
           >
             {tab.kind === "customer" ? (
-              <CustomerGlanceHoverTarget
-                customerId={tab.customerId}
-                variant="popover"
-                className="relative"
-                popoverClassName="sm:left-0 sm:right-auto"
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onToggleExpand(expanded ? null : tab.tabKey)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onToggleExpand(expanded ? null : tab.tabKey);
+                  }
+                }}
+                className={cn(
+                  "w-full px-1.5 py-1 text-left leading-tight",
+                  expanded ? "bg-emerald-50/80" : "hover:bg-gray-50"
+                )}
               >
-                <button
-                  type="button"
-                  onClick={() => onToggleExpand(expanded ? null : tab.tabKey)}
-                  className={cn(
-                    "w-full px-1.5 py-1 text-left leading-tight",
-                    expanded ? "bg-emerald-50/80" : "hover:bg-gray-50"
-                  )}
-                >
-                  <div className="flex items-baseline justify-between gap-1">
-                    <span className="truncate text-[15px] font-bold text-gray-900">
-                      {tabTitle(tab)}
-                    </span>
-                    <span className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
-                      {formatCurrency(tabAmount(tab))}
-                    </span>
-                  </div>
-                  <p className="truncate text-[11px] text-gray-600">
-                    {tab.lines.length > 0
-                      ? formatCafeTabSummary(tab.lines)
-                      : "No items yet"}
-                  </p>
-                </button>
-              </CustomerGlanceHoverTarget>
+                <div className="flex items-baseline justify-between gap-1">
+                  <span
+                    className="min-w-0 flex-1"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
+                    <CustomerPreviewNameButton
+                      customerId={tab.customerId}
+                      customerName={tabTitle(tab)}
+                      className="w-full truncate text-[15px]"
+                    />
+                  </span>
+                  <span className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
+                    {formatCurrency(tabAmount(tab))}
+                  </span>
+                </div>
+                <p className="truncate text-[11px] text-gray-600">
+                  {tab.lines.length > 0
+                    ? formatCafeTabSummary(tab.lines)
+                    : "No items yet"}
+                </p>
+              </div>
             ) : (
               <button
                 type="button"
@@ -146,19 +160,36 @@ export function CafeCustomerTabs({
 
                 {tab.lines.length > 0 && (
                   <ul className="space-y-0">
-                    {tab.lines.map((line) => (
+                    {tab.lines.map((line) => {
+                      const lineLocked = line.entries.every((entry) =>
+                        isNotebookEntryEditLocked(entry)
+                      );
+
+                      return (
                       <li
                         key={line.lineKey}
-                        className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-[12px] leading-snug"
+                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[12px] leading-snug"
                       >
-                        <span className="truncate text-gray-800">
-                          {formatCafeLineExpanded(line)}
+                        <span
+                          className={cn(
+                            "flex min-w-0 items-center gap-1 truncate",
+                            lineLocked ? "text-gray-500" : "text-gray-800"
+                          )}
+                          title={lineLocked ? ENTRY_LOCKED_TOOLTIP : undefined}
+                        >
+                          {lineLocked ? (
+                            <EntryLockIndicator className="shrink-0" />
+                          ) : null}
+                          <span className="truncate">
+                            {formatCafeLineExpanded(line)}
+                          </span>
                         </span>
                         <span className="shrink-0 font-semibold tabular-nums text-gray-900">
                           {formatCurrency(line.amount)}
                         </span>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 )}
 
@@ -179,7 +210,12 @@ export function CafeCustomerTabs({
                     size="sm"
                     variant="secondary"
                     className="h-7 flex-1 px-2 text-[11px] font-semibold"
-                    disabled={tab.entries.length === 0}
+                    disabled={tab.entries.length === 0 || !hasEditableEntries}
+                    title={
+                      tab.entries.length > 0 && !hasEditableEntries
+                        ? ENTRY_LOCKED_TOOLTIP
+                        : undefined
+                    }
                     onClick={(e) => {
                       e.stopPropagation();
                       onEdit(tab);

@@ -64,7 +64,6 @@ import {
   entryAmountRemaining,
   entryHasContributors,
   getCheckoutQueueObligations,
-  getLedgerObligations,
   isEntryCheckoutEligible,
   isSessionPayableEntry,
   sessionEntryAmountRemaining,
@@ -74,6 +73,7 @@ import { reconcileEntryPaymentFields } from "@/lib/wallet/reconcile-entry-paymen
 import { linkEntryToActiveVisitBill, linkEntriesToActiveVisitBill } from "@/lib/visit-bill/attach-entry";
 import { linkSplitEntryToContributorVisits } from "@/lib/visit-bill/link-split-entry";
 import { getCustomerBillSlice } from "@/lib/visit-bill/customer-bill-slice";
+import { getEntryEditLockFailure } from "@/lib/visit-bill/entry-edit-lock";
 
 export async function createQuickCounterEntry(
   formData: FormData
@@ -279,8 +279,13 @@ export async function updateSnookerFrameEntry(
     return failure("Only Big Snooker frame entries can be edited here");
   }
 
-  if (entry.status !== "PENDING" && entry.status !== "PAID") {
-    return failure("Only pending or paid entries can be edited");
+  const lockFailure = await getEntryEditLockFailure(entry);
+  if (lockFailure) {
+    return failure(lockFailure);
+  }
+
+  if (entry.status !== "PENDING") {
+    return failure("Only pending entries can be edited");
   }
 
   if (entry.type !== "SNOOKER" && entry.type !== "RUMMY") {
@@ -363,6 +368,11 @@ export async function correctCounterEntry(
 
   if (entry.section === CAFE_SECTION) {
     return failure("Use reversal for cafe entry corrections");
+  }
+
+  const lockFailure = await getEntryEditLockFailure(entry);
+  if (lockFailure) {
+    return failure(lockFailure);
   }
 
   if (entry.status !== "PENDING") {
@@ -520,6 +530,11 @@ export async function correctCafeEntry(
 
   if (entry.section !== CAFE_SECTION) {
     return failure("Only cafe entries can be corrected here");
+  }
+
+  const lockFailure = await getEntryEditLockFailure(entry);
+  if (lockFailure) {
+    return failure(lockFailure);
   }
 
   if (entry.status !== "PENDING") {
@@ -1018,6 +1033,11 @@ export async function setEntryContributors(
     return failure("Only pending entries can have contributors assigned");
   }
 
+  const lockFailure = await getEntryEditLockFailure(entry);
+  if (lockFailure) {
+    return failure(lockFailure);
+  }
+
   if (parsed.data.contributors.length === 0) {
     entry.contributors = [];
     entry.customerId = undefined;
@@ -1104,7 +1124,7 @@ export async function getOpenTabs(
   >();
 
   for (const dto of allEntryDtos) {
-    for (const obligation of getLedgerObligations(dto)) {
+    for (const obligation of getCheckoutQueueObligations(dto)) {
       if (obligation.amount <= 0) continue;
       const existing = tabMap.get(obligation.customerId) ?? {
         pendingAmount: 0,
@@ -1177,7 +1197,7 @@ export async function getOpenTabs(
     if (forcedCustomer) {
       const forcedTotals = { pendingAmount: 0, pendingCount: 0 };
       for (const dto of allEntryDtos) {
-        for (const obligation of getLedgerObligations(dto)) {
+        for (const obligation of getCheckoutQueueObligations(dto)) {
           if (obligation.customerId !== forceCustomerId) continue;
           if (obligation.amount <= 0) continue;
           forcedTotals.pendingAmount += obligation.amount;
@@ -1418,6 +1438,11 @@ export async function reverseNotebookEntry(
     return failure("Use cancel for counter entries. Cafe entries use reversal.");
   }
 
+  const lockFailure = await getEntryEditLockFailure(entry);
+  if (lockFailure) {
+    return failure(lockFailure);
+  }
+
   if (entry.status !== "PENDING") {
     return failure("Only pending entries can be reversed");
   }
@@ -1465,6 +1490,11 @@ export async function cancelCounterEntry(
 
   if (entry.section === CAFE_SECTION) {
     return failure("Cafe entries cannot be cancelled. Use reversal instead.");
+  }
+
+  const lockFailure = await getEntryEditLockFailure(entry);
+  if (lockFailure) {
+    return failure(lockFailure);
   }
 
   if (entry.status !== "PENDING") {

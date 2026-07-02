@@ -15,6 +15,7 @@ import {
   sectionLedgerSchema,
 } from "@/lib/validators/notebook";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
+import { enrichEntriesWithEditLock } from "@/lib/visit-bill/entry-edit-lock";
 import { reconcileEntryPaymentFields, repairCounterSnapshotsForEntries } from "@/lib/wallet/reconcile-entry-payments";
 import { toCustomerDTO } from "@/lib/mappers";
 import Customer from "@/models/Customer";
@@ -67,7 +68,9 @@ export async function getSectionLedger(
     .sort({ createdAt: 1 })
     .lean();
 
-  return refreshed.map((entry) => toNotebookEntryDTO(entry));
+  return enrichEntriesWithEditLock(
+    refreshed.map((entry) => toNotebookEntryDTO(entry))
+  );
 }
 
 export async function getRecentNotebookCustomers(
@@ -500,7 +503,9 @@ export async function getCafePageData(): Promise<CafePageData> {
     }).lean(),
   ]);
 
-  const cafeDtos = cafeEntries.map((entry) => toNotebookEntryDTO(entry));
+  const cafeDtos = await enrichEntriesWithEditLock(
+    cafeEntries.map((entry) => toNotebookEntryDTO(entry))
+  );
   const customerIds = [
     ...new Set(
       cafeDtos
@@ -539,7 +544,9 @@ export async function getCafePageData(): Promise<CafePageData> {
 
   return {
     cafeEntries: cafeDtos,
-    gameEntries: gameEntries.map((entry) => toNotebookEntryDTO(entry)),
+    gameEntries: await enrichEntriesWithEditLock(
+      gameEntries.map((entry) => toNotebookEntryDTO(entry))
+    ),
     cardIdByCustomerId,
     poolMiniSessions,
   };

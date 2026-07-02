@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { formatCustomerContactLine } from "@/lib/utils/customer-display";
 import { cn } from "@/lib/utils/cn";
-import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 import {
   BillingModeToggle,
   type EntryBillingMode,

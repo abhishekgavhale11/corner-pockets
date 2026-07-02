@@ -76,6 +76,10 @@ function cafeLineKey(entry: NotebookEntryDTO): string {
     const price = entry.unitPrice ?? entry.amount;
     return `FOOD:${note}:${price}`;
   }
+  const note = entry.itemNote?.trim();
+  if (note) {
+    return `${entry.type}:${note}`;
+  }
   return entry.type;
 }
 

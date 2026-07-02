@@ -6,6 +6,7 @@ import type { NotebookSection } from "@/lib/constants/notebook-sections";
 import { sectionLabel } from "@/lib/constants/notebook-sections";
 import type { NotebookEntryDTO } from "@/types";
 import { CounterSectionColumn } from "@/components/counter/CounterSectionColumn";
+import { CustomerPreviewProvider } from "@/components/counter/CustomerPreviewContext";
 import { CafeNewTabDialog } from "@/components/counter/CafeNewTabDialog";
 import { CafeExistingCustomerDialog } from "@/components/counter/CafeExistingCustomerDialog";
 import { CafeAddItemDialog } from "@/components/counter/CafeAddItemDialog";
@@ -30,7 +31,7 @@ export function CounterGrid({
   const { cafeTarget, closeCafe, openCafeForCustomer } = useCafeAddItem();
 
   return (
-    <>
+    <CustomerPreviewProvider>
       {snookerQuick && (
         <div className="mb-3 flex flex-wrap justify-start gap-2">
           <button
@@ -100,6 +101,6 @@ export function CounterGrid({
           <CafeAddItemDialog target={cafeTarget} onClose={closeCafe} />
         </>
       )}
-    </>
+    </CustomerPreviewProvider>
   );
 }

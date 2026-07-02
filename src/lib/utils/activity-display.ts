@@ -124,7 +124,7 @@ export function activityEventDescription(
     case "NOTE":
       return event.title;
     case "BALANCE_RECORDED":
-      return "Put on balance — pay later";
+      return "Due converted to outstanding";
     default:
       return event.title;
   }

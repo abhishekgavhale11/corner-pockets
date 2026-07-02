@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { formatActivityTimeParts } from "@/lib/utils/activity-display";
-import { formatLedgerAmount } from "@/lib/utils/customer-ledger-display";
+import {
+  formatLedgerAmountForKind,
+  ledgerEventKindLabel,
+  ledgerLineAmountClass,
+  ledgerLineRowClass,
+} from "@/lib/utils/customer-ledger-display";
 import type { CustomerDTO, CustomerLedgerLineDTO } from "@/types";
 import type { CustomerLedgerSummaryDTO } from "@/types";
 import { CustomerSummaryCard } from "@/components/customers/CustomerSummaryCard";
@@ -37,6 +42,20 @@ export function CustomerLedgerView({
           <p className="text-xs text-gray-500">
             Complete financial history — newest first
           </p>
+          <div className="mt-2 flex flex-wrap gap-3 text-[10px] font-semibold uppercase tracking-wide">
+            <span className="inline-flex items-center gap-1.5 text-red-700">
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              Charge
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-emerald-700">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              Payment
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-amber-700">
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              Status
+            </span>
+          </div>
         </div>
 
         {chronological.length <= 1 ? (
@@ -63,25 +82,46 @@ export function CustomerLedgerView({
                       key={line.id}
                       className={cn(
                         "border-b border-gray-100",
-                        isOpening && "bg-gray-50/80"
+                        isOpening && "bg-gray-50/80",
+                        !isOpening && ledgerLineRowClass(line.kind)
                       )}
                     >
                       <td className="px-4 py-2.5 align-top whitespace-nowrap">
                         <div className="font-medium text-gray-900">{date}</div>
                         <div className="text-xs text-gray-500">{time}</div>
                       </td>
-                      <td className="px-4 py-2.5 align-top font-medium text-gray-900">
-                        {line.description}
+                      <td className="px-4 py-2.5 align-top">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900">
+                            {line.description}
+                          </span>
+                          {!isOpening ? (
+                            <span
+                              className={cn(
+                                "rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                                line.kind === "charge" && "bg-red-50 text-red-700",
+                                line.kind === "payment" &&
+                                  "bg-emerald-50 text-emerald-700",
+                                line.kind === "status" &&
+                                  "bg-amber-50 text-amber-800"
+                              )}
+                            >
+                              {ledgerEventKindLabel(line.kind)}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td
                         className={cn(
                           "px-4 py-2.5 align-top text-right font-semibold tabular-nums",
-                          line.amount > 0 && "text-emerald-700",
-                          line.amount < 0 && "text-red-700",
-                          line.amount === 0 && "text-gray-500"
+                          isOpening
+                            ? "text-gray-500"
+                            : ledgerLineAmountClass(line.kind, line.amount)
                         )}
                       >
-                        {isOpening ? "—" : formatLedgerAmount(line.amount)}
+                        {isOpening
+                          ? "—"
+                          : formatLedgerAmountForKind(line.kind, line.amount)}
                       </td>
                       <td className="px-4 py-2.5 align-top text-right text-xs font-medium text-gray-800">
                         {line.balanceLabel}

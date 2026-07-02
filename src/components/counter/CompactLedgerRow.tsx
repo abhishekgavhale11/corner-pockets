@@ -1,7 +1,6 @@
 "use client";
 
-import type { MouseEvent, ReactNode } from "react";
-import Link from "next/link";
+import { type MouseEvent, type ReactNode } from "react";
 import type { NotebookEntryDTO } from "@/types";
 import { formatCurrency } from "@/lib/utils/format";
 import { formatTime } from "@/lib/utils/format-time";
@@ -21,7 +20,15 @@ import {
   SettlementBadge,
 } from "@/components/counter/SettlementBadge";
 import { isSnookerFrameEntry } from "@/lib/utils/snooker-frame";
-import { CustomerGlanceHoverTarget } from "@/components/counter/CafeCustomerGlanceHover";
+import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
+import { ENTRY_LOCKED_TOOLTIP } from "@/lib/visit-bill/entry-edit-lock-constants";
+import { isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
+import {
+  CustomerPreviewNameButton,
+  customerPreviewRowClass,
+  useCustomerRowPreviewHandlers,
+} from "@/components/counter/CustomerPreviewContext";
+import { cn } from "@/lib/utils/cn";
 
 interface CompactLedgerRowProps {
   entry: NotebookEntryDTO;
@@ -90,14 +97,6 @@ function ContributorPaymentLabel({
     );
   }
 
-  if (counterPayShowsBalanceLabel(display)) {
-    return (
-      <span className="text-[11px] font-bold text-amber-700">
-        {formatCurrency(display.balanceAmount)} Bal
-      </span>
-    );
-  }
-
   return <span className="text-[11px] text-gray-400">—</span>;
 }
 
@@ -136,12 +135,103 @@ function FieldCell({
   return <>{children}</>;
 }
 
+function CustomerNameCell({
+  customerId,
+  customerName,
+  className,
+}: {
+  customerId: string;
+  customerName: string;
+  className?: string;
+}) {
+  return (
+    <CustomerPreviewNameButton
+      customerId={customerId}
+      customerName={customerName}
+      className={className}
+    />
+  );
+}
+
+function SplitContributorRow({
+  entry,
+  contributor,
+  index,
+  total,
+  timeCell,
+  typeCell,
+  editFrameButton,
+  correctionButton,
+}: {
+  entry: NotebookEntryDTO;
+  contributor: NonNullable<NotebookEntryDTO["contributors"]>[number];
+  index: number;
+  total: number;
+  timeCell: ReactNode;
+  typeCell: ReactNode;
+  editFrameButton: ReactNode;
+  correctionButton: ReactNode;
+}) {
+  const contributorPreview = useCustomerRowPreviewHandlers(
+    contributor.customerId
+  );
+
+  return (
+    <tr
+      className={cn(
+        splitContributorRowClass(entry, index, total, contributor),
+        customerPreviewRowClass(contributorPreview.isSelected),
+        "cursor-pointer"
+      )}
+      onClick={contributorPreview.handleRowClick}
+      onDoubleClick={contributorPreview.handleRowDoubleClick}
+    >
+      {index === 0 && (
+        <>
+          <td
+            rowSpan={total}
+            className="overflow-visible whitespace-nowrap py-1.5 pl-2 pr-1 align-top"
+          >
+            {timeCell}
+          </td>
+          <td
+            rowSpan={total}
+            className="whitespace-nowrap px-1.5 py-1.5 align-top text-[14px] font-semibold text-gray-800"
+          >
+            {typeCell}
+          </td>
+        </>
+      )}
+      <td className="px-2 py-1.5 align-middle">
+        <CustomerNameCell
+          customerId={contributor.customerId}
+          customerName={contributor.customerName}
+        />
+      </td>
+      <td className="whitespace-nowrap px-2 py-1.5 pr-2 align-middle text-right text-[14px] font-bold tabular-nums text-gray-900">
+        {formatCurrency(contributor.amount)}
+      </td>
+      <td className="py-1.5 pl-1 pr-2 align-middle text-right">
+        <PayColumn
+          payment={
+            <ContributorPaymentLabel entry={entry} contributor={contributor} />
+          }
+          editButton={index === 0 ? editFrameButton : undefined}
+          correctionButton={
+            index === total - 1 ? correctionButton : undefined
+          }
+        />
+      </td>
+    </tr>
+  );
+}
+
 export function CompactLedgerRow({
   entry,
   frameEditable = false,
   onUnassignedAction,
   onEditFrame,
-  onCorrect,
+  onCorrect: _onCorrect,
   onShowCorrectionHistory,
 }: CompactLedgerRowProps) {
   const corrections = getAggregatedCorrections(entry);
@@ -158,36 +248,19 @@ export function CompactLedgerRow({
   const isPending = entry.status === "PENDING";
   const contributors = entry.contributors ?? [];
   const showContributorSplit = hasContributors && contributors.length > 0;
+  const entryEditLocked = isNotebookEntryEditLocked(entry);
   const showEditFrame =
     frameEditable &&
     isSnookerFrameEntry(entry) &&
-    Boolean(onEditFrame);
-  const canCorrect = isPending && Boolean(entry.assignedAt) && onCorrect;
+    Boolean(onEditFrame) &&
+    !entryEditLocked;
+  const rowPreview = useCustomerRowPreviewHandlers(entry.customerId);
 
-  const handleNameClick = (e: MouseEvent) => {
+  const handleUnassignedClick = (e: MouseEvent) => {
     e.stopPropagation();
-    if (!isPending) return;
-
-    if (entry.isUnassigned) {
-      onUnassignedAction?.(entry);
-      return;
-    }
-    if (canCorrect) {
-      onCorrect?.(entry);
-    }
+    if (!isPending || !entry.isUnassigned) return;
+    onUnassignedAction?.(entry);
   };
-
-  const customerActivityLink = (
-    customerId: string,
-    customerName: string,
-    className: string
-  ) =>
-    wrapCustomerGlance(
-      customerId,
-      <Link href={`/customers/${customerId}`} className={className}>
-        {customerName}
-      </Link>
-    );
 
   const handleEditFrameClick = (e: MouseEvent) => {
     e.stopPropagation();
@@ -196,7 +269,12 @@ export function CompactLedgerRow({
     }
   };
 
-  const editFrameButton = showEditFrame ? (
+  const editFrameButton = entryEditLocked ? (
+    <EntryLockIndicator
+      className="h-5 w-5"
+      title={ENTRY_LOCKED_TOOLTIP}
+    />
+  ) : showEditFrame ? (
     <button
       type="button"
       onClick={handleEditFrameClick}
@@ -246,59 +324,26 @@ export function CompactLedgerRow({
     />
   );
 
-  const nameClass =
-    "block min-w-0 truncate text-left text-[14px] font-bold leading-snug hover:text-emerald-800";
+  const nameClass = "w-full";
 
-  const wrapCustomerGlance = (customerId: string, node: ReactNode) => (
-    <CustomerGlanceHoverTarget
-      customerId={customerId}
-      variant="floating"
-      className="w-full"
-    >
-      {node}
-    </CustomerGlanceHoverTarget>
-  );
-
-  const nameCell = !isPending && entry.customerId ? (
-    wrapCustomerGlance(
-      entry.customerId,
-      <Link
-        href={`/customers/${entry.customerId}`}
-        className={`${nameClass} text-gray-900`}
-        title={entry.customerName}
-      >
-        {entry.customerName}
-      </Link>
-    )
-  ) : entry.isUnassigned ? (
+  const nameCell = entry.isUnassigned ? (
     <button
       type="button"
-      onClick={handleNameClick}
+      onClick={handleUnassignedClick}
       className="w-full text-left text-[13px] font-semibold text-gray-400 hover:text-emerald-800"
     >
       Unassigned
     </button>
   ) : entry.customerId ? (
-    wrapCustomerGlance(
-      entry.customerId,
-      <button
-        type="button"
-        onClick={handleNameClick}
-        className={`w-full text-left ${nameClass} text-gray-900`}
-        title={entry.customerName}
-      >
-        {entry.customerName}
-      </button>
-    )
+    <CustomerNameCell
+      customerId={entry.customerId}
+      customerName={entry.customerName ?? "Customer"}
+      className={nameClass}
+    />
   ) : (
-    <button
-      type="button"
-      onClick={handleNameClick}
-      className={`w-full text-left ${nameClass} text-gray-900`}
-      title={entry.customerName}
-    >
+    <span className="block min-w-0 truncate text-left text-[14px] font-bold leading-snug text-gray-900">
       {entry.customerName}
-    </button>
+    </span>
   );
 
   const showPlayerCorrection =
@@ -326,63 +371,32 @@ export function CompactLedgerRow({
     return (
       <>
         {contributors.map((contributor, index) => (
-          <tr
+          <SplitContributorRow
             key={contributor.customerId}
-            className={splitContributorRowClass(
-              entry,
-              index,
-              contributors.length,
-              contributor
-            )}
-          >
-            {index === 0 && (
-              <>
-                <td
-                  rowSpan={contributors.length}
-                  className="overflow-visible whitespace-nowrap py-1.5 pl-2 pr-1 align-top"
-                >
-                  {timeCell}
-                </td>
-                <td
-                  rowSpan={contributors.length}
-                  className="whitespace-nowrap px-1.5 py-1.5 align-top text-[14px] font-semibold text-gray-800"
-                >
-                  {typeCell}
-                </td>
-              </>
-            )}
-            <td className="px-2 py-1.5 align-middle">
-              {customerActivityLink(
-                contributor.customerId,
-                contributor.customerName,
-                "block min-w-0 truncate text-left text-[14px] font-bold leading-snug text-gray-900 hover:text-emerald-800"
-              )}
-            </td>
-            <td className="whitespace-nowrap px-2 py-1.5 pr-2 align-middle text-right text-[14px] font-bold tabular-nums text-gray-900">
-              {formatCurrency(contributor.amount)}
-            </td>
-            <td className="py-1.5 pl-1 pr-2 align-middle text-right">
-              <PayColumn
-                payment={
-                  <ContributorPaymentLabel
-                    entry={entry}
-                    contributor={contributor}
-                  />
-                }
-                editButton={index === 0 ? editFrameButton : undefined}
-                correctionButton={
-                  index === contributors.length - 1 ? correctionButton : undefined
-                }
-              />
-            </td>
-          </tr>
+            entry={entry}
+            contributor={contributor}
+            index={index}
+            total={contributors.length}
+            timeCell={timeCell}
+            typeCell={typeCell}
+            editFrameButton={editFrameButton}
+            correctionButton={correctionButton}
+          />
         ))}
       </>
     );
   }
 
   return (
-    <tr className={entryRowClass(entry)}>
+    <tr
+      className={cn(
+        entryRowClass(entry),
+        entry.customerId && customerPreviewRowClass(rowPreview.isSelected),
+        entry.customerId && "cursor-pointer"
+      )}
+      onClick={rowPreview.handleRowClick}
+      onDoubleClick={rowPreview.handleRowDoubleClick}
+    >
       <td className="py-1.5 pl-2 pr-1 align-top">{timeCell}</td>
       <td className="whitespace-nowrap px-1.5 py-1.5 align-top text-[14px] font-semibold text-gray-800">
         {typeCell}

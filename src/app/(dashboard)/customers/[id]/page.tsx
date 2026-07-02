@@ -39,6 +39,7 @@ export default async function CustomerDetailPage({
 
   const canEditDetails = hasPermission(role, "CUSTOMER_EDIT_DETAILS");
   const canReverseRecharges = hasPermission(role, "TRANSACTION_REVERSE");
+  const currentUsername = session?.user?.username ?? undefined;
 
   return (
     <CustomerDetailView
@@ -48,6 +49,7 @@ export default async function CustomerDetailPage({
       canEditDetails={canEditDetails}
       canReverseRecharges={canReverseRecharges}
       initialRechargeOpen={openRecharge}
+      currentUsername={currentUsername}
     />
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { recordCustomerBalancePayment } from "@/actions/customer-balance-payments";
 import { formatCurrency } from "@/lib/utils/format";
 import type { NotebookPaymentMethod } from "@/lib/constants/notebook-payments";
@@ -52,6 +52,14 @@ export function CollectPaymentDialog({
     reset();
     onClose();
   };
+
+  useEffect(() => {
+    if (!open) return;
+    if (method === "WALLET" && !customer.walletEnabled) {
+      setMethod("CASH");
+      setVerificationMethod(null);
+    }
+  }, [open, method, customer.walletEnabled]);
 
   const needsWalletVerify = method === "WALLET" && customer.walletEnabled;
   const canSave =
@@ -116,12 +124,7 @@ export function CollectPaymentDialog({
                 setAmount("");
                 return;
               }
-              const parsed = Number.parseInt(digits, 10);
-              setAmount(
-                parsed > outstandingAmount
-                  ? String(outstandingAmount)
-                  : digits
-              );
+              setAmount(digits);
             }}
             placeholder="0"
             className="mt-1 text-lg font-semibold"
@@ -147,7 +150,7 @@ export function CollectPaymentDialog({
                   }}
                   className={cn(
                     "rounded-lg border px-4 py-2 text-sm font-semibold transition-colors",
-                    method === option.id
+                    method === option.id && !disabled
                       ? "border-emerald-700 bg-emerald-700 text-white"
                       : "border-gray-300 bg-white text-gray-800 hover:border-emerald-400",
                     disabled && "cursor-not-allowed opacity-40"

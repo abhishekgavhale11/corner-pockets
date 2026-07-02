@@ -12,7 +12,7 @@ import {
   validateContributorRows,
   type ContributorRow,
 } from "@/components/counter/ContributorsSplitFields";
-import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 
 interface ContributorsSplitDialogProps {
   entry: NotebookEntryDTO | null;

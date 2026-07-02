@@ -184,7 +184,7 @@ export function CheckoutList({
   const [payAmount, setPayAmount] = useState("");
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [ledgerOutstanding, setLedgerOutstanding] = useState<number | null>(null);
-  const [, setVisitBill] = useState<ActiveVisitBillDTO | null>(null);
+  const [visitBill, setVisitBill] = useState<ActiveVisitBillDTO | null>(null);
   const [billDisplayItems, setBillDisplayItems] = useState<
     CustomerPendingItemDTO[]
   >([]);
@@ -216,10 +216,16 @@ export function CheckoutList({
     if (activeTab?.kind !== "customer") {
       return items;
     }
-    if (items.length > 0) {
-      return items.filter((item) => item.contributionAmount > 0);
+
+    const isCheckoutQueueItem = (item: CustomerPendingItemDTO) =>
+      !item.entry.checkoutDismissedAt && item.contributionAmount > 0;
+
+    const queueFromItems = items.filter(isCheckoutQueueItem);
+    if (queueFromItems.length > 0) {
+      return queueFromItems;
     }
-    return billDisplayItems.filter((item) => item.contributionAmount > 0);
+
+    return billDisplayItems.filter(isCheckoutQueueItem);
   }, [activeTab?.kind, billDisplayItems, items]);
 
   const grouped = useMemo(() => {
@@ -239,90 +245,40 @@ export function CheckoutList({
   const customerCheckoutSummary = useMemo(() => {
     if (activeTab?.kind !== "customer") return null;
 
-    const customerId = activeTab.customerId;
-    const queueItems = items.filter((item) => item.contributionAmount > 0);
-    const payLaterItems = billDisplayItems.filter(
-      (item) =>
-        item.contributionAmount > 0 && Boolean(item.entry.checkoutDismissedAt)
+    const queueItems = customerPayableItems;
+    const queueDue = queueItems.reduce(
+      (sum, item) => sum + item.contributionAmount,
+      0
     );
 
-    const sliceForItem = (item: CustomerPendingItemDTO) =>
-      getCustomerBillSlice(
+    if (queueDue <= 0) return null;
+
+    const queuePaid = queueItems.reduce((sum, item) => {
+      const slice = getCustomerBillSlice(
         item.entry,
-        item.contributorCustomerId || customerId
+        item.contributorCustomerId || activeTab.customerId
       );
+      return sum + (slice?.paid ?? item.linePaidAmount ?? 0);
+    }, 0);
 
-    const sumLine = (
-      rows: CustomerPendingItemDTO[],
-      key: "line" | "due" | "paid"
-    ) =>
-      rows.reduce((sum, item) => {
-        const slice = sliceForItem(item);
-        if (key === "due") return sum + item.contributionAmount;
-        if (key === "paid") {
-          return sum + (slice?.paid ?? item.linePaidAmount ?? 0);
-        }
-        return sum + (slice?.lineTotal ?? item.lineAmount ?? item.contributionAmount);
-      }, 0);
-
-    const queueDue = sumLine(queueItems, "due");
-    const payLaterDue = sumLine(payLaterItems, "due");
-
-    if (queueDue <= 0 && payLaterDue <= 0) return null;
-
-    const queuePaidInQueue = sumLine(queueItems, "paid");
-    const payLaterPaid = sumLine(payLaterItems, "paid");
-
-    const queueEntryIds = new Set(queueItems.map((item) => item.entry.id));
-    const offQueuePaid = billDisplayItems
-      .filter((item) => !queueEntryIds.has(item.entry.id))
-      .reduce(
-        (sum, item) => sum + (sliceForItem(item)?.paid ?? 0),
-        0
-      );
-
-    const paidAmount = queuePaidInQueue + offQueuePaid + payLaterPaid;
-
-    if (payLaterDue > 0 && queueDue > 0) {
-      return {
-        totalAmount: paidAmount + payLaterDue + queueDue,
-        paidAmount,
-        dueAmount: queueDue,
-        payLaterDue,
-        newChargesDue: queueDue,
-      };
-    }
-
-    if (payLaterDue > 0) {
-      return {
-        totalAmount: paidAmount + payLaterDue,
-        paidAmount,
-        dueAmount: payLaterDue,
-      };
-    }
+    const billTotal = visitBill?.bill.totalAmount ?? queueDue + queuePaid;
+    const billPaid = visitBill?.bill.paidAmount ?? queuePaid;
 
     return {
-      totalAmount: paidAmount + queueDue,
-      paidAmount,
+      totalAmount: billTotal,
+      paidAmount: billPaid,
       dueAmount: queueDue,
     };
-  }, [activeTab, items, billDisplayItems]);
+  }, [activeTab, customerPayableItems, visitBill]);
 
   const total = useMemo(() => {
     if (activeTab?.kind === "customer") {
-      const fromQueue = items.reduce(
-        (sum, item) => sum + item.contributionAmount,
-        0
-      );
-      if (fromQueue > 0) return fromQueue;
-
       const fromPayable = customerPayableItems.reduce(
         (sum, item) => sum + item.contributionAmount,
         0
       );
       if (fromPayable > 0) return fromPayable;
-
-      if (activeTab.pendingAmount > 0) return activeTab.pendingAmount;
+      return 0;
     }
 
     const fromItems = items.reduce(
@@ -355,14 +311,8 @@ export function CheckoutList({
     if (activeTab?.kind !== "customer") {
       return "new-bill" as const;
     }
-    if (
-      items.length > 0 &&
-      items.every((item) => Boolean(item.entry.checkoutDismissedAt))
-    ) {
-      return "customer-balance" as const;
-    }
     return "new-bill" as const;
-  }, [activeTab?.kind, items]);
+  }, [activeTab?.kind]);
 
   useEffect(() => {
     if (total > 0) {
@@ -761,6 +711,14 @@ export function CheckoutList({
       return;
     }
     setError(null);
+    if (
+      method === "WALLET" &&
+      checkoutCustomer &&
+      !checkoutCustomer.walletEnabled
+    ) {
+      setError("Wallet is not enabled for this customer");
+      return;
+    }
     if (method === "WALLET") {
       setStep("wallet-verify");
     } else {
@@ -1019,8 +977,6 @@ export function CheckoutList({
                             visitBillTotal={customerCheckoutSummary?.totalAmount}
                             visitBillPaid={customerCheckoutSummary?.paidAmount}
                             visitBillDue={customerCheckoutSummary?.dueAmount}
-                            payLaterDue={customerCheckoutSummary?.payLaterDue}
-                            newChargesDue={customerCheckoutSummary?.newChargesDue}
                             billDetails={renderBillDetails()}
                             onCloseBill={
                               tab.kind === "customer" && total > 0

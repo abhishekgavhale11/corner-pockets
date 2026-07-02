@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { cn } from "@/lib/utils/cn";
-import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 
 const ADDABLE_ITEMS = CAFE_QUICK_ITEMS.filter((item) => item.key !== "food");
 type AddableType = (typeof ADDABLE_ITEMS)[number]["type"] | "FOOD";

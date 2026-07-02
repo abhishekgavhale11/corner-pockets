@@ -14,6 +14,11 @@ import { executeWalletDeduct } from "@/lib/wallet/execute-wallet-deduct";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import { revalidateCustomerFinancials } from "@/lib/utils/revalidate-counter";
 import { reconcileCustomerPaymentFields, repairCounterSnapshotsForEntries } from "@/lib/wallet/reconcile-entry-payments";
+import {
+  advanceBillPaymentWatermarks,
+  collectBillIdsFromEntries,
+} from "@/lib/visit-bill/entry-edit-lock";
+import { getActiveVisitCheckoutDueAmount } from "@/lib/visit-bill/active-visit-checkout-due";
 import type { CustomerBalancePaymentDTO } from "@/types";
 import Customer from "@/models/Customer";
 import CustomerBalancePayment from "@/models/CustomerBalancePayment";
@@ -42,6 +47,7 @@ function toCustomerBalancePaymentDTO(
     createdAt: payment.createdAt.toISOString(),
   };
 }
+
 
 export async function recordCustomerBalancePayment(
   formData: FormData
@@ -89,6 +95,15 @@ export async function recordCustomerBalancePayment(
     return failure("Wallet is not enabled for this customer");
   }
 
+  const activeVisitCheckoutDue = await getActiveVisitCheckoutDueAmount(
+    parsed.data.customerId
+  );
+  if (activeVisitCheckoutDue > 0) {
+    return failure(
+      "This customer has an active visit due. Collect today's payment from Checkout."
+    );
+  }
+
   const dbSession = await mongoose.startSession();
   let paymentDoc: Parameters<typeof toCustomerBalancePaymentDTO>[0] | null =
     null;
@@ -116,7 +131,7 @@ export async function recordCustomerBalancePayment(
         for (const entry of entries) {
           if (!entry.checkoutDismissedAt) {
             throw new Error(
-              "This bill is still open at checkout. Collect payment there or choose Pay later first."
+              "This customer has an active visit due. Collect today's payment from Checkout."
             );
           }
           if (entryHasContributors({ contributors: entry.contributors })) {
@@ -146,11 +161,13 @@ export async function recordCustomerBalancePayment(
         parsed.data.paymentMethod,
         paidAt
       );
-
       if (appliedAmount <= 0) {
         throw new Error(
           "No pay-later balance to collect. Use checkout for open bills."
         );
+      }
+      if (appliedAmount !== parsed.data.amount) {
+        throw new Error("Amount exceeds outstanding balance for this customer.");
       }
       appliedEntryIds = allocations.map((row) => row.entryId);
 
@@ -189,7 +206,6 @@ export async function recordCustomerBalancePayment(
         ],
         { session: dbSession }
       );
-
       paymentDoc = payment;
     });
   } catch (error) {
@@ -207,6 +223,15 @@ export async function recordCustomerBalancePayment(
   const affectedEntryIds = [...new Set(appliedEntryIds)];
   if (affectedEntryIds.length > 0) {
     await repairCounterSnapshotsForEntries(affectedEntryIds);
+
+    const affectedEntries = await NotebookEntry.find({
+      _id: { $in: affectedEntryIds },
+    }).lean();
+
+    const billIds = collectBillIdsFromEntries(affectedEntries);
+    if (billIds.length > 0) {
+      await advanceBillPaymentWatermarks(billIds, new Date());
+    }
   }
 
   revalidateCustomerFinancials(parsed.data.customerId);

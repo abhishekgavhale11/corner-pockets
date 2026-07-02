@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils/cn";
 export interface SegmentedControlOption<T extends string> {
   value: T;
   label: string;
+  disabled?: boolean;
 }
 
 interface SegmentedControlProps<T extends string> {
@@ -35,18 +36,23 @@ export function SegmentedControl<T extends string>({
     >
       {options.map((option) => {
         const selected = value === option.value;
+        const disabled = option.disabled ?? false;
         return (
           <button
             key={option.value}
             type="button"
             aria-pressed={selected}
-            onClick={() => onChange(option.value)}
+            disabled={disabled}
+            onClick={() => {
+              if (!disabled) onChange(option.value);
+            }}
             className={cn(
               "flex-1 rounded-md px-4 py-2 text-sm font-semibold transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-800 focus-visible:ring-offset-2",
               selected
                 ? "bg-emerald-800 text-white shadow-sm"
                 : "text-gray-700 hover:bg-white",
+              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent",
               buttonClassName
             )}
           >

@@ -20,6 +20,7 @@ import {
   formatLedgerBalanceLabel,
 } from "@/lib/utils/customer-ledger-display";
 import type {
+  CustomerLedgerEventKind,
   CustomerLedgerLineDTO,
   CustomerLedgerSummaryDTO,
   CustomerOutstandingRowDTO,
@@ -29,12 +30,14 @@ import CustomerBalancePayment from "@/models/CustomerBalancePayment";
 import NotebookEntry from "@/models/NotebookEntry";
 import NotebookSettlement from "@/models/NotebookSettlement";
 import Transaction from "@/models/Transaction";
+import { getActiveVisitCheckoutDueAmount } from "@/lib/visit-bill/active-visit-checkout-due";
 
 type RawLedgerEvent = {
   id: string;
   timestamp: Date;
   description: string;
   amount: number;
+  kind: CustomerLedgerEventKind;
   staffUsername: string;
   affectsOutstanding: boolean;
   affectsWallet: boolean;
@@ -43,6 +46,15 @@ type RawLedgerEvent = {
   transactionId?: string;
   canReverseRecharge?: boolean;
 };
+
+type OutstandingDismissGroup = {
+  timestamp: Date;
+  staffUsername: string;
+  total: number;
+  firstEntryId: string;
+};
+
+const PAY_LATER_PREFIX_PATTERN = /^pay\s*later\b[\s\-—:]*/i;
 
 const LEDGER_ENTRY_LIMIT = 500;
 
@@ -64,6 +76,14 @@ function chargeDescription(
     return formatCafeItemLabel(entry);
   }
   return getEntryDisplayLabel(entry);
+}
+
+function isLegacyPayLaterDescription(description: string): boolean {
+  return PAY_LATER_PREFIX_PATTERN.test(description.trim());
+}
+
+function stripLegacyPayLaterPrefix(description: string): string {
+  return description.trim().replace(PAY_LATER_PREFIX_PATTERN, "").trim();
 }
 
 function customerLedgerChargeAmount(
@@ -115,6 +135,7 @@ function applyRunningBalances(
       timestamp: openingTimestamp.toISOString(),
       description: "Balance Brought Forward",
       amount: 0,
+      kind: "status",
       staffUsername: "—",
       walletBalance: 0,
       outstandingBalance: 0,
@@ -123,11 +144,16 @@ function applyRunningBalances(
   ];
 
   for (const event of sorted) {
+    const outstandingBefore = outstandingBalance;
+
     if (event.affectsWallet) {
       walletBalance = Math.max(0, walletBalance + event.walletDelta);
     }
     if (event.affectsOutstanding) {
-      outstandingBalance = Math.max(0, outstandingBalance + event.outstandingDelta);
+      outstandingBalance = Math.max(
+        0,
+        outstandingBalance + event.outstandingDelta
+      );
     }
 
     lines.push({
@@ -135,6 +161,7 @@ function applyRunningBalances(
       timestamp: event.timestamp.toISOString(),
       description: event.description,
       amount: event.amount,
+      kind: event.kind,
       staffUsername: event.staffUsername,
       walletBalance,
       outstandingBalance,
@@ -142,9 +169,70 @@ function applyRunningBalances(
       transactionId: event.transactionId,
       canReverseRecharge: event.canReverseRecharge,
     });
+
+    if (
+      event.kind === "payment" &&
+      outstandingBefore > 0 &&
+      outstandingBalance === 0
+    ) {
+      lines.push({
+        id: `${event.id}-settled`,
+        timestamp: new Date(event.timestamp.getTime() + 1).toISOString(),
+        description: "Outstanding Settled",
+        amount: 0,
+        kind: "status",
+        staffUsername: event.staffUsername,
+        walletBalance,
+        outstandingBalance,
+        balanceLabel: formatLedgerBalanceLabel(walletBalance, outstandingBalance),
+      });
+    }
   }
 
   return lines;
+}
+
+function normalizeLegacyPayLaterEvents(events: RawLedgerEvent[]): RawLedgerEvent[] {
+  const grouped = new Map<string, OutstandingDismissGroup>();
+  const normalized: RawLedgerEvent[] = [];
+
+  for (const event of events) {
+    if (!isLegacyPayLaterDescription(event.description)) {
+      normalized.push(event);
+      continue;
+    }
+
+    const groupKey = `${event.timestamp.getTime()}::${event.staffUsername}`;
+    const existing = grouped.get(groupKey);
+    if (existing) {
+      existing.total += Math.abs(event.amount);
+      continue;
+    }
+
+    grouped.set(groupKey, {
+      timestamp: event.timestamp,
+      staffUsername: event.staffUsername,
+      total: Math.abs(event.amount),
+      firstEntryId: event.id,
+    });
+  }
+
+  for (const group of grouped.values()) {
+    normalized.push({
+      id: `outstanding-created-legacy-${group.firstEntryId}`,
+      timestamp: group.timestamp,
+      description: "Outstanding Created",
+      amount: group.total,
+      kind: "status",
+      staffUsername: group.staffUsername,
+      affectsOutstanding: false,
+      affectsWallet: false,
+      walletDelta: 0,
+      outstandingDelta: 0,
+    });
+  }
+
+  return normalized;
 }
 
 async function countCustomerVisits(customerId: string): Promise<number> {
@@ -191,7 +279,7 @@ export async function getCustomerLedgerSummary(
     return null;
   }
 
-  const [pendingItems, lastVisitEntry, lastPayment, visitCount] =
+  const [pendingItems, lastVisitEntry, lastPayment, visitCount, activeVisitDueAmount] =
     await Promise.all([
       NotebookEntry.find({
         status: { $in: ["PENDING", "REVERSED", "PAID"] },
@@ -206,6 +294,7 @@ export async function getCustomerLedgerSummary(
         .lean(),
       findLastCustomerPayment(customerId),
       countCustomerVisits(customerId),
+      getActiveVisitCheckoutDueAmount(customerId),
     ]);
 
   let openBillsCount = 0;
@@ -224,6 +313,8 @@ export async function getCustomerLedgerSummary(
   return {
     walletBalance: customer.walletEnabled ? customer.balance : 0,
     outstandingAmount,
+    activeVisitDueAmount,
+    hasActiveVisitWithDue: activeVisitDueAmount > 0,
     openBillsCount,
     visitCount,
     lastVisitAt: lastVisitEntry?.createdAt?.toISOString() ?? null,
@@ -361,11 +452,16 @@ async function buildCustomerLedgerLines(
       continue;
     }
 
+    const rawDescription = chargeDescription(dto);
+    if (isLegacyPayLaterDescription(rawDescription)) {
+      continue;
+    }
+
     chargeCandidates.push({
       entryId: entry._id.toString(),
       section: dto.section,
       timestamp: entry.createdAt,
-      description: chargeDescription(dto),
+      description: stripLegacyPayLaterPrefix(rawDescription),
       amount: chargeAmount,
       staffUsername: entry.createdBy,
     });
@@ -377,6 +473,7 @@ async function buildCustomerLedgerLines(
       timestamp: bundle.timestamp,
       description: bundle.description,
       amount: -bundle.amount,
+      kind: "charge",
       staffUsername: bundle.staffUsername,
       affectsOutstanding: true,
       affectsWallet: false,
@@ -384,6 +481,8 @@ async function buildCustomerLedgerLines(
       outstandingDelta: bundle.amount,
     });
   }
+
+  const dismissGroups = new Map<string, OutstandingDismissGroup>();
 
   for (const entry of refreshedEntries) {
     if (!entry.checkoutDismissedAt) {
@@ -409,13 +508,33 @@ async function buildCustomerLedgerLines(
       continue;
     }
 
+    const dismissedAt = entry.checkoutDismissedAt;
+    const staffUsername =
+      entry.checkoutDismissedBy ?? entry.assignedBy ?? entry.createdBy;
+    const groupKey = `${dismissedAt.getTime()}::${staffUsername}`;
+    const existing = dismissGroups.get(groupKey);
+
+    if (existing) {
+      existing.total += balanceAtDismiss;
+      continue;
+    }
+
+    dismissGroups.set(groupKey, {
+      timestamp: dismissedAt,
+      staffUsername,
+      total: balanceAtDismiss,
+      firstEntryId: entry._id.toString(),
+    });
+  }
+
+  for (const group of dismissGroups.values()) {
     events.push({
-      id: `pay-later-${entry._id.toString()}`,
-      timestamp: entry.checkoutDismissedAt,
-      description: `Pay later — ${chargeDescription(dto)}`,
-      amount: -balanceAtDismiss,
-      staffUsername:
-        entry.checkoutDismissedBy ?? entry.assignedBy ?? entry.createdBy,
+      id: `outstanding-created-${group.firstEntryId}-${group.timestamp.getTime()}`,
+      timestamp: group.timestamp,
+      description: "Outstanding Created",
+      amount: group.total,
+      kind: "status",
+      staffUsername: group.staffUsername,
       affectsOutstanding: false,
       affectsWallet: false,
       walletDelta: 0,
@@ -488,8 +607,9 @@ async function buildCustomerLedgerLines(
     events.push({
       id: `balance-payment-${payment._id.toString()}`,
       timestamp: payment.createdAt,
-      description: "Payment Received",
+      description: paymentReceivedLabel(method),
       amount: ledgerApplied,
+      kind: "payment",
       staffUsername: payment.createdBy,
       affectsOutstanding: true,
       affectsWallet: method === "WALLET",
@@ -533,6 +653,7 @@ async function buildCustomerLedgerLines(
       timestamp: settlement.createdAt,
       description: paymentReceivedLabel(method),
       amount: paymentAmount,
+      kind: "payment",
       staffUsername: settlement.createdBy,
       affectsOutstanding: true,
       affectsWallet: method === "WALLET",
@@ -563,8 +684,9 @@ async function buildCustomerLedgerLines(
       events.push({
         id: `wallet-${tx._id.toString()}`,
         timestamp: tx.createdAt,
-        description: isReversal ? "Recharge Reversal" : "Wallet Recharge",
+        description: isReversal ? "Refund — Wallet Recharge" : "Wallet Recharge",
         amount: isReversal ? -credited : credited,
+        kind: "status",
         staffUsername: tx.staffUsername,
         affectsWallet: true,
         affectsOutstanding: false,
@@ -580,8 +702,9 @@ async function buildCustomerLedgerLines(
     events.push({
       id: `wallet-${tx._id.toString()}`,
       timestamp: tx.createdAt,
-      description: tx.isReversal ? "Wallet Reversal" : "Wallet Deduction",
+      description: tx.isReversal ? "Refund — Wallet Deduction" : "Wallet Deduction",
       amount: -debitAmount,
+      kind: "status",
       staffUsername: tx.staffUsername,
       affectsWallet: true,
       affectsOutstanding: false,
@@ -590,7 +713,10 @@ async function buildCustomerLedgerLines(
     });
   }
 
-  return applyRunningBalances(events, customer.createdAt);
+  return applyRunningBalances(
+    normalizeLegacyPayLaterEvents(events),
+    customer.createdAt
+  );
 }
 
 export async function getCustomerFinancials(
@@ -611,7 +737,7 @@ export async function getCustomerFinancials(
     return null;
   }
 
-  const [ledgerLines, lastVisitEntry, lastPayment, visitCount, pendingItems] =
+  const [ledgerLines, lastVisitEntry, lastPayment, visitCount, pendingItems, activeVisitDueAmount] =
     await Promise.all([
       buildCustomerLedgerLines(customerId, customer),
       NotebookEntry.findOne({
@@ -627,6 +753,7 @@ export async function getCustomerFinancials(
         status: { $in: ["PENDING", "REVERSED", "PAID"] },
         $or: [{ customerId }, { "contributors.customerId": customerId }],
       }).lean(),
+      getActiveVisitCheckoutDueAmount(customerId),
     ]);
 
   let openBillsCount = 0;
@@ -640,6 +767,8 @@ export async function getCustomerFinancials(
   const summary: CustomerLedgerSummaryDTO = {
     walletBalance: customer.walletEnabled ? customer.balance : 0,
     outstandingAmount: ledgerLines.at(-1)?.outstandingBalance ?? 0,
+    activeVisitDueAmount,
+    hasActiveVisitWithDue: activeVisitDueAmount > 0,
     openBillsCount,
     visitCount,
     lastVisitAt: lastVisitEntry?.createdAt?.toISOString() ?? null,
@@ -710,7 +839,7 @@ export async function getCustomersWithOutstanding(
       if (!haystack.includes(query)) continue;
     }
 
-    const [lastVisitEntry, lastPayment] = await Promise.all([
+    const [lastVisitEntry, lastPayment, activeVisitDueAmount] = await Promise.all([
       NotebookEntry.findOne({
         status: { $ne: "CANCELLED" },
         $or: [{ customerId }, { "contributors.customerId": customerId }],
@@ -719,6 +848,7 @@ export async function getCustomersWithOutstanding(
         .select("createdAt")
         .lean(),
       findLastCustomerPayment(customerId),
+      getActiveVisitCheckoutDueAmount(customerId),
     ]);
 
     rows.push({
@@ -726,6 +856,8 @@ export async function getCustomersWithOutstanding(
       customerName: name,
       phoneNumber: phone,
       outstandingAmount: totals.outstandingAmount,
+      activeVisitDueAmount,
+      hasActiveVisitWithDue: activeVisitDueAmount > 0,
       openBillsCount: totals.openBillsCount,
       lastVisitAt: lastVisitEntry?.createdAt?.toISOString() ?? null,
       lastPaymentAt: lastPayment?.createdAt ?? null,

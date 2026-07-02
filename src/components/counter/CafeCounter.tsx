@@ -13,6 +13,7 @@ import {
 } from "@/lib/utils/cafe-tabs";
 import type { CustomerDTO, NotebookEntryDTO, TableSessionDTO } from "@/types";
 import { CafeCustomerTabs } from "@/components/counter/CafeCustomerTabs";
+import { CustomerPreviewProvider } from "@/components/counter/CustomerPreviewContext";
 import { CafeNewTabDialog } from "@/components/counter/CafeNewTabDialog";
 import { CafeExistingCustomerDialog } from "@/components/counter/CafeExistingCustomerDialog";
 import { CafeTableTabDialog } from "@/components/counter/CafeTableTabDialog";
@@ -174,7 +175,8 @@ export function CafeCounter({
   };
 
   return (
-    <div className="space-y-1">
+    <CustomerPreviewProvider>
+      <div className="space-y-1">
       <div className="flex flex-wrap items-center gap-1.5">
         <Input
           value={tabFilter}
@@ -282,6 +284,7 @@ export function CafeCounter({
         entry={editingEntry}
         onClose={() => setEditingEntry(null)}
       />
-    </div>
+      </div>
+    </CustomerPreviewProvider>
   );
 }

@@ -68,6 +68,16 @@ export async function getCustomerActivity(
       .limit(100)
       .lean();
 
+    const dismissGroups = new Map<
+      string,
+      {
+        timestamp: Date;
+        staffUsername: string;
+        total: number;
+        firstEntryId: string;
+      }
+    >();
+
     for (const entry of entries) {
       const isCafe = entry.section === "CAFE";
       if (filter === "counter" && isCafe) continue;
@@ -147,25 +157,44 @@ export async function getCustomerActivity(
         corrections: entryDto.corrections,
       });
 
-      if (
-        entry.checkoutDismissedAt &&
-        entry.customerId?.toString() === customerId
-      ) {
-        const balanceAtDismiss = payLaterBalanceAtDismiss(entryDto);
-        if (balanceAtDismiss > 0) {
-          events.push({
-            id: `balance-recorded-${entry._id.toString()}`,
-            kind: "BALANCE_RECORDED",
-            timestamp: entry.checkoutDismissedAt.toISOString(),
-            title: `Pay later — ${entryLabel}`,
-            amount: balanceAtDismiss,
-            staffUsername:
-              entry.checkoutDismissedBy ?? entry.assignedBy ?? entry.createdBy,
-            section: entry.section,
-            entryType: entry.type,
-          });
+      if (entry.checkoutDismissedAt) {
+        const isCustomerEntry =
+          entry.customerId?.toString() === customerId ||
+          entry.contributors?.some(
+            (row) => row.customerId.toString() === customerId
+          );
+        if (isCustomerEntry) {
+          const balanceAtDismiss = payLaterBalanceAtDismiss(entryDto);
+          if (balanceAtDismiss > 0) {
+            const dismissedAt = entry.checkoutDismissedAt;
+            const staffUsername =
+              entry.checkoutDismissedBy ?? entry.assignedBy ?? entry.createdBy;
+            const groupKey = `${dismissedAt.getTime()}::${staffUsername}`;
+            const existing = dismissGroups.get(groupKey);
+            if (existing) {
+              existing.total += balanceAtDismiss;
+            } else {
+              dismissGroups.set(groupKey, {
+                timestamp: dismissedAt,
+                staffUsername,
+                total: balanceAtDismiss,
+                firstEntryId: entry._id.toString(),
+              });
+            }
+          }
         }
       }
+    }
+
+    for (const group of dismissGroups.values()) {
+      events.push({
+        id: `outstanding-created-${group.firstEntryId}-${group.timestamp.getTime()}`,
+        kind: "BALANCE_RECORDED",
+        timestamp: group.timestamp.toISOString(),
+        title: "Due Converted to Outstanding",
+        amount: group.total,
+        staffUsername: group.staffUsername,
+      });
     }
   }
 

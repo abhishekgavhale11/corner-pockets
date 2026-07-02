@@ -36,6 +36,7 @@ import {
   CafeAddItemDialog,
 } from "@/components/counter/CafeAddItemDialog";
 import { useCafeAddItem } from "@/components/counter/useCafeAddItem";
+import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
 import { cn } from "@/lib/utils/cn";
 import { entryTypeLabel } from "@/lib/constants/notebook-entry-types";
 
@@ -307,14 +308,20 @@ function SessionBillPanel({
               editing && cafeItemUsesQuantityArrows(item)
                 ? cafeQuantityItemLabel(item, quantity)
                 : item.label;
+            const itemLocked = item.isLocked;
 
             return (
             <li
               key={item.entryId}
               className="flex items-center gap-3 py-2.5"
             >
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">
-                {rowLabel}
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-semibold text-gray-800">
+                {itemLocked ? (
+                  <EntryLockIndicator className="shrink-0" />
+                ) : null}
+                <span className={cn("truncate", itemLocked && "text-gray-500")}>
+                  {rowLabel}
+                </span>
               </span>
               <div className={cn("ml-auto shrink-0", BILL_CONTROL_WIDTH)}>
               {editing ? (
@@ -322,13 +329,13 @@ function SessionBillPanel({
                   <QuantityStepper
                     quantity={quantity}
                     unitPrice={item.unitPrice && item.unitPrice > 0 ? item.unitPrice : 1}
-                    disabled={isPending}
+                    disabled={isPending || itemLocked}
                     onChange={(next) => setCafeQuantity(item, next)}
                   />
                 ) : (
                   <DirectAmountInput
                     value={foodInputs[item.entryId] ?? String(item.amount)}
-                    disabled={isPending}
+                    disabled={isPending || itemLocked}
                     onChange={(value) =>
                       setFoodInputs((prev) => ({
                         ...prev,

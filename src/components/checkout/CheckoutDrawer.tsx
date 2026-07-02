@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { settleNotebookEntries } from "@/actions/notebook-settlements";
 import { checkoutEntryGroup } from "@/lib/constants/counter-sections";
@@ -72,6 +72,12 @@ export function CheckoutDrawer({ tab, entries, onClose }: CheckoutDrawerProps) {
   const walletEnabled = tab.kind === "customer" ? tab.walletEnabled : false;
   const cardId = tab.kind === "customer" ? tab.cardId : undefined;
 
+  useEffect(() => {
+    if (method === "WALLET" && !walletEnabled) {
+      setMethod("CASH");
+    }
+  }, [method, walletEnabled]);
+
   const submit = () => {
     if (submitted) return;
     const formData = new FormData();
@@ -134,20 +140,26 @@ export function CheckoutDrawer({ tab, entries, onClose }: CheckoutDrawerProps) {
               TOTAL {formatCurrency(total)}
             </p>
             <div className="mt-2 flex gap-1">
-              {(["CASH", "GPAY", "WALLET"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMethod(m)}
-                  className={`flex-1 rounded py-1.5 text-xs font-medium ${
-                    method === m
-                      ? "bg-emerald-800 text-white"
-                      : "bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  {m === "CASH" ? "Cash" : m === "GPAY" ? "GPay" : "Wallet"}
-                </button>
-              ))}
+              {(["CASH", "GPAY", "WALLET"] as const).map((m) => {
+                const disabled = m === "WALLET" && !walletEnabled;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      if (!disabled) setMethod(m);
+                    }}
+                    className={`flex-1 rounded py-1.5 text-xs font-medium ${
+                      method === m
+                        ? "bg-emerald-800 text-white"
+                        : "bg-gray-100 text-gray-700"
+                    } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
+                  >
+                    {m === "CASH" ? "Cash" : m === "GPAY" ? "GPay" : "Wallet"}
+                  </button>
+                );
+              })}
             </div>
             <Button
               type="button"

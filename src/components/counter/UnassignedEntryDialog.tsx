@@ -15,7 +15,7 @@ import type { CustomerDTO, NotebookEntryDTO } from "@/types";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
-import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 import { cn } from "@/lib/utils/cn";
 
 interface UnassignedEntryDialogProps {

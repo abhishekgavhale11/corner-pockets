@@ -28,7 +28,10 @@ import {
   validateContributorRows,
   type ContributorRow,
 } from "@/components/counter/ContributorsSplitFields";
-import { invalidateCustomerGlanceCache } from "@/components/counter/CafeCustomerGlanceHover";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
+import { ENTRY_LOCKED_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-constants";
+import { isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
+import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
 import {
   BillingModeToggle,
   type EntryBillingMode,
@@ -200,6 +203,24 @@ export function SnookerFrameEditDialog({
   };
 
   if (!entry) return null;
+
+  if (isNotebookEntryEditLocked(entry)) {
+    return (
+      <Dialog open={open} onClose={onClose} title="Frame locked">
+        <div className="space-y-3">
+          <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+            <EntryLockIndicator className="mt-0.5 shrink-0" />
+            <p className="text-sm text-gray-700">{ENTRY_LOCKED_MESSAGE}</p>
+          </div>
+          <div className="flex justify-end">
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Close
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onClose={onClose} title="Edit Frame">

@@ -1,4 +1,5 @@
 import { formatCurrency } from "@/lib/utils/format";
+import type { CustomerLedgerEventKind } from "@/types";
 
 export function formatLedgerBalanceLabel(
   walletBalance: number,
@@ -29,6 +30,48 @@ export function formatLedgerAmount(amount: number): string {
   if (amount === 0) return formatCurrency(0);
   const prefix = amount > 0 ? "+" : "−";
   return `${prefix}${formatCurrency(Math.abs(amount))}`;
+}
+
+export function formatLedgerAmountForKind(
+  kind: CustomerLedgerEventKind,
+  amount: number
+): string {
+  if (kind === "status") {
+    if (amount === 0) return "—";
+    return formatCurrency(Math.abs(amount));
+  }
+  return formatLedgerAmount(amount);
+}
+
+export function ledgerEventKindLabel(kind: CustomerLedgerEventKind): string {
+  switch (kind) {
+    case "charge":
+      return "Charge";
+    case "payment":
+      return "Payment";
+    case "status":
+      return "Status";
+  }
+}
+
+export function ledgerLineAmountClass(
+  kind: CustomerLedgerEventKind,
+  amount: number
+): string {
+  if (kind === "charge") return "text-red-700";
+  if (kind === "payment") return "text-emerald-700";
+  return "text-amber-700";
+}
+
+export function ledgerLineRowClass(kind: CustomerLedgerEventKind): string {
+  switch (kind) {
+    case "charge":
+      return "border-l-[3px] border-l-red-400";
+    case "payment":
+      return "border-l-[3px] border-l-emerald-400";
+    case "status":
+      return "border-l-[3px] border-l-amber-400 bg-amber-50/40";
+  }
 }
 
 export function formatLastVisitLabel(timestamp: string | null): string {

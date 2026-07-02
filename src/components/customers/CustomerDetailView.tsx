@@ -21,6 +21,7 @@ interface CustomerDetailViewProps {
   canEditDetails: boolean;
   canReverseRecharges?: boolean;
   initialRechargeOpen?: boolean;
+  currentUsername?: string;
 }
 
 export function CustomerDetailView({
@@ -30,6 +31,7 @@ export function CustomerDetailView({
   canEditDetails,
   canReverseRecharges = false,
   initialRechargeOpen = false,
+  currentUsername,
 }: CustomerDetailViewProps) {
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
@@ -183,6 +185,7 @@ export function CustomerDetailView({
           customerId={customer.id}
           lines={ledgerLines}
           canReverseRecharges={canReverseRecharges}
+          currentUsername={currentUsername}
           fullHeight
         />
       </div>

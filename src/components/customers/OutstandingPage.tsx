@@ -14,7 +14,7 @@ import {
 import type { CustomerOutstandingRowDTO } from "@/types";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { CollectPaymentDialog } from "@/components/customers/CollectPaymentDialog";
+import { CollectPaymentTrigger } from "@/components/customers/CollectPaymentTrigger";
 import { cn } from "@/lib/utils/cn";
 
 interface OutstandingPageProps {
@@ -27,9 +27,6 @@ export function OutstandingPage({
   initialQuery = "",
 }: OutstandingPageProps) {
   const [query, setQuery] = useState(initialQuery);
-  const [collecting, setCollecting] = useState<CustomerOutstandingRowDTO | null>(
-    null
-  );
 
   const filtered = rows.filter((row) => {
     if (!query.trim()) return true;
@@ -120,12 +117,18 @@ export function OutstandingPage({
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => setCollecting(row)}
-                    >
-                      Collect Payment
-                    </Button>
+                    <CollectPaymentTrigger
+                      customer={{
+                        id: row.customerId,
+                        name: row.customerName,
+                        walletEnabled: row.walletEnabled,
+                        cardId: row.cardId,
+                        phone: row.phoneNumber,
+                      }}
+                      outstandingAmount={row.outstandingAmount}
+                      hasActiveVisitWithDue={row.hasActiveVisitWithDue}
+                      activeVisitDueAmount={row.activeVisitDueAmount}
+                    />
                     <Link href={`/customers/${row.customerId}`}>
                       <Button size="sm" variant="secondary">
                         View Profile
@@ -146,21 +149,6 @@ export function OutstandingPage({
             );
           })}
         </div>
-      )}
-
-      {collecting && (
-        <CollectPaymentDialog
-          customer={{
-            id: collecting.customerId,
-            name: collecting.customerName,
-            walletEnabled: collecting.walletEnabled,
-            cardId: collecting.cardId,
-            phone: collecting.phoneNumber,
-          }}
-          outstandingAmount={collecting.outstandingAmount}
-          open
-          onClose={() => setCollecting(null)}
-        />
       )}
     </div>
   );

@@ -23,6 +23,10 @@ import type { NotebookSettlementDTO } from "@/types";
 import { entryHasContributors, entryAmountRemaining, contributorAmountRemaining } from "@/lib/utils/entry-contributors";
 import { closeTableSessionAfterSettlement } from "@/actions/table-sessions";
 import { syncBillTotals } from "@/lib/visit-bill/sync-bill-totals";
+import {
+  advanceBillPaymentWatermarks,
+  collectBillIdsFromEntries,
+} from "@/lib/visit-bill/entry-edit-lock";
 import { linkEntriesToActiveVisitBill } from "@/lib/visit-bill/attach-entry";
 
 import { CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/constants/notebook-payments";
@@ -349,6 +353,10 @@ export async function settleNotebookEntries(
 
   for (const billId of billIds) {
     await syncBillTotals(new mongoose.Types.ObjectId(billId));
+  }
+
+  if (billIds.length > 0) {
+    await advanceBillPaymentWatermarks(billIds, new Date());
   }
 
   const sessionIds = [

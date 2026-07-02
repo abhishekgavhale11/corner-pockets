@@ -10,6 +10,7 @@ export interface IBill extends Document {
   totalAmount: number;
   paidAmount: number;
   dueAmount: number;
+  lastPaymentAt?: Date;
   convertedToOutstandingAt?: Date;
   convertedToOutstandingBy?: string;
   createdBy: string;
@@ -42,6 +43,7 @@ const billSchema = new Schema<IBill>(
     totalAmount: { type: Number, default: 0, min: 0 },
     paidAmount: { type: Number, default: 0, min: 0 },
     dueAmount: { type: Number, default: 0, min: 0 },
+    lastPaymentAt: { type: Date },
     convertedToOutstandingAt: { type: Date },
     convertedToOutstandingBy: { type: String, trim: true },
     createdBy: { type: String, required: true, trim: true },

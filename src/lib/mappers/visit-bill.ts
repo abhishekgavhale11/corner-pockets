@@ -13,6 +13,7 @@ type LeanBill = Pick<
   | "totalAmount"
   | "paidAmount"
   | "dueAmount"
+  | "lastPaymentAt"
   | "convertedToOutstandingAt"
   | "convertedToOutstandingBy"
   | "createdBy"
@@ -45,6 +46,7 @@ export function toBillDTO(bill: LeanBill): BillDTO {
     totalAmount: bill.totalAmount,
     paidAmount: bill.paidAmount,
     dueAmount: bill.dueAmount,
+    lastPaymentAt: bill.lastPaymentAt?.toISOString(),
     convertedToOutstandingAt: bill.convertedToOutstandingAt?.toISOString(),
     convertedToOutstandingBy: bill.convertedToOutstandingBy,
     createdBy: bill.createdBy,

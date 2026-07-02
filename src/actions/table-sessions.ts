@@ -20,6 +20,10 @@ import {
 } from "@/lib/constants/counter-rates";
 import { toTableSessionDTO } from "@/lib/mappers/table-session";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
+import {
+  enrichEntriesWithEditLock,
+  getEntryEditLockFailure,
+} from "@/lib/visit-bill/entry-edit-lock";
 import { toCustomerDTO } from "@/lib/mappers";
 import { generateTableSessionNumber, generateTableLocalSessionNumber } from "@/lib/table-sessions/session-number";
 import {
@@ -52,6 +56,7 @@ import type {
   TableSessionDTO,
   TableSessionHistoryDTO,
   CustomerDTO,
+  NotebookEntryDTO,
 } from "@/types";
 import { CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/constants/notebook-payments";
 import { buildCompactSessionCheckoutTimeline } from "@/lib/utils/session-checkout-timeline";
@@ -1014,25 +1019,34 @@ export async function getSessionCafeDisplayItems(
     .sort({ createdAt: 1 })
     .lean();
 
-  return entries.map((entry) => mapSessionCafeEditItem(entry));
+  return mapSessionCafeEditItems(entries);
 }
 
 function mapSessionCafeEditItem(
-  entry: Parameters<typeof toNotebookEntryDTO>[0]
+  entry: NotebookEntryDTO
 ): SessionCafeEditItemDTO {
-  const dto = toNotebookEntryDTO(entry);
-  const quantity = dto.quantity ?? 1;
+  const quantity = entry.quantity ?? 1;
   const unitPrice =
-    dto.unitPrice ?? (quantity > 0 ? Math.round(dto.amount / quantity) : dto.amount);
+    entry.unitPrice ?? (quantity > 0 ? Math.round(entry.amount / quantity) : entry.amount);
   return {
-    entryId: dto.id,
-    label: formatCafeItemLabel(dto),
-    amount: dto.amount,
-    itemType: dto.type,
-    itemNote: dto.itemNote,
+    entryId: entry.id,
+    label: formatCafeItemLabel(entry),
+    amount: entry.amount,
+    itemType: entry.type,
+    itemNote: entry.itemNote,
     unitPrice,
     quantity,
+    isLocked: entry.isLocked ?? false,
   };
+}
+
+async function mapSessionCafeEditItems(
+  entries: Parameters<typeof toNotebookEntryDTO>[0][]
+): Promise<SessionCafeEditItemDTO[]> {
+  const enriched = await enrichEntriesWithEditLock(
+    entries.map((entry) => toNotebookEntryDTO(entry))
+  );
+  return enriched.map((entry) => mapSessionCafeEditItem(entry));
 }
 
 export async function getSessionCafeEditItems(
@@ -1053,7 +1067,7 @@ export async function getSessionCafeEditItems(
     .sort({ createdAt: 1 })
     .lean();
 
-  return entries.map((entry) => mapSessionCafeEditItem(entry));
+  return mapSessionCafeEditItems(entries);
 }
 
 export async function updateSessionBillAmounts(
@@ -1109,6 +1123,10 @@ export async function updateSessionBillAmounts(
       if (session.gameEntryId) {
         const entry = await NotebookEntry.findById(session.gameEntryId);
         if (entry) {
+          const lockFailure = await getEntryEditLockFailure(entry);
+          if (lockFailure) {
+            return failure(lockFailure);
+          }
           entry.amount = gameAmount;
           await entry.save();
         }
@@ -1131,6 +1149,10 @@ export async function updateSessionBillAmounts(
     } else if (session.gameEntryId) {
       const entry = await NotebookEntry.findById(session.gameEntryId);
       if (entry) {
+        const lockFailure = await getEntryEditLockFailure(entry);
+        if (lockFailure) {
+          return failure(lockFailure);
+        }
         entry.amount = 0;
         await entry.save();
       }
@@ -1149,6 +1171,10 @@ export async function updateSessionBillAmounts(
     }
     if (entry.status === "PAID") {
       return failure("Paid cafe items cannot be edited");
+    }
+    const lockFailure = await getEntryEditLockFailure(entry);
+    if (lockFailure) {
+      return failure(lockFailure);
     }
     const amount = Math.round(item.amount);
     const quantity = entry.quantity ?? 1;
