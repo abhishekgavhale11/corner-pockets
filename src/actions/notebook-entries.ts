@@ -73,7 +73,10 @@ import { reconcileEntryPaymentFields } from "@/lib/wallet/reconcile-entry-paymen
 import { linkEntryToActiveVisitBill, linkEntriesToActiveVisitBill } from "@/lib/visit-bill/attach-entry";
 import { linkSplitEntryToContributorVisits } from "@/lib/visit-bill/link-split-entry";
 import { getCustomerBillSlice } from "@/lib/visit-bill/customer-bill-slice";
-import { getEntryEditLockFailure } from "@/lib/visit-bill/entry-edit-lock";
+import {
+  getCustomerReassignmentFailure,
+  getEntryEditLockFailure,
+} from "@/lib/visit-bill/entry-edit-lock";
 
 export async function createQuickCounterEntry(
   formData: FormData
@@ -322,6 +325,11 @@ export async function updateSnookerFrameEntry(
 
     const currentCustomerId = entry.customerId?.toString();
     if (currentCustomerId !== customerId) {
+      const reassignmentFailure = getCustomerReassignmentFailure(entry);
+      if (reassignmentFailure) {
+        return failure(reassignmentFailure);
+      }
+
       entry.customerId = customer._id;
       entry.customerName = customer.name;
       entry.phoneNumber = customer.phone;
@@ -390,6 +398,11 @@ export async function correctCounterEntry(
         return failure(
           "Use Assign Customer for first assignment. Corrections apply only to already assigned entries."
         );
+      }
+
+      const reassignmentFailure = getCustomerReassignmentFailure(entry);
+      if (reassignmentFailure) {
+        return failure(reassignmentFailure);
       }
 
       const customer = await Customer.findById(nextCustomerId);
@@ -1031,6 +1044,11 @@ export async function setEntryContributors(
 
   if (entry.status !== "PENDING") {
     return failure("Only pending entries can have contributors assigned");
+  }
+
+  const reassignmentFailure = getCustomerReassignmentFailure(entry);
+  if (reassignmentFailure) {
+    return failure(reassignmentFailure);
   }
 
   const lockFailure = await getEntryEditLockFailure(entry);

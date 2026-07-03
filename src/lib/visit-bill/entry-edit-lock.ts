@@ -2,9 +2,10 @@ import type { ClientSession, Types } from "mongoose";
 import type { NotebookEntryDTO } from "@/types";
 import {
   ENTRY_LOCKED_MESSAGE,
+  ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE,
   ENTRY_LOCKED_TOOLTIP,
   entryReceivedPayment,
-  isEntryLockedByPayment,
+  entryBlocksCustomerReassignment,
   isNotebookEntryEditLocked,
 } from "@/lib/visit-bill/entry-edit-lock-utils";
 import Bill from "@/models/Bill";
@@ -12,30 +13,19 @@ import type { INotebookEntry } from "@/models/NotebookEntry";
 
 export {
   ENTRY_LOCKED_MESSAGE,
+  ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE,
   ENTRY_LOCKED_TOOLTIP,
-  isEntryLockedByPayment,
   entryReceivedPayment,
+  entryBlocksCustomerReassignment,
   isNotebookEntryEditLocked,
 };
 
 export function enrichEntryDTOWithEditLock(
-  entry: NotebookEntryDTO,
-  billLastPaymentAt: Map<string, Date | undefined>
+  entry: NotebookEntryDTO
 ): NotebookEntryDTO {
-  const lastPaymentAt = entry.billId
-    ? billLastPaymentAt.get(entry.billId)?.toISOString()
-    : undefined;
-
   return {
     ...entry,
-    isLocked: isNotebookEntryEditLocked({
-      status: entry.status,
-      createdAt: entry.createdAt,
-      billId: entry.billId,
-      paidAmount: entry.paidAmount,
-      balanceCollectedAmount: entry.balanceCollectedAmount,
-      lastPaymentAt,
-    }),
+    isLocked: isNotebookEntryEditLocked(entry),
   };
 }
 
@@ -63,43 +53,44 @@ export async function getBillLastPaymentAtMap(
 export async function enrichEntriesWithEditLock(
   entries: NotebookEntryDTO[]
 ): Promise<NotebookEntryDTO[]> {
-  const billIds = entries
-    .map((entry) => entry.billId)
-    .filter((billId): billId is string => Boolean(billId));
-
-  const billLastPaymentAt = await getBillLastPaymentAtMap(billIds);
-  return entries.map((entry) =>
-    enrichEntryDTOWithEditLock(entry, billLastPaymentAt)
-  );
+  return entries.map((entry) => enrichEntryDTOWithEditLock(entry));
 }
 
 export async function getEntryEditLockFailure(
   entry: Pick<
     INotebookEntry,
     | "status"
-    | "billId"
-    | "createdAt"
     | "paidAmount"
     | "balanceCollectedAmount"
+    | "contributors"
   >
 ): Promise<string | null> {
-  let lastPaymentAt: string | undefined;
-
-  if (entry.billId) {
-    const bill = await Bill.findById(entry.billId).select("lastPaymentAt").lean();
-    lastPaymentAt = bill?.lastPaymentAt?.toISOString();
-  }
-
   const locked = isNotebookEntryEditLocked({
     status: entry.status,
-    createdAt: entry.createdAt.toISOString(),
-    billId: entry.billId?.toString(),
     paidAmount: entry.paidAmount ?? 0,
     balanceCollectedAmount: entry.balanceCollectedAmount ?? 0,
-    lastPaymentAt,
+    contributors: entry.contributors?.map((contributor) => ({
+      status: contributor.status,
+      paidAmount: contributor.paidAmount,
+      balanceCollectedAmount: contributor.balanceCollectedAmount,
+    })),
   });
 
   return locked ? ENTRY_LOCKED_MESSAGE : null;
+}
+
+export function getCustomerReassignmentFailure(
+  entry: Pick<
+    INotebookEntry,
+    | "status"
+    | "paidAmount"
+    | "balanceCollectedAmount"
+    | "contributors"
+  >
+): string | null {
+  return entryBlocksCustomerReassignment(entry)
+    ? ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE
+    : null;
 }
 
 export async function advanceBillPaymentWatermark(

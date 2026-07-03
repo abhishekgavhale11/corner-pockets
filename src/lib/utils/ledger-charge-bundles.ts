@@ -10,6 +10,8 @@ export type LedgerChargeCandidate = {
   description: string;
   amount: number;
   staffUsername: string;
+  /** Pay-later obligations only — not active visit checkout charges */
+  isPayLaterObligation?: boolean;
 };
 
 export type BundledLedgerCharge = {
@@ -18,6 +20,7 @@ export type BundledLedgerCharge = {
   description: string;
   amount: number;
   staffUsername: string;
+  payLaterAmount: number;
 };
 
 /** Collapse repeated labels into "Singles ×2", "Coffee ×4", etc. */
@@ -142,6 +145,9 @@ export function bundleLedgerCharges(
       description: formatBundleDescription(section, labels),
       amount,
       staffUsername: first.staffUsername,
+      payLaterAmount: group
+        .filter((row) => row.isPayLaterObligation)
+        .reduce((sum, row) => sum + row.amount, 0),
     };
   });
 }

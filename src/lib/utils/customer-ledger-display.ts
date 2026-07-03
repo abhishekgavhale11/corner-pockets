@@ -1,5 +1,39 @@
 import { formatCurrency } from "@/lib/utils/format";
-import type { CustomerLedgerEventKind } from "@/types";
+import type { NotebookPaymentMethod } from "@/lib/constants/notebook-payments";
+import type {
+  CustomerLedgerEventKind,
+  CustomerLedgerPaymentContext,
+} from "@/types";
+
+export function formatLedgerPaymentContextLabel(
+  context: CustomerLedgerPaymentContext
+): string {
+  switch (context) {
+    case "ACTIVE_VISIT":
+      return "Visit";
+    case "OUTSTANDING":
+      return "Outstanding";
+    case "WALLET":
+      return "Wallet";
+    case "REFUND":
+      return "Refund";
+  }
+}
+
+export function formatPaymentReceivedDescription(
+  method: NotebookPaymentMethod,
+  context: CustomerLedgerPaymentContext
+): string {
+  const contextLabel = formatLedgerPaymentContextLabel(context);
+  switch (method) {
+    case "CASH":
+      return `Cash Received (${contextLabel})`;
+    case "GPAY":
+      return `GPay Received (${contextLabel})`;
+    case "WALLET":
+      return `Wallet Payment (${contextLabel})`;
+  }
+}
 
 export function formatLedgerBalanceLabel(
   walletBalance: number,
@@ -37,7 +71,6 @@ export function formatLedgerAmountForKind(
   amount: number
 ): string {
   if (kind === "status") {
-    if (amount === 0) return "—";
     return formatCurrency(Math.abs(amount));
   }
   return formatLedgerAmount(amount);
@@ -70,8 +103,22 @@ export function ledgerLineRowClass(kind: CustomerLedgerEventKind): string {
     case "payment":
       return "border-l-[3px] border-l-emerald-400";
     case "status":
-      return "border-l-[3px] border-l-amber-400 bg-amber-50/40";
+      return "border-l-[3px] border-l-amber-400 bg-amber-50/75 ring-1 ring-inset ring-amber-100/90";
   }
+}
+
+export function ledgerLineDescriptionClass(kind: CustomerLedgerEventKind): string {
+  if (kind === "status") {
+    return "font-semibold text-amber-950";
+  }
+  return "font-medium text-gray-800";
+}
+
+export function ledgerOutstandingClass(outstandingBalance: number): string {
+  if (outstandingBalance === 0) {
+    return "text-emerald-700";
+  }
+  return "text-gray-900";
 }
 
 export function formatLastVisitLabel(timestamp: string | null): string {

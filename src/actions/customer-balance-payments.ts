@@ -18,7 +18,10 @@ import {
   advanceBillPaymentWatermarks,
   collectBillIdsFromEntries,
 } from "@/lib/visit-bill/entry-edit-lock";
-import { getActiveVisitCheckoutDueAmount } from "@/lib/visit-bill/active-visit-checkout-due";
+import {
+  CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE,
+  getCustomerPagePaymentBlockDue,
+} from "@/lib/visit-bill/active-visit-checkout-due";
 import type { CustomerBalancePaymentDTO } from "@/types";
 import Customer from "@/models/Customer";
 import CustomerBalancePayment from "@/models/CustomerBalancePayment";
@@ -95,13 +98,11 @@ export async function recordCustomerBalancePayment(
     return failure("Wallet is not enabled for this customer");
   }
 
-  const activeVisitCheckoutDue = await getActiveVisitCheckoutDueAmount(
+  const activeVisitBlockDue = await getCustomerPagePaymentBlockDue(
     parsed.data.customerId
   );
-  if (activeVisitCheckoutDue > 0) {
-    return failure(
-      "This customer has an active visit due. Collect today's payment from Checkout."
-    );
+  if (activeVisitBlockDue > 0) {
+    return failure(CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE);
   }
 
   const dbSession = await mongoose.startSession();
@@ -111,6 +112,13 @@ export async function recordCustomerBalancePayment(
 
   try {
     await dbSession.withTransaction(async () => {
+      const blockDue = await getCustomerPagePaymentBlockDue(
+        parsed.data.customerId
+      );
+      if (blockDue > 0) {
+        throw new Error(CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE);
+      }
+
       const paidAt = new Date();
       let entries;
 
@@ -130,9 +138,7 @@ export async function recordCustomerBalancePayment(
 
         for (const entry of entries) {
           if (!entry.checkoutDismissedAt) {
-            throw new Error(
-              "This customer has an active visit due. Collect today's payment from Checkout."
-            );
+            throw new Error(CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE);
           }
           if (entryHasContributors({ contributors: entry.contributors })) {
             continue;

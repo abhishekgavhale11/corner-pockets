@@ -4,12 +4,15 @@ import {
   formatLedgerAmountForKind,
   ledgerEventKindLabel,
   ledgerLineAmountClass,
+  ledgerLineDescriptionClass,
   ledgerLineRowClass,
+  ledgerOutstandingClass,
 } from "@/lib/utils/customer-ledger-display";
 import type { CustomerDTO, CustomerLedgerLineDTO } from "@/types";
 import type { CustomerLedgerSummaryDTO } from "@/types";
 import { CustomerSummaryCard } from "@/components/customers/CustomerSummaryCard";
 import { cn } from "@/lib/utils/cn";
+import { formatCurrency } from "@/lib/utils/format";
 
 interface CustomerLedgerViewProps {
   customer: CustomerDTO;
@@ -67,8 +70,12 @@ export function CustomerLedgerView({
                 <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                   <th className="px-4 py-2 font-semibold">Date &amp; Time</th>
                   <th className="px-4 py-2 font-semibold">Description</th>
-                  <th className="px-4 py-2 text-right font-semibold">Amount</th>
-                  <th className="px-4 py-2 text-right font-semibold">Balance</th>
+                  <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wide">
+                    Amount
+                  </th>
+                  <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wide">
+                    Outstanding
+                  </th>
                   <th className="px-4 py-2 font-semibold">Staff</th>
                 </tr>
               </thead>
@@ -92,7 +99,19 @@ export function CustomerLedgerView({
                       </td>
                       <td className="px-4 py-2.5 align-top">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900">
+                          <span
+                            className={cn(
+                              "h-2 w-2 shrink-0 rounded-full",
+                              line.kind === "charge" && "bg-red-500",
+                              line.kind === "payment" && "bg-emerald-500",
+                              line.kind === "status" && "bg-amber-500"
+                            )}
+                          />
+                          <span
+                            className={cn(
+                              ledgerLineDescriptionClass(line.kind)
+                            )}
+                          >
                             {line.description}
                           </span>
                           {!isOpening ? (
@@ -113,7 +132,7 @@ export function CustomerLedgerView({
                       </td>
                       <td
                         className={cn(
-                          "px-4 py-2.5 align-top text-right font-semibold tabular-nums",
+                          "px-4 py-2.5 align-top text-right text-xs font-bold tabular-nums",
                           isOpening
                             ? "text-gray-500"
                             : ledgerLineAmountClass(line.kind, line.amount)
@@ -123,8 +142,13 @@ export function CustomerLedgerView({
                           ? "—"
                           : formatLedgerAmountForKind(line.kind, line.amount)}
                       </td>
-                      <td className="px-4 py-2.5 align-top text-right text-xs font-medium text-gray-800">
-                        {line.balanceLabel}
+                      <td
+                        className={cn(
+                          "px-4 py-2.5 align-top text-right text-xs font-bold tabular-nums",
+                          ledgerOutstandingClass(line.outstandingBalance)
+                        )}
+                      >
+                        {formatCurrency(line.outstandingBalance)}
                       </td>
                       <td className="px-4 py-2.5 align-top text-xs text-gray-500">
                         {line.staffUsername}

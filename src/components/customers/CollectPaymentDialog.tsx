@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { recordCustomerBalancePayment } from "@/actions/customer-balance-payments";
+import { CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE } from "@/lib/constants/customer-page-payments";
 import { formatCurrency } from "@/lib/utils/format";
 import type { NotebookPaymentMethod } from "@/lib/constants/notebook-payments";
 import type { CustomerDTO } from "@/types";
@@ -25,6 +26,7 @@ interface CollectPaymentDialogProps {
   outstandingAmount: number;
   open: boolean;
   onClose: () => void;
+  paymentBlocked?: boolean;
 }
 
 export function CollectPaymentDialog({
@@ -32,6 +34,7 @@ export function CollectPaymentDialog({
   outstandingAmount,
   open,
   onClose,
+  paymentBlocked = false,
 }: CollectPaymentDialogProps) {
   const router = useRouter();
   const [amount, setAmount] = useState("");
@@ -55,6 +58,13 @@ export function CollectPaymentDialog({
 
   useEffect(() => {
     if (!open) return;
+    if (paymentBlocked) {
+      onClose();
+    }
+  }, [open, paymentBlocked, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
     if (method === "WALLET" && !customer.walletEnabled) {
       setMethod("CASH");
       setVerificationMethod(null);
@@ -67,6 +77,11 @@ export function CollectPaymentDialog({
     (!needsWalletVerify || verificationMethod !== null);
 
   const save = () => {
+    if (paymentBlocked) {
+      setError(CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE);
+      return;
+    }
+
     const parsedAmount = Number.parseInt(amount, 10);
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setError("Enter a valid amount");
@@ -97,6 +112,10 @@ export function CollectPaymentDialog({
       setError(result.error);
     });
   };
+
+  if (!open || paymentBlocked) {
+    return null;
+  }
 
   return (
     <Dialog open={open} onClose={handleClose} title={`Collect Payment — ${customer.name}`}>

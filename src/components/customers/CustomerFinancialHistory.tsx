@@ -10,8 +10,11 @@ import {
 import { formatActivityTimeParts } from "@/lib/utils/activity-display";
 import {
   formatLedgerAmountForKind,
+  ledgerEventKindLabel,
   ledgerLineAmountClass,
+  ledgerLineDescriptionClass,
   ledgerLineRowClass,
+  ledgerOutstandingClass,
 } from "@/lib/utils/customer-ledger-display";
 import type { CustomerLedgerLineDTO } from "@/types";
 import { cn } from "@/lib/utils/cn";
@@ -175,8 +178,7 @@ export function CustomerFinancialHistory({
                   key={line.id}
                   className={cn(
                     "border-b border-gray-100 px-3 py-1.5 transition-colors hover:bg-gray-100/70",
-                    ledgerLineRowClass(line.kind),
-                    line.kind === "status" && "bg-amber-50/30"
+                    ledgerLineRowClass(line.kind)
                   )}
                   onClick={() =>
                     setExpandedRows((prev) => {
@@ -204,7 +206,10 @@ export function CustomerFinancialHistory({
                           )}
                         />
                         <p
-                          className="min-w-0 truncate text-xs font-medium text-gray-800"
+                          className={cn(
+                            "min-w-0 truncate text-xs",
+                            ledgerLineDescriptionClass(line.kind)
+                          )}
                           title={line.description}
                         >
                           {line.description}
@@ -231,10 +236,8 @@ export function CustomerFinancialHistory({
                     </span>
                     <span
                       className={cn(
-                        "pl-3 text-right text-xs font-bold leading-snug tabular-nums",
-                        line.outstandingBalance === 0
-                          ? "text-emerald-700"
-                          : "text-gray-900"
+                        "pl-3 text-right text-xs font-bold tabular-nums leading-snug",
+                        ledgerOutstandingClass(line.outstandingBalance)
                       )}
                     >
                       {formatCurrency(line.outstandingBalance)}

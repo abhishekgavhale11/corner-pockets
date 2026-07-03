@@ -109,11 +109,15 @@ export function isEntryOnCustomerBalance(
   );
 }
 
-/** Count toward ledger charges / outstanding (paid history, visit due, or pay-later balance). */
-export function isEntryLedgerChargeable(
+/** Entry has passed through checkout (payment and/or pay-later) — eligible for ledger. */
+export function isEntryLedgerCommitted(
   entry: Pick<
     NotebookEntryDTO,
-    "status" | "checkoutDismissedAt" | "customerId"
+    | "status"
+    | "checkoutDismissedAt"
+    | "paidAmount"
+    | "balanceCollectedAmount"
+    | "contributors"
   >
 ): boolean {
   if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
@@ -122,17 +126,55 @@ export function isEntryLedgerChargeable(
   if (entry.status === "PAID") {
     return true;
   }
-  if (entry.status === "PENDING" && entry.customerId) {
+  if (entry.checkoutDismissedAt) {
+    return true;
+  }
+  if (entryReceivedPayment(entry)) {
+    return true;
+  }
+  if (
+    entry.contributors?.some(
+      (contributor) =>
+        contributor.status === "PAID" || entryReceivedPayment(contributor)
+    )
+  ) {
     return true;
   }
   return false;
 }
 
-/** Outstanding on the customer's balance — not checkout-queue items still open. */
+function entryReceivedPayment(input: {
+  paidAmount?: number | null;
+  balanceCollectedAmount?: number | null;
+}): boolean {
+  return (
+    (input.paidAmount ?? 0) + (input.balanceCollectedAmount ?? 0) > 0
+  );
+}
+
+/** Count toward ledger charges / pay-later outstanding — not counter assignment. */
+export function isEntryLedgerChargeable(
+  entry: Pick<
+    NotebookEntryDTO,
+    | "status"
+    | "checkoutDismissedAt"
+    | "paidAmount"
+    | "balanceCollectedAmount"
+    | "customerId"
+    | "contributors"
+  >
+): boolean {
+  return isEntryLedgerCommitted(entry);
+}
+
+/** Pay-later / collected outstanding — excludes active checkout-queue items. */
 export function getLedgerObligations(
   entry: NotebookEntryDTO
 ): ContributorObligation[] {
   if (!isEntryLedgerChargeable(entry)) {
+    return [];
+  }
+  if (!entry.checkoutDismissedAt) {
     return [];
   }
   return getPendingObligations(entry);

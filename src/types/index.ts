@@ -472,12 +472,34 @@ export interface CustomerLedgerSummaryDTO {
 
 export type CustomerLedgerEventKind = "charge" | "payment" | "status";
 
+/** What a payment was applied against — presentation metadata only */
+export type CustomerLedgerPaymentContext =
+  | "ACTIVE_VISIT"
+  | "OUTSTANDING"
+  | "WALLET"
+  | "REFUND";
+
+/** Stable subtype for ledger rows — used for future detail / adjustment / refund flows */
+export type CustomerLedgerEventSubtype =
+  | "opening"
+  | "charge"
+  | "payment"
+  | "moved_to_outstanding"
+  | "outstanding_paid"
+  | "wallet_recharge"
+  | "wallet_deduct"
+  | "wallet_refund";
+
 export interface CustomerLedgerLineDTO {
+  /** Stable ledger row id for future View Details / Adjustment / Refund actions */
+  ledgerId: string;
   id: string;
   timestamp: string;
   description: string;
   amount: number;
   kind: CustomerLedgerEventKind;
+  eventSubtype?: CustomerLedgerEventSubtype;
+  paymentContext?: CustomerLedgerPaymentContext;
   staffUsername: string;
   walletBalance: number;
   outstandingBalance: number;

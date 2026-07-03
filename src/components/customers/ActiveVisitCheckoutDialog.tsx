@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/utils/format";
 import { checkoutHrefForCustomer } from "@/lib/utils/checkout-navigation";
 import { Button } from "@/components/ui/Button";
@@ -19,6 +19,13 @@ export function ActiveVisitCheckoutDialog({
   open,
   onClose,
 }: ActiveVisitCheckoutDialogProps) {
+  const router = useRouter();
+
+  const openCheckout = () => {
+    onClose();
+    router.push(checkoutHrefForCustomer(customerId));
+  };
+
   return (
     <Dialog open={open} onClose={onClose} title="Active Visit Detected">
       <div className="space-y-4">
@@ -34,15 +41,16 @@ export function ActiveVisitCheckoutDialog({
           </p>
         </div>
         <p className="text-sm text-gray-700">
-          Today&apos;s visit payments must be collected from Checkout.
+          Today&apos;s visit payments must be collected from Checkout. Outstanding
+          balance payments are blocked until the visit bill is settled.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Link href={checkoutHrefForCustomer(customerId)} onClick={onClose}>
-            <Button type="button">Open Checkout</Button>
-          </Link>
+          <Button type="button" onClick={openCheckout}>
+            Open Checkout
+          </Button>
         </div>
       </div>
     </Dialog>

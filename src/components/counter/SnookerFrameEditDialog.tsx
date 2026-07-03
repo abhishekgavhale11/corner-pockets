@@ -29,8 +29,8 @@ import {
   type ContributorRow,
 } from "@/components/counter/ContributorsSplitFields";
 import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
-import { ENTRY_LOCKED_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-constants";
-import { isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
+import { ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE, ENTRY_LOCKED_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-constants";
+import { entryBlocksCustomerReassignment, isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
 import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
 import {
   BillingModeToggle,
@@ -148,7 +148,7 @@ export function SnookerFrameEditDialog({
       if (frameType === "RUMMY") {
         formData.set("playerCount", playerCount);
       }
-      if (billingMode === "single" && selectedCustomerId && !hadContributors) {
+      if (billingMode === "single" && selectedCustomerId && !hadContributors && !customerReassignmentBlocked) {
         formData.set("customerId", selectedCustomerId);
       }
 
@@ -204,13 +204,18 @@ export function SnookerFrameEditDialog({
 
   if (!entry) return null;
 
+  const customerReassignmentBlocked = entryBlocksCustomerReassignment(entry);
+
   if (isNotebookEntryEditLocked(entry)) {
+    const lockMessage = entryBlocksCustomerReassignment(entry)
+      ? ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE
+      : ENTRY_LOCKED_MESSAGE;
     return (
       <Dialog open={open} onClose={onClose} title="Frame locked">
         <div className="space-y-3">
           <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
             <EntryLockIndicator className="mt-0.5 shrink-0" />
-            <p className="text-sm text-gray-700">{ENTRY_LOCKED_MESSAGE}</p>
+            <p className="text-sm text-gray-700">{lockMessage}</p>
           </div>
           <div className="flex justify-end">
             <Button type="button" variant="secondary" onClick={onClose}>
@@ -271,6 +276,12 @@ export function SnookerFrameEditDialog({
         ) : (
           <div>
             <Label htmlFor="frame-entry-customer">Customer</Label>
+            {customerReassignmentBlocked ? (
+              <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE}
+              </p>
+            ) : (
+              <>
             <Input
               id="frame-entry-customer"
               value={customerQuery}
@@ -314,6 +325,8 @@ export function SnookerFrameEditDialog({
               <p className="mt-1 text-[11px] text-gray-500">
                 Leave empty to keep unassigned
               </p>
+            )}
+              </>
             )}
           </div>
         )}

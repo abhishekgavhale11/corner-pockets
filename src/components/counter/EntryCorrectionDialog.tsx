@@ -30,6 +30,8 @@ import {
   validateContributorRows,
   type ContributorRow,
 } from "@/components/counter/ContributorsSplitFields";
+import { ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-constants";
+import { entryBlocksCustomerReassignment } from "@/lib/visit-bill/entry-edit-lock-utils";
 import { assignCounterEntryCustomer } from "@/actions/notebook-entries";
 
 interface EntryCorrectionDialogProps {
@@ -115,7 +117,7 @@ export function EntryCorrectionDialog({
     formData.set("correctionReason", reason.trim());
     formData.set("amount", String(parsedAmount));
 
-    if (billingMode === "single" && selectedCustomerId) {
+    if (billingMode === "single" && selectedCustomerId && !customerReassignmentBlocked) {
       formData.set("customerId", selectedCustomerId);
     }
 
@@ -136,7 +138,7 @@ export function EntryCorrectionDialog({
         return;
       }
 
-      if (billingMode === "split") {
+      if (billingMode === "split" && !customerReassignmentBlocked) {
         const splitFormData = new FormData();
         splitFormData.set("entryId", entry.id);
         splitFormData.set(
@@ -181,6 +183,7 @@ export function EntryCorrectionDialog({
   };
 
   const canChangeCustomer = Boolean(entry?.assignedAt);
+  const customerReassignmentBlocked = entryBlocksCustomerReassignment(entry);
   const showBillingToggle =
     entry.type === "RUMMY" || entry.type === "SNOOKER";
 
@@ -198,6 +201,12 @@ export function EntryCorrectionDialog({
         {billingMode === "single" && canChangeCustomer && (
           <div>
             <Label htmlFor="correction-customer">Customer</Label>
+            {customerReassignmentBlocked ? (
+              <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE}
+              </p>
+            ) : (
+              <>
             <Input
               id="correction-customer"
               value={customerQuery}
@@ -233,10 +242,18 @@ export function EntryCorrectionDialog({
                 ))}
               </ul>
             )}
+              </>
+            )}
           </div>
         )}
 
-        {billingMode === "split" && (
+        {billingMode === "split" && customerReassignmentBlocked && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE}
+          </p>
+        )}
+
+        {billingMode === "split" && !customerReassignmentBlocked && (
           <ContributorsSplitFields
             totalAmount={Number.parseInt(amount, 10) || entry.amount}
             rows={contributorRows}

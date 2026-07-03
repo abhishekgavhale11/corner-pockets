@@ -3,7 +3,6 @@
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/db/connect";
 import { authorizePermission } from "@/lib/auth/session";
-import type { NotebookPaymentMethod } from "@/lib/constants/notebook-payments";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import {
   formatCafeItemLabel,
@@ -18,10 +17,13 @@ import {
 } from "@/lib/utils/ledger-charge-bundles";
 import {
   formatLedgerBalanceLabel,
+  formatPaymentReceivedDescription,
 } from "@/lib/utils/customer-ledger-display";
 import type {
   CustomerLedgerEventKind,
+  CustomerLedgerEventSubtype,
   CustomerLedgerLineDTO,
+  CustomerLedgerPaymentContext,
   CustomerLedgerSummaryDTO,
   CustomerOutstandingRowDTO,
 } from "@/types";
@@ -30,7 +32,7 @@ import CustomerBalancePayment from "@/models/CustomerBalancePayment";
 import NotebookEntry from "@/models/NotebookEntry";
 import NotebookSettlement from "@/models/NotebookSettlement";
 import Transaction from "@/models/Transaction";
-import { getActiveVisitCheckoutDueAmount } from "@/lib/visit-bill/active-visit-checkout-due";
+import { getCustomerPagePaymentBlockDue } from "@/lib/visit-bill/active-visit-checkout-due";
 
 type RawLedgerEvent = {
   id: string;
@@ -38,6 +40,8 @@ type RawLedgerEvent = {
   description: string;
   amount: number;
   kind: CustomerLedgerEventKind;
+  eventSubtype?: CustomerLedgerEventSubtype;
+  paymentContext?: CustomerLedgerPaymentContext;
   staffUsername: string;
   affectsOutstanding: boolean;
   affectsWallet: boolean;
@@ -58,15 +62,57 @@ const PAY_LATER_PREFIX_PATTERN = /^pay\s*later\b[\s\-—:]*/i;
 
 const LEDGER_ENTRY_LIMIT = 500;
 
-function paymentReceivedLabel(method: NotebookPaymentMethod): string {
-  switch (method) {
-    case "CASH":
-      return "Cash Received";
-    case "GPAY":
-      return "GPay Received";
-    case "WALLET":
-      return "Paid from Wallet";
+const LEDGER_STATUS_MOVED_TO_OUTSTANDING = "Moved to Outstanding";
+const LEDGER_STATUS_OUTSTANDING_PAID = "Outstanding Paid";
+
+function settlementPaymentContext(
+  settlement: {
+    entryIds: mongoose.Types.ObjectId[];
+    contributorPayments?: {
+      entryId: mongoose.Types.ObjectId;
+      customerId: mongoose.Types.ObjectId;
+      amount: number;
+    }[];
+  },
+  customerId: string,
+  entryDtoById: Map<string, ReturnType<typeof toNotebookEntryDTO>>
+): CustomerLedgerPaymentContext {
+  const contributorPayment = settlement.contributorPayments?.find(
+    (payment) => payment.customerId.toString() === customerId
+  );
+
+  const entryIds = contributorPayment
+    ? [contributorPayment.entryId.toString()]
+    : settlement.entryIds
+        .map((entryId) => entryId.toString())
+        .filter((entryId) => {
+          const dto = entryDtoById.get(entryId);
+          if (!dto) return false;
+          return customerLedgerChargeAmount(dto, customerId) != null;
+        });
+
+  if (entryIds.length === 0) {
+    return "ACTIVE_VISIT";
   }
+
+  let hasOutstandingEntry = false;
+  let hasVisitEntry = false;
+
+  for (const entryId of entryIds) {
+    const dto = entryDtoById.get(entryId);
+    if (!dto) continue;
+    if (dto.checkoutDismissedAt) {
+      hasOutstandingEntry = true;
+    } else {
+      hasVisitEntry = true;
+    }
+  }
+
+  if (hasOutstandingEntry && !hasVisitEntry) {
+    return "OUTSTANDING";
+  }
+
+  return "ACTIVE_VISIT";
 }
 
 function chargeDescription(
@@ -117,6 +163,25 @@ function customerOutstandingAmount(
     .reduce((sum, obligation) => sum + obligation.amount, 0);
 }
 
+function ledgerEventSortPriority(event: RawLedgerEvent): number {
+  if (event.kind === "charge") return 10;
+  if (event.kind === "payment") return 20;
+  if (
+    event.eventSubtype === "moved_to_outstanding" ||
+    event.description === LEDGER_STATUS_MOVED_TO_OUTSTANDING
+  ) {
+    return 30;
+  }
+  if (
+    event.eventSubtype === "outstanding_paid" ||
+    event.description === LEDGER_STATUS_OUTSTANDING_PAID
+  ) {
+    return 40;
+  }
+  if (event.kind === "status") return 25;
+  return 50;
+}
+
 function applyRunningBalances(
   events: RawLedgerEvent[],
   openingTimestamp: Date
@@ -124,6 +189,9 @@ function applyRunningBalances(
   const sorted = [...events].sort((a, b) => {
     const diff = a.timestamp.getTime() - b.timestamp.getTime();
     if (diff !== 0) return diff;
+    const priorityDiff =
+      ledgerEventSortPriority(a) - ledgerEventSortPriority(b);
+    if (priorityDiff !== 0) return priorityDiff;
     return a.id.localeCompare(b.id);
   });
 
@@ -131,11 +199,13 @@ function applyRunningBalances(
   let outstandingBalance = 0;
   const lines: CustomerLedgerLineDTO[] = [
     {
+      ledgerId: "opening",
       id: "opening",
       timestamp: openingTimestamp.toISOString(),
       description: "Balance Brought Forward",
       amount: 0,
       kind: "status",
+      eventSubtype: "opening",
       staffUsername: "—",
       walletBalance: 0,
       outstandingBalance: 0,
@@ -157,11 +227,14 @@ function applyRunningBalances(
     }
 
     lines.push({
+      ledgerId: event.id,
       id: event.id,
       timestamp: event.timestamp.toISOString(),
       description: event.description,
       amount: event.amount,
       kind: event.kind,
+      eventSubtype: event.eventSubtype,
+      paymentContext: event.paymentContext,
       staffUsername: event.staffUsername,
       walletBalance,
       outstandingBalance,
@@ -172,15 +245,24 @@ function applyRunningBalances(
 
     if (
       event.kind === "payment" &&
+      event.paymentContext === "OUTSTANDING" &&
+      event.id.startsWith("balance-payment-") &&
       outstandingBefore > 0 &&
       outstandingBalance === 0
     ) {
+      const settledAmount = Math.min(
+        Math.abs(event.amount),
+        outstandingBefore
+      );
       lines.push({
-        id: `${event.id}-settled`,
+        ledgerId: `${event.id}-outstanding-paid`,
+        id: `${event.id}-outstanding-paid`,
         timestamp: new Date(event.timestamp.getTime() + 1).toISOString(),
-        description: "Outstanding Settled",
-        amount: 0,
+        description: LEDGER_STATUS_OUTSTANDING_PAID,
+        amount: settledAmount,
         kind: "status",
+        eventSubtype: "outstanding_paid",
+        paymentContext: "OUTSTANDING",
         staffUsername: event.staffUsername,
         walletBalance,
         outstandingBalance,
@@ -221,9 +303,10 @@ function normalizeLegacyPayLaterEvents(events: RawLedgerEvent[]): RawLedgerEvent
     normalized.push({
       id: `outstanding-created-legacy-${group.firstEntryId}`,
       timestamp: group.timestamp,
-      description: "Outstanding Created",
+      description: LEDGER_STATUS_MOVED_TO_OUTSTANDING,
       amount: group.total,
       kind: "status",
+      eventSubtype: "moved_to_outstanding",
       staffUsername: group.staffUsername,
       affectsOutstanding: false,
       affectsWallet: false,
@@ -294,7 +377,7 @@ export async function getCustomerLedgerSummary(
         .lean(),
       findLastCustomerPayment(customerId),
       countCustomerVisits(customerId),
-      getActiveVisitCheckoutDueAmount(customerId),
+      getCustomerPagePaymentBlockDue(customerId),
     ]);
 
   let openBillsCount = 0;
@@ -415,6 +498,63 @@ export async function getCustomerLedger(
   return buildCustomerLedgerLines(customerId, customer);
 }
 
+function recordEarliestSettlementAt(
+  map: Map<string, Date>,
+  entryId: string,
+  settlementAt: Date
+): void {
+  const existing = map.get(entryId);
+  if (!existing || settlementAt.getTime() < existing.getTime()) {
+    map.set(entryId, settlementAt);
+  }
+}
+
+function buildEarliestSettlementAtByEntryId(
+  settlements: Array<{
+    createdAt: Date;
+    entryIds: mongoose.Types.ObjectId[];
+    contributorPayments?: { entryId: mongoose.Types.ObjectId }[];
+  }>
+): Map<string, Date> {
+  const map = new Map<string, Date>();
+  for (const settlement of settlements) {
+    const at = settlement.createdAt;
+    for (const entryId of settlement.entryIds ?? []) {
+      recordEarliestSettlementAt(map, entryId.toString(), at);
+    }
+    for (const payment of settlement.contributorPayments ?? []) {
+      recordEarliestSettlementAt(map, payment.entryId.toString(), at);
+    }
+  }
+  return map;
+}
+
+function ledgerChargeCommitAt(
+  entry: {
+    checkoutDismissedAt?: Date;
+    createdAt: Date;
+    status: string;
+  },
+  earliestSettlementAt?: Date
+): Date | null {
+  const candidates: Date[] = [];
+  if (earliestSettlementAt) {
+    candidates.push(earliestSettlementAt);
+  }
+  if (entry.checkoutDismissedAt) {
+    candidates.push(entry.checkoutDismissedAt);
+  }
+  if (candidates.length === 0) {
+    if (entry.status === "PAID") {
+      return entry.createdAt;
+    }
+    return null;
+  }
+  return candidates.reduce((earliest, date) =>
+    date.getTime() < earliest.getTime() ? date : earliest
+  );
+}
+
 async function buildCustomerLedgerLines(
   customerId: string,
   customer: { createdAt: Date }
@@ -442,13 +582,51 @@ async function buildCustomerLedgerLines(
     refreshedEntries.map((entry) => [entry._id.toString(), toNotebookEntryDTO(entry)])
   );
 
+  const settlementIds = [
+    ...new Set(
+      refreshedEntries.flatMap((entry) => {
+        const ids: string[] = [];
+        if (entry.settlementId) {
+          ids.push(entry.settlementId.toString());
+        }
+        for (const contributor of entry.contributors ?? []) {
+          if (contributor.settlementId) {
+            ids.push(contributor.settlementId.toString());
+          }
+        }
+        return ids;
+      })
+    ),
+  ];
+
+  const settlements = await NotebookSettlement.find({
+    _id: { $in: settlementIds },
+    status: "COMPLETED",
+  })
+    .sort({ createdAt: 1 })
+    .lean();
+
+  const earliestSettlementAtByEntryId =
+    buildEarliestSettlementAtByEntryId(settlements);
+
   for (const entry of refreshedEntries) {
-    const dto = toNotebookEntryDTO(entry);
+    const dto = entryDtoById.get(entry._id.toString());
+    if (!dto) {
+      continue;
+    }
     const chargeAmount = customerLedgerChargeAmount(dto, customerId);
     if (chargeAmount == null || dto.status === "CANCELLED") {
       continue;
     }
     if (!isEntryLedgerChargeable(dto)) {
+      continue;
+    }
+
+    const commitAt = ledgerChargeCommitAt(
+      entry,
+      earliestSettlementAtByEntryId.get(entry._id.toString())
+    );
+    if (!commitAt) {
       continue;
     }
 
@@ -460,25 +638,28 @@ async function buildCustomerLedgerLines(
     chargeCandidates.push({
       entryId: entry._id.toString(),
       section: dto.section,
-      timestamp: entry.createdAt,
+      timestamp: commitAt,
       description: stripLegacyPayLaterPrefix(rawDescription),
       amount: chargeAmount,
       staffUsername: entry.createdBy,
+      isPayLaterObligation: Boolean(dto.checkoutDismissedAt),
     });
   }
 
   for (const bundle of bundleLedgerCharges(chargeCandidates)) {
+    const affectsOutstanding = bundle.payLaterAmount > 0;
     events.push({
       id: bundle.id,
       timestamp: bundle.timestamp,
       description: bundle.description,
       amount: -bundle.amount,
       kind: "charge",
+      eventSubtype: "charge",
       staffUsername: bundle.staffUsername,
-      affectsOutstanding: true,
+      affectsOutstanding,
       affectsWallet: false,
       walletDelta: 0,
-      outstandingDelta: bundle.amount,
+      outstandingDelta: affectsOutstanding ? bundle.payLaterAmount : 0,
     });
   }
 
@@ -531,9 +712,10 @@ async function buildCustomerLedgerLines(
     events.push({
       id: `outstanding-created-${group.firstEntryId}-${group.timestamp.getTime()}`,
       timestamp: group.timestamp,
-      description: "Outstanding Created",
+      description: LEDGER_STATUS_MOVED_TO_OUTSTANDING,
       amount: group.total,
       kind: "status",
+      eventSubtype: "moved_to_outstanding",
       staffUsername: group.staffUsername,
       affectsOutstanding: false,
       affectsWallet: false,
@@ -541,33 +723,6 @@ async function buildCustomerLedgerLines(
       outstandingDelta: 0,
     });
   }
-
-  const settlementIds = [
-    ...new Set(
-      refreshedEntries.flatMap((entry) => {
-        const ids: string[] = [];
-        if (entry.settlementId) {
-          ids.push(entry.settlementId.toString());
-        }
-        for (const contributor of entry.contributors ?? []) {
-          if (
-            contributor.customerId.toString() === customerId &&
-            contributor.settlementId
-          ) {
-            ids.push(contributor.settlementId.toString());
-          }
-        }
-        return ids;
-      })
-    ),
-  ];
-
-  const settlements = await NotebookSettlement.find({
-    _id: { $in: settlementIds },
-    status: "COMPLETED",
-  })
-    .sort({ createdAt: 1 })
-    .lean();
 
   const settlementWalletTxnIds = new Set(
     settlements
@@ -607,9 +762,11 @@ async function buildCustomerLedgerLines(
     events.push({
       id: `balance-payment-${payment._id.toString()}`,
       timestamp: payment.createdAt,
-      description: paymentReceivedLabel(method),
+      description: formatPaymentReceivedDescription(method, "OUTSTANDING"),
       amount: ledgerApplied,
       kind: "payment",
+      eventSubtype: "payment",
+      paymentContext: "OUTSTANDING",
       staffUsername: payment.createdBy,
       affectsOutstanding: true,
       affectsWallet: method === "WALLET",
@@ -647,18 +804,26 @@ async function buildCustomerLedgerLines(
     }
 
     const method = settlement.paymentMethod;
+    const paymentContext = settlementPaymentContext(
+      settlement,
+      customerId,
+      entryDtoById
+    );
 
     events.push({
       id: `payment-${settlement._id.toString()}`,
       timestamp: settlement.createdAt,
-      description: paymentReceivedLabel(method),
+      description: formatPaymentReceivedDescription(method, paymentContext),
       amount: paymentAmount,
       kind: "payment",
+      eventSubtype: "payment",
+      paymentContext,
       staffUsername: settlement.createdBy,
-      affectsOutstanding: true,
+      affectsOutstanding: paymentContext === "OUTSTANDING",
       affectsWallet: method === "WALLET",
       walletDelta: method === "WALLET" ? -paymentAmount : 0,
-      outstandingDelta: -paymentAmount,
+      outstandingDelta:
+        paymentContext === "OUTSTANDING" ? -paymentAmount : 0,
     });
   }
 
@@ -684,9 +849,13 @@ async function buildCustomerLedgerLines(
       events.push({
         id: `wallet-${tx._id.toString()}`,
         timestamp: tx.createdAt,
-        description: isReversal ? "Refund — Wallet Recharge" : "Wallet Recharge",
+        description: isReversal
+          ? "Refund — Wallet Recharge"
+          : "Wallet Recharge",
         amount: isReversal ? -credited : credited,
         kind: "status",
+        eventSubtype: isReversal ? "wallet_refund" : "wallet_recharge",
+        paymentContext: isReversal ? "REFUND" : "WALLET",
         staffUsername: tx.staffUsername,
         affectsWallet: true,
         affectsOutstanding: false,
@@ -702,9 +871,13 @@ async function buildCustomerLedgerLines(
     events.push({
       id: `wallet-${tx._id.toString()}`,
       timestamp: tx.createdAt,
-      description: tx.isReversal ? "Refund — Wallet Deduction" : "Wallet Deduction",
+      description: tx.isReversal
+        ? "Refund — Wallet Deduction"
+        : "Wallet Deduction",
       amount: -debitAmount,
       kind: "status",
+      eventSubtype: tx.isReversal ? "wallet_refund" : "wallet_deduct",
+      paymentContext: tx.isReversal ? "REFUND" : "WALLET",
       staffUsername: tx.staffUsername,
       affectsWallet: true,
       affectsOutstanding: false,
@@ -753,7 +926,7 @@ export async function getCustomerFinancials(
         status: { $in: ["PENDING", "REVERSED", "PAID"] },
         $or: [{ customerId }, { "contributors.customerId": customerId }],
       }).lean(),
-      getActiveVisitCheckoutDueAmount(customerId),
+      getCustomerPagePaymentBlockDue(customerId),
     ]);
 
   let openBillsCount = 0;
@@ -848,7 +1021,7 @@ export async function getCustomersWithOutstanding(
         .select("createdAt")
         .lean(),
       findLastCustomerPayment(customerId),
-      getActiveVisitCheckoutDueAmount(customerId),
+      getCustomerPagePaymentBlockDue(customerId),
     ]);
 
     rows.push({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CollectPaymentDialog } from "@/components/customers/CollectPaymentDialog";
 import { ActiveVisitCheckoutDialog } from "@/components/customers/ActiveVisitCheckoutDialog";
 import { Button } from "@/components/ui/Button";
@@ -29,11 +29,18 @@ export function CollectPaymentTrigger({
   const [collectOpen, setCollectOpen] = useState(false);
   const [activeVisitModalOpen, setActiveVisitModalOpen] = useState(false);
 
+  useEffect(() => {
+    if (!hasActiveVisitWithDue) return;
+    setCollectOpen(false);
+  }, [hasActiveVisitWithDue]);
+
   const handleCollectClick = () => {
     if (hasActiveVisitWithDue) {
+      setCollectOpen(false);
       setActiveVisitModalOpen(true);
       return;
     }
+    setActiveVisitModalOpen(false);
     setCollectOpen(true);
   };
 
@@ -47,19 +54,21 @@ export function CollectPaymentTrigger({
         Collect Payment
       </Button>
 
-      <CollectPaymentDialog
-        customer={customer}
-        outstandingAmount={outstandingAmount}
-        open={collectOpen}
-        onClose={() => setCollectOpen(false)}
-      />
-
-      <ActiveVisitCheckoutDialog
-        customerId={customer.id}
-        activeVisitDueAmount={activeVisitDueAmount}
-        open={activeVisitModalOpen}
-        onClose={() => setActiveVisitModalOpen(false)}
-      />
+      {hasActiveVisitWithDue ? (
+        <ActiveVisitCheckoutDialog
+          customerId={customer.id}
+          activeVisitDueAmount={activeVisitDueAmount}
+          open={activeVisitModalOpen}
+          onClose={() => setActiveVisitModalOpen(false)}
+        />
+      ) : (
+        <CollectPaymentDialog
+          customer={customer}
+          outstandingAmount={outstandingAmount}
+          open={collectOpen}
+          onClose={() => setCollectOpen(false)}
+        />
+      )}
     </>
   );
 }
