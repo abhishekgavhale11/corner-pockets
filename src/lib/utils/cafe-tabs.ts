@@ -63,7 +63,7 @@ const CAFE_SHORT_LABELS: Partial<Record<NotebookEntryType, string>> = {
 };
 
 function isOpenCafeEntry(entry: NotebookEntryDTO): boolean {
-  return entry.status === "PENDING" || entry.status === "REVERSED";
+  return entry.status !== "CANCELLED" && entry.status !== "REVERSED";
 }
 
 export function isCafeItemType(type: NotebookEntryType): boolean {

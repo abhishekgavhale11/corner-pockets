@@ -8,6 +8,10 @@ import {
 } from "@/lib/utils/customer-visit-glance";
 import { checkoutHrefForCustomer } from "@/lib/utils/checkout-navigation";
 import { formatCurrency } from "@/lib/utils/format";
+import {
+  buildVisitGlanceSummaryMetrics,
+  type VisitGlanceSummaryMetric,
+} from "@/lib/utils/counter-visit-display";
 import type { CustomerVisitGlanceDTO } from "@/types";
 import { cn } from "@/lib/utils/cn";
 
@@ -23,11 +27,7 @@ function SummaryMetric({
   label,
   value,
   tone = "default",
-}: {
-  label: string;
-  value: string;
-  tone?: "default" | "paid" | "due";
-}) {
+}: VisitGlanceSummaryMetric) {
   return (
     <div className="min-w-0 flex-1 text-center">
       <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
@@ -38,6 +38,8 @@ function SummaryMetric({
           "mt-0.5 text-lg font-bold tabular-nums leading-none",
           tone === "paid" && "text-emerald-700",
           tone === "due" && "text-amber-700",
+          tone === "outstanding" && "text-amber-700",
+          tone === "finished" && "text-slate-700",
           tone === "default" && "text-gray-950"
         )}
       >
@@ -55,8 +57,17 @@ export function CustomerVisitGlancePanel({
   onClose?: () => void;
 }) {
   const hasItems = glance.games.length > 0 || glance.cafe.length > 0;
+  const visitFinished = glance.visitStatus === "FINISHED";
+  const hasVisit =
+    glance.visitStatus === "ACTIVE" || glance.visitStatus === "FINISHED";
   const showCheckout =
-    glance.hasActiveVisit && glance.billTotal > 0;
+    glance.visitStatus === "ACTIVE" && glance.billTotal > 0;
+  const summaryMetrics = buildVisitGlanceSummaryMetrics({
+    visitStatus: glance.visitStatus,
+    billTotal: glance.billTotal,
+    paidAmount: glance.paidAmount,
+    dueAmount: glance.dueAmount,
+  });
 
   return (
     <div className="text-left">
@@ -69,39 +80,36 @@ export function CustomerVisitGlancePanel({
             <p className="truncate text-sm font-bold text-gray-950">
               {glance.customerName}
             </p>
-            {glance.hasActiveVisit && glance.visitStartedAt ? (
+            {hasVisit && glance.visitStartedAt ? (
               <p className="truncate text-[11px] text-gray-500">
-                Active visit · Started {formatVisitStartTime(glance.visitStartedAt)}
+                {visitFinished ? "Finished visit" : "Active visit"} · Started{" "}
+                {formatVisitStartTime(glance.visitStartedAt)}
+                {visitFinished && glance.visitFinishedAt
+                  ? ` · Finished ${formatVisitStartTime(glance.visitFinishedAt)}`
+                  : ""}
               </p>
             ) : (
-              <p className="text-[11px] text-gray-500">No active visit</p>
+              <p className="text-[11px] text-gray-500">No visit today</p>
             )}
           </div>
         </div>
-        {glance.hasActiveVisit ? (
+        {visitFinished ? (
+          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+            🔒 Finished
+          </span>
+        ) : hasVisit ? (
           <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
             Active visit
           </span>
         ) : null}
       </div>
 
-      {glance.hasActiveVisit ? (
+      {hasVisit ? (
         <>
           <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg border border-gray-200 bg-gray-50/80 px-2 py-2.5">
-            <SummaryMetric
-              label="Bill"
-              value={formatCurrency(glance.billTotal)}
-            />
-            <SummaryMetric
-              label="Paid"
-              value={formatCurrency(glance.paidAmount)}
-              tone="paid"
-            />
-            <SummaryMetric
-              label="Due"
-              value={formatCurrency(glance.dueAmount)}
-              tone="due"
-            />
+            {summaryMetrics.map((metric) => (
+              <SummaryMetric key={metric.label} {...metric} />
+            ))}
           </div>
 
           {hasItems ? (

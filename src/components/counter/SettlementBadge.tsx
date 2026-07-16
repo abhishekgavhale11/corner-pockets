@@ -4,99 +4,82 @@ import { cn } from "@/lib/utils/cn";
 import { formatCurrency } from "@/lib/utils/format";
 import type { NotebookEntryDTO } from "@/types";
 import { entryHasCorrections } from "@/lib/utils/entry-corrections";
-import { entryHasContributors } from "@/lib/utils/entry-contributors";
+import { getCounterPayDisplay } from "@/lib/utils/counter-pay-display";
+import { counterRowHasRemainingBalance } from "@/lib/utils/counter-visit-display";
+import { entryAmountRemaining, entryHasContributors } from "@/lib/utils/entry-contributors";
+import { entryTotalPaidAmount } from "@/lib/utils/freeze-counter-pay-snapshot";
 import {
-  counterPayShowsBalanceLabel,
-  counterPayShowsPartialAtCheckout,
-  counterRowShowsBalance,
-  getCounterPayDisplay,
-} from "@/lib/utils/counter-pay-display";
-
-function paymentMethodLabel(method: string): string {
-  return method === "CASH" ? "Cash" : method === "GPAY" ? "GPay" : "Wallet";
-}
+  formatCounterRemainingText,
+  resolveCounterPayLineViewForEntry,
+  type CounterPayLineView,
+  type CounterRemainingKind,
+} from "@/lib/utils/counter-visit-display";
 
 export function PartialPaymentLabel({
   paidAmount,
   remaining,
-  onBalance,
+  remainingKind,
 }: {
   paidAmount: number;
   remaining: number;
-  onBalance: boolean;
+  remainingKind: CounterRemainingKind;
 }) {
+  const remainingTone =
+    remainingKind === "outstanding" ? "text-amber-700" : "text-gray-500";
+
   return (
     <div className="flex flex-col items-end gap-0.5 leading-none">
       <span className="text-[10px] font-bold text-emerald-700">
         {formatCurrency(paidAmount)} paid
       </span>
       {remaining > 0 && (
-        <span
-          className={cn(
-            "text-[10px] font-bold",
-            onBalance ? "text-amber-700" : "text-gray-500"
-          )}
-        >
-          {onBalance
-            ? `${formatCurrency(remaining)} Bal`
-            : `${formatCurrency(remaining)} due`}
+        <span className={cn("text-[10px] font-bold", remainingTone)}>
+          {formatCounterRemainingText(remaining, remainingKind)}
         </span>
       )}
     </div>
   );
 }
 
-function renderCounterPayDisplay(
-  entry: NotebookEntryDTO,
-  display: NonNullable<ReturnType<typeof getCounterPayDisplay>>
-) {
-  if (!display.frozen) {
-    if (entry.status === "PAID" && entry.paymentMethod) {
+export function CounterPayLine({ view }: { view: CounterPayLineView }) {
+  switch (view.kind) {
+    case "dash":
+      return <span className="text-[11px] text-gray-400">—</span>;
+    case "fully_paid_finished":
+      return (
+        <span className="text-[11px] font-bold text-emerald-700">✓ Paid</span>
+      );
+    case "fully_paid_active":
       return (
         <span className="text-[11px] font-bold text-emerald-700">
-          {paymentMethodLabel(entry.paymentMethod)}
+          {formatCurrency(view.paidAmount)} paid
+        </span>
+      );
+    case "partial":
+      return (
+        <PartialPaymentLabel
+          paidAmount={view.paidAmount}
+          remaining={view.remainingAmount}
+          remainingKind={view.remainingKind}
+        />
+      );
+    case "remaining_only": {
+      const tone =
+        view.remainingKind === "outstanding"
+          ? "text-amber-700"
+          : "text-gray-500";
+      return (
+        <span className={cn("text-[11px] font-bold", tone)}>
+          {formatCounterRemainingText(
+            view.remainingAmount,
+            view.remainingKind
+          )}
         </span>
       );
     }
-    if (counterPayShowsPartialAtCheckout(display)) {
-      return (
-        <PartialPaymentLabel
-          paidAmount={display.paidAmount}
-          remaining={display.balanceAmount}
-          onBalance={false}
-        />
-      );
-    }
-    return <span className="text-[11px] text-gray-400">—</span>;
+    default:
+      return <span className="text-[11px] text-gray-400">—</span>;
   }
-
-  if (display.paidAmount > 0 && display.balanceAmount > 0) {
-    return (
-      <PartialPaymentLabel
-        paidAmount={display.paidAmount}
-        remaining={display.balanceAmount}
-        onBalance
-      />
-    );
-  }
-
-  if (display.paidAmount > 0) {
-    return (
-      <span className="text-[11px] font-bold text-emerald-700">
-        {formatCurrency(display.paidAmount)} paid
-      </span>
-    );
-  }
-
-  if (counterPayShowsBalanceLabel(display)) {
-    return (
-      <span className="text-[11px] font-bold text-amber-700">
-        {formatCurrency(display.balanceAmount)} Bal
-      </span>
-    );
-  }
-
-  return <span className="text-[11px] text-gray-400">—</span>;
 }
 
 export function SettlementBadge({ entry }: { entry: NotebookEntryDTO }) {
@@ -112,47 +95,23 @@ export function SettlementBadge({ entry }: { entry: NotebookEntryDTO }) {
     );
   }
 
-  const display = getCounterPayDisplay(entry);
-  if (!display) {
+  const view = resolveCounterPayLineViewForEntry(entry);
+  if (view.kind === "dash" && !getCounterPayDisplay(entry)) {
     return null;
   }
 
-  if (display.frozen) {
-    return renderCounterPayDisplay(entry, display);
-  }
-
-  if (entry.checkoutDismissedAt) {
-    return renderCounterPayDisplay(entry, display);
-  }
-
-  if (entry.status === "PAID" && entry.paymentMethod) {
-    return (
-      <span className="text-[11px] font-bold text-emerald-700">
-        {paymentMethodLabel(entry.paymentMethod)}
-      </span>
-    );
-  }
-
-  if (counterPayShowsPartialAtCheckout(display)) {
-    return (
-      <PartialPaymentLabel
-        paidAmount={display.paidAmount}
-        remaining={display.balanceAmount}
-        onBalance={false}
-      />
-    );
-  }
-
-  return <span className="text-[11px] text-gray-400">—</span>;
+  return <CounterPayLine view={view} />;
 }
 
 export function entryRowBaseClass(entry: NotebookEntryDTO): string {
   const paid = isPaidLedgerEntry(entry);
+  const display = getCounterPayDisplay(entry);
 
   return cn(
     "text-[14px] leading-snug hover:bg-gray-50",
+    entry.visitStatus === "FINISHED" && "bg-slate-50/90 hover:bg-slate-50/90",
     !paid &&
-      counterRowShowsBalance(entry) &&
+      counterRowHasRemainingBalance(display) &&
       !entryHasContributors(entry) &&
       "bg-amber-50/20",
     !paid &&
@@ -167,10 +126,19 @@ export function entryRowBaseClass(entry: NotebookEntryDTO): string {
 }
 
 function isPaidLedgerEntry(entry: NotebookEntryDTO): boolean {
-  if (entry.checkoutDismissedAt) {
-    return false;
+  if (entry.visitStatus === "FINISHED") {
+    const display = getCounterPayDisplay(entry);
+    return display != null && display.balanceAmount <= 0 && display.paidAmount > 0;
   }
+
   if (entry.status === "PAID") return true;
+  if (
+    entry.amount > 0 &&
+    entryTotalPaidAmount(entry) >= entry.amount &&
+    entryAmountRemaining(entry) <= 0
+  ) {
+    return true;
+  }
   if (entry.contributors && entry.contributors.length > 0) {
     return entry.contributors.every((contributor) => contributor.status === "PAID");
   }
@@ -178,13 +146,25 @@ function isPaidLedgerEntry(entry: NotebookEntryDTO): boolean {
 }
 
 function isPaidContributor(
-  contributor: { status: "PENDING" | "PAID" },
+  contributor: {
+    status: "PENDING" | "PAID";
+    amount: number;
+    paidAmount?: number;
+    balanceCollectedAmount?: number;
+    visitStatus?: NotebookEntryDTO["visitStatus"];
+  },
   entry: NotebookEntryDTO
 ): boolean {
-  if (entry.checkoutDismissedAt) {
-    return false;
+  if (contributor.visitStatus === "FINISHED" || entry.visitStatus === "FINISHED") {
+    const paid =
+      (contributor.paidAmount ?? 0) + (contributor.balanceCollectedAmount ?? 0);
+    return paid >= contributor.amount && contributor.amount > 0;
   }
-  return contributor.status === "PAID";
+
+  if (contributor.status === "PAID") return true;
+  const paid =
+    (contributor.paidAmount ?? 0) + (contributor.balanceCollectedAmount ?? 0);
+  return paid >= contributor.amount && contributor.amount > 0;
 }
 
 /** Solid divider between separate ledger entries */
@@ -205,12 +185,13 @@ export function splitContributorRowClass(
   entry: NotebookEntryDTO,
   index: number,
   total: number,
-  contributor: { status: "PENDING" | "PAID" }
+  contributor: NonNullable<NotebookEntryDTO["contributors"]>[number]
 ): string {
   const contributorPaid = isPaidContributor(contributor, entry);
 
   return cn(
     "text-[14px] leading-snug hover:bg-gray-50",
+    contributor.visitStatus === "FINISHED" && "bg-slate-50/90 hover:bg-slate-50/90",
     entryHasCorrections(entry) && !contributorPaid && "bg-amber-50/25",
     entry.status === "CANCELLED" && "opacity-55",
     entry.status === "REVERSED" && "bg-amber-50/20",

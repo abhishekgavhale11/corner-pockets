@@ -1,14 +1,13 @@
 import type { ClientSession } from "mongoose";
 import mongoose from "mongoose";
 import type { INotebookEntry } from "@/models/NotebookEntry";
-import {
-  ensureActiveVisitBill,
-  type VisitBillStaff,
-} from "@/lib/visit-bill/ensure-visit-bill";
+import type { VisitBillStaff } from "@/lib/visit-bill/ensure-visit-bill";
 import { syncBillTotals } from "@/lib/visit-bill/sync-bill-totals";
-import { getBusinessDate } from "@/lib/utils/business-date";
 import { entryHasContributors } from "@/lib/utils/entry-contributors";
-import { linkSplitEntryToContributorVisits } from "@/lib/visit-bill/link-split-entry";
+import { linkSplitEntryToContributorVisits } from "@/lib/visit-bill/link-split-entry";import {
+  entryBillOwnershipMatches,
+  recalculateActiveVisitForEntryOwnership,
+} from "@/lib/visit-bill/recalculate-active-visit";
 
 export async function linkEntryToActiveVisitBill(
   entry: INotebookEntry,
@@ -28,22 +27,19 @@ export async function linkEntryToActiveVisitBill(
     return;
   }
 
-  if (entry.billId && entry.visitId) {
+  if (
+    entry.billId &&
+    entry.visitId &&
+    (await entryBillOwnershipMatches(entry, options?.dbSession))
+  ) {
     await syncBillTotals(entry.billId, options?.dbSession);
     return;
   }
 
-  const businessDate = getBusinessDate(entry.createdAt);
-  const { visit, bill } = await ensureActiveVisitBill(
-    entry.customerId,
-    staff,
-    { businessDate, dbSession: options?.dbSession }
-  );
-
-  entry.visitId = visit._id;
-  entry.billId = bill._id;
-  await entry.save({ session: options?.dbSession });
-  await syncBillTotals(bill._id, options?.dbSession);
+  await recalculateActiveVisitForEntryOwnership(entry, staff, {
+    dbSession: options?.dbSession,
+    priorBillIds: entry.billId ? [entry.billId.toString()] : [],
+  });
 }
 
 export async function linkEntriesToActiveVisitBill(

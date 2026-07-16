@@ -50,6 +50,9 @@ import { parseCheckoutCustomerId } from "@/lib/utils/checkout-navigation";
 import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
 import TableSession from "@/models/TableSession";
+import Visit from "@/models/Visit";
+import Bill from "@/models/Bill";
+import { syncBillTotals } from "@/lib/visit-bill/sync-bill-totals";
 import { closeTableSessionAfterSettlement, ensureSessionGameEntryForCheckout } from "@/actions/table-sessions";
 import type { ICustomer } from "@/models/Customer";
 import type { NotebookEntryDTO, OpenTabSummaryDTO, CustomerPendingItemDTO, CustomerOpenTabSummaryDTO, CustomerTodayGlanceDTO } from "@/types";
@@ -68,15 +71,49 @@ import {
   isSessionPayableEntry,
   sessionEntryAmountRemaining,
 } from "@/lib/utils/entry-contributors";
-import { freezeCounterPaySnapshot, ensureCounterPaySnapshot } from "@/lib/utils/freeze-counter-pay-snapshot";
 import { reconcileEntryPaymentFields } from "@/lib/wallet/reconcile-entry-payments";
 import { linkEntryToActiveVisitBill, linkEntriesToActiveVisitBill } from "@/lib/visit-bill/attach-entry";
-import { linkSplitEntryToContributorVisits } from "@/lib/visit-bill/link-split-entry";
+import {
+  collectEntryBillIds,
+  recalculateActiveVisitForEntryOwnership,
+} from "@/lib/visit-bill/recalculate-active-visit";
 import { getCustomerBillSlice } from "@/lib/visit-bill/customer-bill-slice";
 import {
-  getCustomerReassignmentFailure,
+  collectBillIdsFromEntries,
+  getCustomerReassignmentFailureForEntry,
   getEntryEditLockFailure,
+  frameHasPartialPaymentLock,
+  isContributorAssignmentLocked,
+  isContributorEditLocked,
+  isFrameStructureLocked,
 } from "@/lib/visit-bill/entry-edit-lock";
+import {
+  ENTRY_LOCKED_MESSAGE,
+  FRAME_STRUCTURE_LOCKED_MESSAGE,
+  SPLIT_CONTRIBUTOR_LOCKED_MESSAGE,
+} from "@/lib/visit-bill/entry-edit-lock-utils";
+import {
+  getCustomerActiveVisitCheckoutFailure,
+  getFinishedBillIdSet,
+  getFinishedVisitLockFailureForEntries,
+} from "@/lib/visit-bill/finished-visit-lock";
+
+function entryTouchesActiveBill(
+  entry: NotebookEntryDTO,
+  activeBillIds: Set<string>
+): boolean {
+  if (!entry.customerId && !(entry.contributors?.length ?? 0)) {
+    return true;
+  }
+  if (entry.billId && activeBillIds.has(entry.billId)) {
+    return true;
+  }
+  return (
+    entry.contributors?.some(
+      (row) => Boolean(row.billId) && activeBillIds.has(row.billId!)
+    ) ?? false
+  );
+}
 
 export async function createQuickCounterEntry(
   formData: FormData
@@ -287,6 +324,30 @@ export async function updateSnookerFrameEntry(
     return failure(lockFailure);
   }
 
+  const finishedBillIdsForLock = entry.contributors?.length
+    ? await getFinishedBillIdSet(collectBillIdsFromEntries([entry]))
+    : new Set<string>();
+
+  if (
+    isFrameStructureLocked({
+      status: entry.status,
+      paidAmount: entry.paidAmount,
+      balanceCollectedAmount: entry.balanceCollectedAmount,
+      contributors: entry.contributors?.map((contributor) => ({
+        status: contributor.status,
+        visitStatus:
+          contributor.billId &&
+          finishedBillIdsForLock.has(contributor.billId.toString())
+            ? ("FINISHED" as const)
+            : ("ACTIVE" as const),
+        paidAmount: contributor.paidAmount,
+        balanceCollectedAmount: contributor.balanceCollectedAmount,
+      })),
+    })
+  ) {
+    return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
+  }
+
   if (entry.status !== "PENDING") {
     return failure("Only pending entries can be edited");
   }
@@ -296,6 +357,13 @@ export async function updateSnookerFrameEntry(
   }
 
   const hasContributors = Boolean(entry.contributors && entry.contributors.length > 0);
+
+  const priorBillIds = collectEntryBillIds(entry);
+  const priorCustomerId = entry.customerId?.toString();
+  const visitBillStaff = {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  };
 
   const { frameType, amount, playerCount, entryTime, customerId } = parsed.data;
 
@@ -325,7 +393,7 @@ export async function updateSnookerFrameEntry(
 
     const currentCustomerId = entry.customerId?.toString();
     if (currentCustomerId !== customerId) {
-      const reassignmentFailure = getCustomerReassignmentFailure(entry);
+      const reassignmentFailure = await getCustomerReassignmentFailureForEntry(entry);
       if (reassignmentFailure) {
         return failure(reassignmentFailure);
       }
@@ -342,7 +410,19 @@ export async function updateSnookerFrameEntry(
 
   await entry.save();
 
+  await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
+    priorBillIds,
+  });
+
   revalidateCounterPaths(entry.customerId?.toString());
+  if (priorCustomerId && priorCustomerId !== entry.customerId?.toString()) {
+    revalidateCounterPaths(priorCustomerId);
+    revalidateCustomerFinancials(priorCustomerId);
+  }
+  if (entry.customerId) {
+    revalidateCustomerFinancials(entry.customerId.toString());
+  }
+  revalidatePath("/checkout");
 
   return success(toNotebookEntryDTO(entry));
 }
@@ -383,9 +463,53 @@ export async function correctCounterEntry(
     return failure(lockFailure);
   }
 
+  const finishedBillIdsForLock = entry.contributors?.length
+    ? await getFinishedBillIdSet(collectBillIdsFromEntries([entry]))
+    : new Set<string>();
+
+  const structureLocked = isFrameStructureLocked({
+    status: entry.status,
+    paidAmount: entry.paidAmount,
+    balanceCollectedAmount: entry.balanceCollectedAmount,
+    contributors: entry.contributors?.map((contributor) => ({
+      status: contributor.status,
+      visitStatus:
+        contributor.billId &&
+        finishedBillIdsForLock.has(contributor.billId.toString())
+          ? ("FINISHED" as const)
+          : ("ACTIVE" as const),
+      paidAmount: contributor.paidAmount,
+      balanceCollectedAmount: contributor.balanceCollectedAmount,
+    })),
+  });
+
+  if (
+    structureLocked &&
+    parsed.data.amount !== undefined &&
+    parsed.data.amount !== entry.amount
+  ) {
+    return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
+  }
+
+  if (
+    structureLocked &&
+    entry.type === "RUMMY" &&
+    parsed.data.playerCount !== undefined &&
+    parsed.data.playerCount !== entry.playerCount
+  ) {
+    return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
+  }
+
   if (entry.status !== "PENDING") {
     return failure("Only pending entries can be corrected");
   }
+
+  const priorBillIds = collectEntryBillIds(entry);
+  const priorCustomerId = entry.customerId?.toString();
+  const visitBillStaff = {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  };
 
   const changes: NotebookEntryCorrectionChangeDTO[] = [];
 
@@ -400,7 +524,7 @@ export async function correctCounterEntry(
         );
       }
 
-      const reassignmentFailure = getCustomerReassignmentFailure(entry);
+      const reassignmentFailure = await getCustomerReassignmentFailureForEntry(entry);
       if (reassignmentFailure) {
         return failure(reassignmentFailure);
       }
@@ -509,7 +633,19 @@ export async function correctCounterEntry(
 
   await entry.save();
 
+  await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
+    priorBillIds,
+  });
+
   revalidateCounterPaths(entry.customerId?.toString());
+  if (priorCustomerId && priorCustomerId !== entry.customerId?.toString()) {
+    revalidateCounterPaths(priorCustomerId);
+    revalidateCustomerFinancials(priorCustomerId);
+  }
+  if (entry.customerId) {
+    revalidateCustomerFinancials(entry.customerId.toString());
+  }
+  revalidatePath("/checkout");
 
   return success(toNotebookEntryDTO(entry));
 }
@@ -553,6 +689,12 @@ export async function correctCafeEntry(
   if (entry.status !== "PENDING") {
     return failure("Only pending entries can be corrected");
   }
+
+  const priorBillIds = collectEntryBillIds(entry);
+  const visitBillStaff = {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  };
 
   const changes: NotebookEntryCorrectionChangeDTO[] = [];
 
@@ -621,7 +763,15 @@ export async function correctCafeEntry(
 
   await entry.save();
 
+  await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
+    priorBillIds,
+  });
+
   revalidateCounterPaths(entry.customerId?.toString());
+  if (entry.customerId) {
+    revalidateCustomerFinancials(entry.customerId.toString());
+  }
+  revalidatePath("/checkout");
 
   return success(toNotebookEntryDTO(entry));
 }
@@ -732,6 +882,11 @@ export async function assignCounterEntryCustomer(
     return failure("Entry already has a customer");
   }
 
+  const lockFailure = await getEntryEditLockFailure(entry);
+  if (lockFailure) {
+    return failure(lockFailure);
+  }
+
   const customer = await Customer.findById(parsed.data.customerId);
   if (!customer || !customer.isActive) {
     return failure("Customer not found");
@@ -785,6 +940,13 @@ export async function assignCheckoutBillToCustomer(
     return failure("Customer not found");
   }
 
+  const checkoutFailure = await getCustomerActiveVisitCheckoutFailure(
+    parsed.data.customerId
+  );
+  if (checkoutFailure) {
+    return failure(checkoutFailure);
+  }
+
   let resolvedEntryIds = parsed.data.entryIds ?? [];
 
   if (resolvedEntryIds.length === 0 && parsed.data.sessionId) {
@@ -830,6 +992,11 @@ export async function assignCheckoutBillToCustomer(
     );
   }
 
+  const finishedFailure = await getFinishedVisitLockFailureForEntries(entries);
+  if (finishedFailure) {
+    return failure(finishedFailure);
+  }
+
   const assignedAt = new Date();
   const assignedBy = authResult.session.user.username;
   let assignedCount = 0;
@@ -855,11 +1022,6 @@ export async function assignCheckoutBillToCustomer(
       entry.assignedAt = assignedAt;
       entry.assignedBy = assignedBy;
     }
-    if (!entry.checkoutDismissedAt) {
-      entry.checkoutDismissedAt = assignedAt;
-      entry.checkoutDismissedBy = assignedBy;
-      freezeCounterPaySnapshot(entry);
-    }
   }
 
   await linkEntriesToActiveVisitBill(entries, {
@@ -870,16 +1032,6 @@ export async function assignCheckoutBillToCustomer(
   await Promise.all(entries.map((entry) => entry.save()));
 
   await reconcileEntryPaymentFields(resolvedEntryIds);
-
-  const dismissedEntries = await NotebookEntry.find({
-    _id: { $in: resolvedEntryIds },
-    checkoutDismissedAt: { $exists: true, $ne: null },
-  });
-  for (const entry of dismissedEntries) {
-    if (ensureCounterPaySnapshot(entry)) {
-      await entry.save();
-    }
-  }
 
   if (parsed.data.sessionId) {
     const session = await TableSession.findById(parsed.data.sessionId);
@@ -952,6 +1104,13 @@ export async function dismissCheckoutBill(
     return failure("Customer not found");
   }
 
+  const checkoutFailure = await getCustomerActiveVisitCheckoutFailure(
+    parsed.data.customerId
+  );
+  if (checkoutFailure) {
+    return failure(checkoutFailure);
+  }
+
   let resolvedEntryIds = parsed.data.entryIds ?? [];
 
   if (resolvedEntryIds.length === 0) {
@@ -976,9 +1135,10 @@ export async function dismissCheckoutBill(
     );
   }
 
-  const dismissedAt = new Date();
-  const dismissedBy = authResult.session.user.username;
-  let dismissedCount = 0;
+  const finishedFailure = await getFinishedVisitLockFailureForEntries(entries);
+  if (finishedFailure) {
+    return failure(finishedFailure);
+  }
 
   for (const entry of entries) {
     const dto = toNotebookEntryDTO(entry);
@@ -989,18 +1149,6 @@ export async function dismissCheckoutBill(
       return failure("One or more bill lines belong to another customer");
     }
 
-    if (!entry.assignedAt && entry.customerId) {
-      entry.assignedAt = dismissedAt;
-      entry.assignedBy = dismissedBy;
-    }
-
-    if (!entry.checkoutDismissedAt) {
-      entry.checkoutDismissedAt = dismissedAt;
-      entry.checkoutDismissedBy = dismissedBy;
-      freezeCounterPaySnapshot(entry);
-      dismissedCount += 1;
-    }
-
     await entry.save();
   }
 
@@ -1008,7 +1156,7 @@ export async function dismissCheckoutBill(
   revalidateCustomerFinancials(customer._id.toString());
   revalidatePath("/checkout");
 
-  return success({ dismissedCount });
+  return success({ dismissedCount: resolvedEntryIds.length });
 }
 
 export async function setEntryContributors(
@@ -1046,15 +1194,43 @@ export async function setEntryContributors(
     return failure("Only pending entries can have contributors assigned");
   }
 
-  const reassignmentFailure = getCustomerReassignmentFailure(entry);
-  if (reassignmentFailure) {
-    return failure(reassignmentFailure);
-  }
-
   const lockFailure = await getEntryEditLockFailure(entry);
-  if (lockFailure) {
+  if (lockFailure && !entry.contributors?.length) {
     return failure(lockFailure);
   }
+
+  if (entry.contributors?.length) {
+    const finishedBillIds = await getFinishedBillIdSet(
+      collectBillIdsFromEntries([entry])
+    );
+    const contributorsWithStatus =
+      entry.contributors?.map((contributor) => ({
+        status: contributor.status,
+        visitStatus:
+          contributor.billId &&
+          finishedBillIds.has(contributor.billId.toString())
+            ? ("FINISHED" as const)
+            : ("ACTIVE" as const),
+        paidAmount: contributor.paidAmount,
+        balanceCollectedAmount: contributor.balanceCollectedAmount,
+      })) ?? [];
+
+    if (
+      contributorsWithStatus.every((contributor) =>
+        isContributorEditLocked(contributor)
+      )
+    ) {
+      return failure(ENTRY_LOCKED_MESSAGE);
+    }
+  } else if (lockFailure) {
+    return failure(lockFailure);
+  }
+
+  const priorBillIds = collectEntryBillIds(entry);
+  const visitBillStaff = {
+    username: authResult.session.user.username,
+    staffId: authResult.session.user.id,
+  };
 
   if (parsed.data.contributors.length === 0) {
     entry.contributors = [];
@@ -1063,9 +1239,16 @@ export async function setEntryContributors(
     entry.phoneNumber = "";
     entry.assignedAt = undefined;
     entry.assignedBy = undefined;
+    entry.visitId = undefined;
+    entry.billId = undefined;
     await entry.save();
 
+    await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
+      priorBillIds,
+    });
+
     revalidateCounterPaths();
+    revalidatePath("/checkout");
     return success(toNotebookEntryDTO(entry));
   }
 
@@ -1076,12 +1259,111 @@ export async function setEntryContributors(
     );
   }
 
+  const finishedBillIds = await getFinishedBillIdSet(
+    collectBillIdsFromEntries([entry])
+  );
+
+  const contributorIsLocked = (contributor: (typeof entry.contributors)[number]) => {
+    const visitStatus =
+      contributor.billId &&
+      finishedBillIds.has(contributor.billId.toString())
+        ? ("FINISHED" as const)
+        : ("ACTIVE" as const);
+    return isContributorAssignmentLocked({
+      status: contributor.status,
+      visitStatus,
+      paidAmount: contributor.paidAmount,
+      balanceCollectedAmount: contributor.balanceCollectedAmount,
+    });
+  };
+
+  const existingContributors = entry.contributors ?? [];
+  const partiallyLocked = frameHasPartialPaymentLock({
+    status: entry.status,
+    paidAmount: entry.paidAmount,
+    balanceCollectedAmount: entry.balanceCollectedAmount,
+    contributors: existingContributors.map((contributor) => ({
+      status: contributor.status,
+      visitStatus:
+        contributor.billId &&
+        finishedBillIds.has(contributor.billId.toString())
+          ? ("FINISHED" as const)
+          : ("ACTIVE" as const),
+      paidAmount: contributor.paidAmount,
+      balanceCollectedAmount: contributor.balanceCollectedAmount,
+    })),
+  });
+
+  if (partiallyLocked) {
+    if (parsed.data.contributors.length !== existingContributors.length) {
+      return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
+    }
+
+    for (let index = 0; index < existingContributors.length; index += 1) {
+      const existing = existingContributors[index]!;
+      const submitted = parsed.data.contributors[index];
+      if (!submitted) {
+        return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
+      }
+      if (submitted.amount !== existing.amount) {
+        return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
+      }
+      if (
+        contributorIsLocked(existing) &&
+        submitted.customerId !== existing.customerId.toString()
+      ) {
+        return failure(SPLIT_CONTRIBUTOR_LOCKED_MESSAGE);
+      }
+    }
+  } else {
+    for (const existing of existingContributors) {
+      if (!contributorIsLocked(existing)) {
+        continue;
+      }
+      const unchanged = parsed.data.contributors.some(
+        (row) =>
+          row.customerId === existing.customerId.toString() &&
+          row.amount === existing.amount
+      );
+      if (!unchanged) {
+        return failure(SPLIT_CONTRIBUTOR_LOCKED_MESSAGE);
+      }
+    }
+  }
+
   const contributorDocs = [];
-  for (const row of parsed.data.contributors) {
+  for (let index = 0; index < parsed.data.contributors.length; index += 1) {
+    const row = parsed.data.contributors[index]!;
     const customer = await Customer.findById(row.customerId);
     if (!customer || !customer.isActive) {
       return failure("Customer not found");
     }
+
+    const existing = partiallyLocked
+      ? existingContributors[index]
+      : existingContributors.find(
+          (contributor) => contributor.customerId.toString() === row.customerId
+        );
+
+    if (existing && contributorIsLocked(existing)) {
+      contributorDocs.push({
+        customerId: existing.customerId,
+        customerName: existing.customerName,
+        amount: existing.amount,
+        status: existing.status,
+        paidAmount: existing.paidAmount,
+        balanceCollectedAmount: existing.balanceCollectedAmount,
+        paymentMethod: existing.paymentMethod,
+        settlementId: existing.settlementId,
+        paidAt: existing.paidAt,
+        visitId: existing.visitId,
+        billId: existing.billId,
+        counterPaidAmount: existing.counterPaidAmount,
+        counterBalanceAmount: existing.counterBalanceAmount,
+      });
+      continue;
+    }
+
     contributorDocs.push({
       customerId: customer._id,
       customerName: customer.name,
@@ -1100,14 +1382,15 @@ export async function setEntryContributors(
   entry.billId = undefined;
   await entry.save();
 
-  await linkSplitEntryToContributorVisits(entry, {
-    username: authResult.session.user.username,
-    staffId: authResult.session.user.id,
+  await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
+    priorBillIds,
   });
 
   revalidateCounterPaths();
+  revalidatePath("/checkout");
   for (const row of contributorDocs) {
     revalidateCounterPaths(row.customerId.toString());
+    revalidateCustomerFinancials(row.customerId.toString());
   }
 
   return success(toNotebookEntryDTO(entry));
@@ -1130,11 +1413,20 @@ export async function getOpenTabs(
 
   await connectDB();
 
+  const activeVisits = await Visit.find({ status: "ACTIVE" })
+    .select("customerId billId")
+    .lean();
+  const activeBillIds = new Set(
+    activeVisits.map((visit) => visit.billId.toString())
+  );
+
   const entries = await NotebookEntry.find({
     status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
   }).lean();
 
-  const allEntryDtos = entries.map((entry) => toNotebookEntryDTO(entry));
+  const allEntryDtos = entries
+    .map((entry) => toNotebookEntryDTO(entry))
+    .filter((entry) => entryTouchesActiveBill(entry, activeBillIds));
 
   const tabMap = new Map<
     string,
@@ -1155,6 +1447,29 @@ export async function getOpenTabs(
   }
 
   const tableTabs = buildTableOpenTabSummaries(allEntryDtos);
+
+  for (const visit of activeVisits) {
+    const customerId = visit.customerId.toString();
+    const bill = await Bill.findById(visit.billId).lean();
+    if (!bill) continue;
+
+    const synced = await syncBillTotals(bill._id);
+    if (!synced) continue;
+
+    const billEntryCount = allEntryDtos.filter(
+      (dto) =>
+        dto.billId === synced._id.toString() ||
+        dto.contributors?.some(
+          (row) => row.billId === synced._id.toString()
+        )
+    ).length;
+
+    const existing = tabMap.get(customerId);
+    tabMap.set(customerId, {
+      pendingAmount: synced.dueAmount,
+      pendingCount: Math.max(existing?.pendingCount ?? 0, billEntryCount, 1),
+    });
+  }
 
   const checkoutSessions = await TableSession.find({
     status: { $in: ["STOPPED", "ENDED", "CHECKOUT_PENDING"] },
@@ -1213,17 +1528,26 @@ export async function getOpenTabs(
     }).lean();
 
     if (forcedCustomer) {
-      const forcedTotals = { pendingAmount: 0, pendingCount: 0 };
-      for (const dto of allEntryDtos) {
-        for (const obligation of getCheckoutQueueObligations(dto)) {
-          if (obligation.customerId !== forceCustomerId) continue;
-          if (obligation.amount <= 0) continue;
-          forcedTotals.pendingAmount += obligation.amount;
-          forcedTotals.pendingCount += 1;
+      const forcedVisit = activeVisits.find(
+        (visit) => visit.customerId.toString() === forceCustomerId
+      );
+      const forcedTotals = tabMap.get(forceCustomerId) ?? {
+        pendingAmount: 0,
+        pendingCount: 0,
+      };
+
+      if (!forcedVisit) {
+        for (const dto of allEntryDtos) {
+          for (const obligation of getCheckoutQueueObligations(dto)) {
+            if (obligation.customerId !== forceCustomerId) continue;
+            if (obligation.amount <= 0) continue;
+            forcedTotals.pendingAmount += obligation.amount;
+            forcedTotals.pendingCount += 1;
+          }
         }
       }
 
-      if (forcedTotals.pendingAmount > 0) {
+      if (forcedVisit || forcedTotals.pendingAmount > 0 || forcedTotals.pendingCount > 0) {
         customerTabs.push(
           toCustomerOpenTabSummary({
             customerId: forcedCustomer._id.toString(),
@@ -1232,7 +1556,7 @@ export async function getOpenTabs(
             cardId: forcedCustomer.cardId,
             walletEnabled: forcedCustomer.walletEnabled ?? true,
             pendingAmount: forcedTotals.pendingAmount,
-            pendingCount: forcedTotals.pendingCount,
+            pendingCount: Math.max(forcedTotals.pendingCount, 1),
           })
         );
       }
@@ -1279,11 +1603,33 @@ export async function getCustomerPendingItems(
 
   await connectDB();
 
+  const activeVisit = await Visit.findOne({
+    customerId: new mongoose.Types.ObjectId(customerId),
+    status: "ACTIVE",
+  })
+    .select("billId")
+    .lean();
+
+  if (!activeVisit?.billId) {
+    return [];
+  }
+
   const entries = await NotebookEntry.find({
-    status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
+    status: { $ne: "CANCELLED" },
     $or: [
-      { customerId, $or: [{ contributors: { $size: 0 } }, { contributors: { $exists: false } }] },
-      { "contributors.customerId": customerId },
+      {
+        customerId,
+        billId: activeVisit.billId,
+        $or: [{ contributors: { $size: 0 } }, { contributors: { $exists: false } }],
+      },
+      {
+        contributors: {
+          $elemMatch: {
+            customerId: new mongoose.Types.ObjectId(customerId),
+            billId: activeVisit.billId,
+          },
+        },
+      },
     ],
   })
     .sort({ createdAt: 1 })
@@ -1293,19 +1639,18 @@ export async function getCustomerPendingItems(
 
   for (const entry of entries) {
     const dto = toNotebookEntryDTO(entry);
-    if (!isEntryCheckoutEligible(dto)) continue;
-
-    for (const obligation of getCheckoutQueueObligations(dto)) {
-      if (obligation.customerId !== customerId) continue;
-      const slice = getCustomerBillSlice(dto, customerId);
-      items.push({
-        entry: dto,
-        contributionAmount: obligation.amount,
-        contributorCustomerId: customerId,
-        lineAmount: slice?.lineTotal,
-        linePaidAmount: slice?.paid,
-      });
+    const slice = getCustomerBillSlice(dto, customerId);
+    if (!slice) {
+      continue;
     }
+
+    items.push({
+      entry: dto,
+      contributionAmount: slice.due,
+      contributorCustomerId: customerId,
+      lineAmount: slice.lineTotal,
+      linePaidAmount: slice.paid,
+    });
   }
 
   return items;
@@ -1655,6 +2000,11 @@ export async function addCafeItems(
     const existing = await NotebookEntry.findOne(mergeQuery);
 
     if (existing) {
+      const lockFailure = await getEntryEditLockFailure(existing);
+      if (lockFailure) {
+        return failure(lockFailure);
+      }
+
       existing.quantity = (existing.quantity ?? 1) + item.quantity;
       existing.unitPrice = item.unitPrice;
       existing.amount = existing.unitPrice * existing.quantity;

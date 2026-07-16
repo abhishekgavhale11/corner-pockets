@@ -66,12 +66,13 @@ The software should behave like an experienced counter staff member.
 | Layer | Purpose | When it changes |
 |-------|---------|-----------------|
 | **Counter** | Today's notebook (tables, frames, cafe) | Continuously during play |
-| **Visit Bill** | Live running bill for today's visit | Charges and checkout payments |
-| **Payments** | Permanent financial events | Immediately when money is received |
-| **Ledger charges** | Permanent charge lines | After checkout commit (paid or pay-later dismiss) |
-| **Outstanding** | Debt after pay-later / closing | Pay-later dismiss or closing confirmation |
+| **Visit Bill** | Live running bill for today's visit | When charges or checkout payments occur |
+| **Ledger** | Finalized financial journal | Only when checkout is **completed** |
+| **Outstanding** | Debt after Finish Visit | After Finish Visit when `dueAmount > 0` |
 
 Counter rows may be edited freely **until that row receives payment allocation**.
+
+**The ledger is not a live activity feed.** Frames, edits, splits, and cafe items during an active visit are temporary checkout data and must not appear in the ledger until checkout is completed.
 
 ---
 
@@ -130,7 +131,7 @@ Route: `/checkout`
 - Games and cafe on the **active visit**
 - Partial payments (FIFO allocation across selected entries)
 - Full settlement
-- Pay Later (dismiss bill — moves due to outstanding path)
+- Leave Due (working state; no ledger yet)
 - Wallet / Cash / GPay
 - Third-party pay (`paidByCustomerId` — ownership unchanged)
 
@@ -138,7 +139,7 @@ Route: `/checkout`
 
 - Collect **outstanding** from previous visits
 - Create ledger status events:
-  - **Moved to Outstanding** — only from pay-later dismiss
+  - **Moved to Outstanding** — only during Finish Visit (when Due remains)
   - **Outstanding Paid** — only from Customer Page balance payments
 
 ### Checkout payment ledger output (active visit)
@@ -150,14 +151,14 @@ For a visit payment, ledger shows **only**:
 
 No outstanding status events from checkout settlement.
 
-### Pay Later (dismiss)
+### Leave Due (working state)
 
-When staff dismisses checkout without full payment:
+When staff leaves checkout with remaining due:
 
-- Entry gets `checkoutDismissedAt`
-- Ledger shows **Moved to Outstanding** (grouped by dismiss event)
-- Charge appears in ledger (committed)
-- Remaining balance collectible from Customer Page
+- The visit remains `ACTIVE` and checkout remains the working bill
+- No ledger events are created
+- No outstanding events are created
+- The remaining amount becomes eligible for Outstanding only after **Finish Visit**
 
 ### Checkout eligibility
 
@@ -178,20 +179,17 @@ Entries in `PENDING` or `REVERSED` with remaining obligation appear in checkout 
 
 | Status | Meaning |
 |--------|---------|
-| `ACTIVE` | Customer playing today |
-| `DUE` | Unpaid portion on today's visit |
-| `PAID` | Fully settled |
-| `OUTSTANDING` | Due converted / pay-later |
-| `SETTLED` | Outstanding collected later |
+| `WORKING` | Visit is not yet finished (financial data is still in working state) |
+| `FINISHED` | Visit is finalized; financial outcome is determined by `dueAmount` (== 0 => Paid, > 0 => Outstanding) |
 
 ### Due vs Outstanding
 
 | Term | Scope | When |
 |------|-------|------|
-| **Due** | Today's visit bill | During business hours |
-| **Outstanding** | Customer lifetime debt | After pay-later dismiss or closing |
+| **Due** | Today's working visit bill | During `WORKING` state |
+| **Outstanding** | Customer lifetime debt | After Finish Visit when Due remains `> 0` |
 
-Due is **not** outstanding until staff confirms conversion.
+Due is **not** outstanding until staff executes **Finish Visit** and finalizes the financial outcome.
 
 ### One bill rule
 
@@ -219,7 +217,7 @@ When paying multiple entries in one settlement:
 `applyBalancePaymentFifo` in `src/lib/wallet/apply-balance-payment.ts`:
 
 1. Sort eligible entries by `createdAt` ascending
-2. Only entries with `checkoutDismissedAt` (pay-later / outstanding path)
+2. Only entries that are on the outstanding path (moved at Finish Visit)
 3. Apply payment to oldest owed amount first
 4. Split-bill: FIFO per contributor slice for that customer
 5. Record `CustomerBalancePayment` with per-entry `allocations[]`
@@ -241,8 +239,7 @@ When paying multiple entries in one settlement:
 
 Outstanding is created when:
 
-1. Staff uses **Pay Later** at checkout (`checkoutDismissedAt` set), or
-2. Staff confirms **Closing** conversion (Due → Outstanding) — business-day end process
+1. Staff executes **Finish Visit** and the Due at finish remains `> 0`
 
 Outstanding is **never** created automatically during normal partial checkout payment.
 
@@ -269,25 +266,69 @@ Outstanding belongs to the **customer**, not today's visit.
 
 ## 9. Ledger rules
 
-Engine: `src/actions/customer-ledger.ts`
+Engine: `src/actions/customer-ledger.ts` + `src/lib/ledger/checkout-finalization.ts`
 
 ### Principles
 
+- **Finalized financial journal** — not a live counter activity feed
 - Append-only customer financial history
 - Running wallet balance and outstanding balance columns
 - Status events always show amounts (no `—`)
 - Event ordering tie-break: charge → payment → moved to outstanding → outstanding paid
 
-### When charges appear
+### Active visit — nothing in ledger
 
-Charges appear in ledger only after **checkout commit**:
+While checkout is **in progress** (open visit bill, partial payments allowed):
 
-- Entry fully paid at checkout, OR
-- Entry dismissed pay-later (`checkoutDismissedAt`)
+- Creating, editing, reassigning, or splitting frames → **no ledger entries**
+- Adding cafe items → **no ledger entries**
+- Partial checkout payments → **no ledger entries** until checkout is completed
 
-`isEntryLedgerCommitted` gates charge eligibility.
+### Finish Visit — ledger batch
 
-Charge timestamp uses settlement/dismiss time, not row `createdAt`.
+When staff explicitly clicks **Finish Visit**, emit **one batch** in this order:
+
+1. **Charge lines** — one per row (e.g. Individual −₹180, Rummy −₹480, Singles −₹160, Cafe −₹40)
+2. **Visit payment** — single aggregated line (e.g. Cash Received (Visit) +₹220)
+3. **Moved to Outstanding** — only if remainder due > 0 after payment (e.g. ₹640). **Omit** if fully paid.
+
+Example (Bill ₹860, Paid ₹220, Outstanding ₹640):
+
+```
+Individual        −₹180
+Rummy (4P)        −₹480
+Singles           −₹160
+Cafe              −₹40
+Cash Received (Visit)  +₹220
+Moved to Outstanding    ₹640
+```
+
+Example (full pay ₹860):
+
+```
+[charges...]
+Cash Received (Visit)  +₹860
+(no Moved to Outstanding)
+```
+
+### Finalization rules
+
+A bill batch is finalized only when **Visit is finished** (Finish Visit).
+
+Partial payments during an open checkout do **not** finalize the batch.
+
+Implementation: `buildCheckoutFinalizationBatches()`
+
+### Customer Page payments (outstanding)
+
+After Finish Visit with remaining Due, collections from Customer Page create:
+
+- `Cash/GPay Received (Outstanding)`
+- `Outstanding Paid` (when outstanding clears to zero)
+
+### Wallet
+
+Wallet recharge and deduction remain **independent** ledger events (not tied to checkout batches).
 
 ### Payment context labels
 
@@ -299,8 +340,8 @@ Charge timestamp uses settlement/dismiss time, not row `createdAt`.
 
 ### Outstanding column behavior
 
-- **Active visit** charges/payments: do **not** affect running outstanding balance
-- **Pay-later** charges: increase outstanding
+- Visit charges and visit payments: do **not** affect running outstanding balance
+- **Moved to Outstanding**: increases outstanding by remainder amount
 - **Outstanding** balance payments: decrease outstanding
 - **Outstanding Paid** status event: only when `balance-payment-*` clears outstanding to zero
 
@@ -308,7 +349,7 @@ Charge timestamp uses settlement/dismiss time, not row `createdAt`.
 
 | Event | Source |
 |-------|--------|
-| Moved to Outstanding | Pay-later dismiss |
+| Moved to Outstanding | Finish Visit (when Due remains) |
 | Outstanding Paid | Customer Page balance payment clears outstanding |
 | Wallet Recharge / Refund | Wallet transactions |
 
@@ -453,7 +494,7 @@ Route: `/customers/[id]`
 
 ### Outstanding page
 
-Route: `/notebook/balances` — customers with pay-later / outstanding balances.
+Route: `/notebook/balances` — customers with Outstanding balances.
 
 ---
 
@@ -503,7 +544,8 @@ Not in scope unless business need confirmed:
 
 | Date | Decision |
 |------|----------|
-| 2026-07 | Checkout payments never create Outstanding Paid ledger events |
+| 2026-07 | Ledger is finalized journal — active visit rows invisible until checkout completes |
+| 2026-07 | Checkout completion emits charge batch + aggregated visit payment + Moved to Outstanding |
 | 2026-07 | Ledger charges only after checkout commit, not at counter create time |
 | 2026-07 | Edit lock per-row by `paidAmount`, not visit `lastPaymentAt` |
 | 2026-07 | Customer Page blocked when active visit due > 0 |

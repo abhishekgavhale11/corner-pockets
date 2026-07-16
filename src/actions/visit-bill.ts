@@ -2,17 +2,25 @@
 
 import { connectDB } from "@/lib/db/connect";
 import { authorizePermission } from "@/lib/auth/session";
+import { failure, success, type ActionResult } from "@/lib/utils/action-result";
+import { revalidateCustomerFinancials } from "@/lib/utils/revalidate-counter";
+import { finishVisitSchema } from "@/lib/validators/visit-bill";
+import { finalizeActiveVisitForCustomer } from "@/lib/visit-bill/finalize-visit";
+import { enrichEntryDTOWithEditLock } from "@/lib/visit-bill/entry-edit-lock";
+import { getFinishedBillIdSet, collectBillIdsFromEntryDtos } from "@/lib/visit-bill/finished-visit-lock";
 import { getBusinessDate } from "@/lib/utils/business-date";
 import { backfillVisitBillsForCustomer } from "@/lib/visit-bill/backfill";
 import { syncBillTotals } from "@/lib/visit-bill/sync-bill-totals";
 import { toActiveVisitBillDTO } from "@/lib/mappers/visit-bill";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import { getCustomerBillSlice } from "@/lib/visit-bill/customer-bill-slice";
-import type { ActiveVisitBillDTO, CustomerPendingItemDTO, CustomerVisitGlanceDTO } from "@/types";
+import type { ActiveVisitBillDTO, CustomerPendingItemDTO, CustomerVisitGlanceDTO, NotebookSettlementDTO } from "@/types";
 import Bill from "@/models/Bill";
 import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
+import NotebookSettlement from "@/models/NotebookSettlement";
 import Visit from "@/models/Visit";
+import { toNotebookSettlementDTO } from "@/lib/mappers/notebook";
 import {
   buildCustomerVisitGlance,
   emptyCustomerVisitGlance,
@@ -170,7 +178,6 @@ export async function getVisitBillDisplayItems(
   const visit = await Visit.findOne({
     customerId,
     businessDate: date,
-    status: "ACTIVE",
   }).lean();
 
   if (!visit) {
@@ -202,9 +209,15 @@ export async function getVisitBillDisplayItems(
     .lean();
 
   const items: CustomerPendingItemDTO[] = [];
+  const finishedBillIds = await getFinishedBillIdSet(
+    collectBillIdsFromEntryDtos(entries.map((entry) => toNotebookEntryDTO(entry)))
+  );
 
   for (const entry of entries) {
-    const dto = toNotebookEntryDTO(entry);
+    const dto = enrichEntryDTOWithEditLock(
+      toNotebookEntryDTO(entry),
+      finishedBillIds
+    );
     const slice = getCustomerBillSlice(dto, customerId);
     if (!slice) {
       continue;
@@ -234,9 +247,33 @@ export async function getCustomerVisitGlance(
 
   const customer = await Customer.findById(customerId).lean();
   const customerName = customer?.name ?? "Customer";
+  const date = businessDate ?? getBusinessDate();
 
-  const visitBill = await getActiveVisitBillForCustomer(customerId, businessDate);
-  if (!visitBill) {
+  await backfillVisitBillsForCustomer(
+    customerId,
+    {
+      username: authResult.session.user.username,
+      staffId: authResult.session.user.id,
+    },
+    date
+  );
+
+  const visit = await Visit.findOne({
+    customerId,
+    businessDate: date,
+  }).lean();
+
+  if (!visit) {
+    return emptyCustomerVisitGlance(customerId, customerName);
+  }
+
+  const bill = await Bill.findById(visit.billId).lean();
+  if (!bill) {
+    return emptyCustomerVisitGlance(customerId, customerName);
+  }
+
+  const synced = await syncBillTotals(bill._id);
+  if (!synced) {
     return emptyCustomerVisitGlance(customerId, customerName);
   }
 
@@ -245,10 +282,110 @@ export async function getCustomerVisitGlance(
   return buildCustomerVisitGlance({
     customerId,
     customerName,
-    visitStartedAt: visitBill.visit.startedAt,
-    billTotal: visitBill.bill.totalAmount,
-    paidAmount: visitBill.bill.paidAmount,
-    dueAmount: visitBill.bill.dueAmount,
+    visitStatus: visit.status,
+    visitStartedAt: visit.startedAt.toISOString(),
+    visitFinishedAt: visit.finishedAt?.toISOString(),
+    billTotal: synced.totalAmount,
+    paidAmount: synced.paidAmount,
+    dueAmount: synced.dueAmount,
     items,
   });
+}
+
+export type FinishVisitResult = {
+  visitId: string;
+  billId: string;
+  dueAmount: number;
+};
+
+export async function finishVisit(
+  formData: FormData
+): Promise<ActionResult<FinishVisitResult>> {
+  const authResult = await authorizePermission("NOTEBOOK_SETTLE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = finishVisitSchema.safeParse({
+    customerId: formData.get("customerId"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  try {
+    const result = await finalizeActiveVisitForCustomer(
+      parsed.data.customerId,
+      {
+        username: authResult.session.user.username,
+        staffId: authResult.session.user.id,
+      }
+    );
+
+    if (!result) {
+      return failure("No active visit found for this customer");
+    }
+
+    revalidateCustomerFinancials(parsed.data.customerId);
+
+    return success(result);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to finish visit";
+    return failure(message);
+  }
+}
+
+export async function getActiveVisitCheckoutSettlements(
+  customerId: string
+): Promise<NotebookSettlementDTO[]> {
+  const authResult = await authorizePermission("NOTEBOOK_VIEW");
+  if (!("session" in authResult)) {
+    return [];
+  }
+
+  await connectDB();
+
+  const visit = await Visit.findOne({
+    customerId,
+    status: "ACTIVE",
+  }).lean();
+
+  if (!visit) {
+    return [];
+  }
+
+  const entries = await NotebookEntry.find({
+    status: { $ne: "CANCELLED" },
+    $or: [
+      { billId: visit.billId, customerId },
+      {
+        contributors: {
+          $elemMatch: {
+            customerId,
+            billId: visit.billId,
+          },
+        },
+      },
+    ],
+  })
+    .select("_id")
+    .lean();
+
+  const entryIds = entries.map((entry) => entry._id);
+  if (entryIds.length === 0) {
+    return [];
+  }
+
+  const settlements = await NotebookSettlement.find({
+    status: "COMPLETED",
+    entryIds: { $in: entryIds },
+  })
+    .sort({ createdAt: 1 })
+    .lean();
+
+  return settlements.map((settlement) => toNotebookSettlementDTO(settlement));
 }

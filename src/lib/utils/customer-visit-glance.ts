@@ -45,7 +45,9 @@ export function customerInitials(name: string): string {
 export function buildCustomerVisitGlance(input: {
   customerId: string;
   customerName: string;
+  visitStatus: import("@/lib/constants/visit-bill").VisitStatus;
   visitStartedAt?: string;
+  visitFinishedAt?: string;
   billTotal: number;
   paidAmount: number;
   dueAmount: number;
@@ -88,8 +90,10 @@ export function buildCustomerVisitGlance(input: {
   return {
     customerId: input.customerId,
     customerName: input.customerName,
-    hasActiveVisit: true,
+    hasActiveVisit: input.visitStatus === "ACTIVE",
+    visitStatus: input.visitStatus,
     visitStartedAt: input.visitStartedAt,
+    visitFinishedAt: input.visitFinishedAt,
     billTotal: input.billTotal,
     paidAmount: input.paidAmount,
     dueAmount: input.dueAmount,

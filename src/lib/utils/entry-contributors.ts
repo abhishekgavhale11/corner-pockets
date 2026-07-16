@@ -109,47 +109,27 @@ export function isEntryOnCustomerBalance(
   );
 }
 
-/** Entry has passed through checkout (payment and/or pay-later) — eligible for ledger. */
+/**
+ * Entry has passed checkout finalization (full pay or pay-later dismiss).
+ * Partial payments during an open checkout do not commit to the ledger.
+ */
 export function isEntryLedgerCommitted(
   entry: Pick<
     NotebookEntryDTO,
     | "status"
     | "checkoutDismissedAt"
-    | "paidAmount"
-    | "balanceCollectedAmount"
-    | "contributors"
   >
 ): boolean {
   if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
     return false;
   }
-  if (entry.status === "PAID") {
-    return true;
-  }
   if (entry.checkoutDismissedAt) {
     return true;
   }
-  if (entryReceivedPayment(entry)) {
-    return true;
-  }
-  if (
-    entry.contributors?.some(
-      (contributor) =>
-        contributor.status === "PAID" || entryReceivedPayment(contributor)
-    )
-  ) {
+  if (entry.status === "PAID") {
     return true;
   }
   return false;
-}
-
-function entryReceivedPayment(input: {
-  paidAmount?: number | null;
-  balanceCollectedAmount?: number | null;
-}): boolean {
-  return (
-    (input.paidAmount ?? 0) + (input.balanceCollectedAmount ?? 0) > 0
-  );
 }
 
 /** Count toward ledger charges / pay-later outstanding — not counter assignment. */

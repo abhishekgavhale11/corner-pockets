@@ -25,11 +25,15 @@ CONFIRM_DB_RESET=yes npm run db:reset
 npm run seed:sample
 ```
 
-See [docs/E2E-TESTING.md](docs/E2E-TESTING.md) for the full test walkthrough.
+See [archive/docs-legacy/E2E-TESTING.md](archive/docs-legacy/E2E-TESTING.md) for the full test walkthrough.
+
+### Documentation
+
+Financial Engine business rules: [docs/01-financial-engine.md](docs/01-financial-engine.md)
 
 ### Deployment
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for Vercel + MongoDB Atlas.
+See [archive/docs-legacy/DEPLOYMENT.md](archive/docs-legacy/DEPLOYMENT.md) for Vercel + MongoDB Atlas.
 
 ## Phase 1 Features
 

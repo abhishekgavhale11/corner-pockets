@@ -114,7 +114,7 @@ async function runScenarioTests(staff: { id: string; username: string }) {
     record(
       "1-first-visit",
       first.visit.status === "ACTIVE" &&
-        first.bill.status === "ACTIVE" &&
+        first.bill.status === "WORKING" &&
         first.bill.totalAmount === 0,
       `Created visit ${first.visit.publicId} + bill ${first.bill.publicId} with zero totals`
     );
@@ -190,7 +190,7 @@ async function runScenarioTests(staff: { id: string; username: string }) {
       "5-partial-payment",
       afterPartial?.paidAmount === 100 &&
         afterPartial?.dueAmount === expectedTotal - 100 &&
-        afterPartial?.status === "DUE",
+        afterPartial?.status === "WORKING",
       `Paid ₹${afterPartial?.paidAmount}, due ₹${afterPartial?.dueAmount}, status ${afterPartial?.status}`
     );
 
@@ -216,7 +216,7 @@ async function runScenarioTests(staff: { id: string; username: string }) {
       "7-full-payment-paid",
       afterFull?.dueAmount === 0 &&
         afterFull?.paidAmount === expectedTotal &&
-        afterFull?.status === "PAID",
+        afterFull?.status === "WORKING",
       `Due ₹${afterFull?.dueAmount}, status ${afterFull?.status}`
     );
 

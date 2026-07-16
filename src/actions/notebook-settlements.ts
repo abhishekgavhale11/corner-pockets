@@ -16,6 +16,7 @@ import {
 import { toNotebookSettlementDTO } from "@/lib/mappers/notebook";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import Customer from "@/models/Customer";
+import Transaction from "@/models/Transaction";
 import NotebookEntry from "@/models/NotebookEntry";
 import NotebookSettlement from "@/models/NotebookSettlement";
 import NotebookSettlementReversal from "@/models/NotebookSettlementReversal";
@@ -28,9 +29,11 @@ import {
   collectBillIdsFromEntries,
 } from "@/lib/visit-bill/entry-edit-lock";
 import { linkEntriesToActiveVisitBill } from "@/lib/visit-bill/attach-entry";
-
-import { CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/constants/notebook-payments";
+import { isEntryOnActiveVisit } from "@/lib/visit-bill/active-visit";
+import { isEntryOnFinishedVisit } from "@/lib/visit-bill/finished-visit-lock";
+import { VISIT_FINISHED_CHECKOUT_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-utils";
 import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
+import { CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/constants/notebook-payments";
 
 function entryCheckoutSettled(entry: {
   paidAmount?: number | null;
@@ -108,6 +111,12 @@ export async function settleNotebookEntries(
         );
       }
 
+      for (const entry of entries) {
+        if (await isEntryOnFinishedVisit(entry)) {
+          throw new Error(VISIT_FINISHED_CHECKOUT_MESSAGE);
+        }
+      }
+
       const payerCustomerId = parsed.data.paidByCustomerId;
       const paymentAllocations =
         parsed.data.allocations ??
@@ -166,6 +175,8 @@ export async function settleNotebookEntries(
           throw new Error("Entry not found for allocation");
         }
 
+        const onActiveVisit = await isEntryOnActiveVisit(entry, dbSession);
+
         if (entryHasContributors({ contributors: entry.contributors })) {
           if (!payerCustomerId) {
             throw new Error("Contributor payer is required");
@@ -189,7 +200,14 @@ export async function settleNotebookEntries(
           contributor.paidAmount =
             (contributor.paidAmount ?? 0) + allocation.amount;
 
-          if (contributorCheckoutSettled(contributor) >= contributor.amount) {
+          if (onActiveVisit) {
+            contributor.paymentMethod = parsed.data.paymentMethod;
+          }
+
+          if (
+            !onActiveVisit &&
+            contributorCheckoutSettled(contributor) >= contributor.amount
+          ) {
             contributor.status = "PAID";
             contributor.paymentMethod = parsed.data.paymentMethod;
             contributor.paidAt = new Date();
@@ -204,7 +222,10 @@ export async function settleNotebookEntries(
 
           affectedCustomerIds.add(contributor.customerId.toString());
 
-          if (entry.contributors.every((row) => row.status === "PAID")) {
+          if (
+            !onActiveVisit &&
+            entry.contributors.every((row) => row.status === "PAID")
+          ) {
             entry.status = "PAID";
             entry.paymentMethod = parsed.data.paymentMethod;
             entry.paidByName = parsed.data.paidByName.trim();
@@ -252,7 +273,32 @@ export async function settleNotebookEntries(
 
           entry.paidAmount = (entry.paidAmount ?? 0) + allocation.amount;
 
-          if (entryCheckoutSettled(entry) >= entry.amount) {
+          if (onActiveVisit) {
+            entry.paymentMethod = parsed.data.paymentMethod;
+            entry.paidByName = parsed.data.paidByName.trim();
+            entry.paidByCustomerId = payerCustomerId
+              ? new mongoose.Types.ObjectId(payerCustomerId)
+              : entry.customerId;
+            if (walletTransactionId) {
+              entry.walletTransactionId = new mongoose.Types.ObjectId(
+                walletTransactionId
+              );
+            }
+          }
+
+          if (entryCustomerId) {
+            contributorPayments.push({
+              entryId: entry._id,
+              customerId: new mongoose.Types.ObjectId(entryCustomerId),
+              customerName: entry.customerName,
+              amount: allocation.amount,
+            });
+          }
+
+          if (
+            !onActiveVisit &&
+            entryCheckoutSettled(entry) >= entry.amount
+          ) {
             entry.status = "PAID";
             entry.paymentMethod = parsed.data.paymentMethod;
             entry.paidByName = parsed.data.paidByName.trim();
@@ -388,6 +434,209 @@ export async function reverseNotebookSettlement(
     return authResult;
   }
 
-  void formData;
-  return failure("Payment settlements cannot be reversed. Only wallet recharges can be reversed.");
+  const parsed = reverseNotebookSettlementSchema.safeParse({
+    settlementId: formData.get("settlementId"),
+    reversalReason: formData.get("reversalReason"),
+    reversalReasonOther: formData.get("reversalReasonOther") || undefined,
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const settlement = await NotebookSettlement.findById(parsed.data.settlementId);
+  if (!settlement || settlement.status !== "COMPLETED") {
+    return failure("Payment not found or already removed");
+  }
+
+  const entries = await NotebookEntry.find({
+    _id: { $in: settlement.entryIds },
+  });
+
+  if (entries.length === 0) {
+    return failure("Payment lines not found");
+  }
+
+  for (const entry of entries) {
+    if (!(await isEntryOnActiveVisit(entry))) {
+      return failure(
+        "Checkout payments can only be removed while the visit is active"
+      );
+    }
+  }
+
+  const reversalLabel = getNotebookReversalReasonLabel(
+    parsed.data.reversalReason,
+    parsed.data.reversalReasonOther
+  );
+
+  const allocations =
+    settlement.contributorPayments.length > 0
+      ? settlement.contributorPayments
+      : entries.length === 1 && (entries[0].customerId || settlement.paidByCustomerId)
+        ? [
+            {
+              entryId: entries[0]._id,
+              customerId:
+                entries[0].customerId ?? settlement.paidByCustomerId!,
+              customerName: entries[0].customerName,
+              amount: settlement.totalAmount,
+            },
+          ]
+        : [];
+
+  if (allocations.length === 0) {
+    return failure("Cannot reverse this payment automatically. Contact support.");
+  }
+
+  const dbSession = await mongoose.startSession();
+  let reversedSettlement: Parameters<typeof toNotebookSettlementDTO>[0] | null =
+    null;
+  const affectedCustomerIds = new Set<string>();
+
+  try {
+    await dbSession.withTransaction(async () => {
+      if (settlement.paymentMethod === "WALLET") {
+        const payerId = settlement.paidByCustomerId?.toString();
+        if (!payerId) {
+          throw new Error("Wallet payer not found for this payment");
+        }
+
+        const payer = await Customer.findById(payerId).session(dbSession);
+        if (!payer || !payer.isActive || !payer.walletEnabled) {
+          throw new Error("Wallet payer not found");
+        }
+
+        const refundAmount = Math.round(settlement.totalAmount);
+        payer.balance += refundAmount;
+        await payer.save({ session: dbSession });
+
+        await Transaction.create(
+          [
+            {
+              customerId: payer._id,
+              type: "credit",
+              amount: refundAmount,
+              balanceAfter: payer.balance,
+              description: "Checkout payment removed",
+              staffId: authResult.session.user.id,
+              staffUsername: authResult.session.user.username,
+              isReversal: true,
+            },
+          ],
+          { session: dbSession }
+        );
+      }
+
+      for (const allocation of allocations) {
+        const entry = entries.find(
+          (row) => row._id.toString() === allocation.entryId.toString()
+        );
+        if (!entry) {
+          throw new Error("Entry not found for payment reversal");
+        }
+
+        if (entryHasContributors({ contributors: entry.contributors })) {
+          const contributor = entry.contributors.find(
+            (row) => row.customerId.toString() === allocation.customerId.toString()
+          );
+          if (!contributor) {
+            throw new Error("Contributor not found for payment reversal");
+          }
+
+          contributor.paidAmount = Math.max(
+            0,
+            (contributor.paidAmount ?? 0) - allocation.amount
+          );
+          contributor.status = "PENDING";
+          contributor.paymentMethod = undefined;
+          contributor.paidAt = undefined;
+          contributor.settlementId = undefined;
+          affectedCustomerIds.add(contributor.customerId.toString());
+        } else {
+          entry.paidAmount = Math.max(
+            0,
+            (entry.paidAmount ?? 0) - allocation.amount
+          );
+          entry.status = "PENDING";
+          entry.paymentMethod = undefined;
+          entry.paidByName = undefined;
+          entry.paidByCustomerId = undefined;
+          entry.walletTransactionId = undefined;
+          if (entry.customerId) {
+            affectedCustomerIds.add(entry.customerId.toString());
+          }
+        }
+
+        if (entry.settlementId?.toString() === settlement._id.toString()) {
+          entry.settlementId = undefined;
+        }
+
+        entry.status = "PENDING";
+        await entry.save({ session: dbSession });
+      }
+
+      settlement.status = "REVERSED";
+      settlement.reversedAt = new Date();
+      settlement.reversedBy = authResult.session.user.username;
+      settlement.reversalReason = reversalLabel;
+
+      const [reversalRecord] = await NotebookSettlementReversal.create(
+        [
+          {
+            originalSettlementId: settlement._id,
+            affectedEntryIds: settlement.entryIds,
+            reversalReason: reversalLabel,
+            reversedBy: authResult.session.user.username,
+            reversedAt: new Date(),
+          },
+        ],
+        { session: dbSession }
+      );
+
+      settlement.reversalSettlementId = reversalRecord._id;
+      await settlement.save({ session: dbSession });
+      reversedSettlement = settlement;
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to remove payment";
+    return failure(message);
+  } finally {
+    dbSession.endSession();
+  }
+
+  if (!reversedSettlement) {
+    return failure("Failed to remove payment");
+  }
+
+  const billIds = [
+    ...new Set(
+      entries.flatMap((entry) => {
+        const ids: string[] = [];
+        if (entry.billId) {
+          ids.push(entry.billId.toString());
+        }
+        for (const contributor of entry.contributors ?? []) {
+          if (contributor.billId) {
+            ids.push(contributor.billId.toString());
+          }
+        }
+        return ids;
+      })
+    ),
+  ];
+
+  for (const billId of billIds) {
+    await syncBillTotals(new mongoose.Types.ObjectId(billId));
+  }
+
+  revalidateCounterPaths();
+  for (const customerId of affectedCustomerIds) {
+    revalidatePath(`/customers/${customerId}`);
+  }
+
+  return success(toNotebookSettlementDTO(reversedSettlement));
 }

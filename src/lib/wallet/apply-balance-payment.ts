@@ -77,10 +77,6 @@ export function applyBalancePaymentFifo(
   for (const entry of sorted) {
     if (remaining <= 0) break;
 
-    if (!entry.checkoutDismissedAt) {
-      continue;
-    }
-
     if (entryHasContributors({ contributors: entry.contributors })) {
       const contributor = entry.contributors.find(
         (row) => row.customerId.toString() === customerId

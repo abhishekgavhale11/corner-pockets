@@ -2,7 +2,8 @@
 
 import { useEffect, type ReactNode } from "react";
 import type { NotebookPaymentMethod } from "@/lib/constants/notebook-payments";
-import { formatCurrency } from "@/lib/utils/format";
+import { formatCurrency, formatDate } from "@/lib/utils/format";
+import type { NotebookSettlementDTO } from "@/types";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -408,6 +409,64 @@ export function CheckoutPaymentAmountSection({
   );
 }
 
+interface CheckoutPaymentHistoryProps {
+  settlements: NotebookSettlementDTO[];
+  onRemove: (settlementId: string) => void;
+  isPending?: boolean;
+}
+
+export function CheckoutPaymentHistory({
+  settlements,
+  onRemove,
+  isPending = false,
+}: CheckoutPaymentHistoryProps) {
+  if (settlements.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+        Payments this visit
+      </p>
+      <ul className="mt-2 space-y-2">
+        {settlements.map((settlement) => (
+          <li
+            key={settlement.id}
+            className="flex items-center justify-between gap-3 rounded-lg bg-gray-50 px-3 py-2"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-900">
+                {paymentMethodLabel(settlement.paymentMethod)}{" "}
+                <span className="tabular-nums">
+                  {formatCurrency(settlement.totalAmount)}
+                </span>
+              </p>
+              <p className="text-xs text-gray-500">
+                {formatDate(settlement.createdAt)}
+                {settlement.paidByName ? ` · ${settlement.paidByName}` : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-checkout-action="remove-payment"
+              disabled={isPending}
+              onClick={() => onRemove(settlement.id)}
+              className="shrink-0 text-sm font-medium text-red-700 underline-offset-2 transition-colors hover:underline disabled:opacity-50"
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-gray-500">
+        Remove a payment to edit frames on the counter again, then pay with a
+        different method if needed.
+      </p>
+    </div>
+  );
+}
+
 interface CheckoutPaymentReviewProps {
   total: number;
   priorBalance?: number;
@@ -424,6 +483,11 @@ interface CheckoutPaymentReviewProps {
   addToBalanceHint?: string | null;
   checkoutMode?: "new-bill" | "customer-balance";
   onCloseBill?: () => void;
+  onFinishVisit?: () => void;
+  finishVisitDisabled?: boolean;
+  finishVisitHint?: string | null;
+  checkoutSettlements?: NotebookSettlementDTO[];
+  onRemovePayment?: (settlementId: string) => void;
   visitBillTotal?: number;
   visitBillPaid?: number;
   visitBillDue?: number;
@@ -450,6 +514,11 @@ export function CheckoutPaymentReview({
   addToBalanceHint,
   checkoutMode = "new-bill",
   onCloseBill,
+  onFinishVisit,
+  finishVisitDisabled,
+  finishVisitHint,
+  checkoutSettlements = [],
+  onRemovePayment,
   visitBillTotal,
   visitBillPaid,
   visitBillDue,
@@ -473,6 +542,42 @@ export function CheckoutPaymentReview({
 
   return (
     <div className="space-y-3">
+      {onFinishVisit ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+            Active visit
+          </p>
+          <p className="mt-1 text-sm text-emerald-950">
+            Payments and edits stay open until you finish the visit.
+          </p>
+          {finishVisitHint ? (
+            <p className="mt-2 text-sm font-medium text-amber-800">
+              {finishVisitHint}
+            </p>
+          ) : null}
+          <Button
+            type="button"
+            fullWidth
+            size="lg"
+            variant="secondary"
+            data-checkout-action="finish-visit"
+            disabled={finishVisitDisabled || isPending}
+            onClick={onFinishVisit}
+            className="mt-3 min-h-[44px] border-emerald-300 bg-white text-sm font-bold text-emerald-900 hover:bg-emerald-50"
+          >
+            {isPending ? "Finishing visit…" : "Finish Visit"}
+          </Button>
+        </div>
+      ) : null}
+
+      {checkoutSettlements.length > 0 && onRemovePayment ? (
+        <CheckoutPaymentHistory
+          settlements={checkoutSettlements}
+          onRemove={onRemovePayment}
+          isPending={isPending}
+        />
+      ) : null}
+
       {showVisitBillSummary ? (
         <VisitBillSummary
           totalAmount={visitBillTotal}

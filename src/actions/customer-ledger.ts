@@ -8,13 +8,12 @@ import {
   formatCafeItemLabel,
   getEntryDisplayLabel,
 } from "@/lib/utils/notebook-entry-label";
-import { getLedgerObligations, isEntryLedgerChargeable } from "@/lib/utils/entry-contributors";
-import { payLaterBalanceAtDismiss } from "@/lib/utils/freeze-counter-pay-snapshot";
 import { repairCounterSnapshotsForEntries } from "@/lib/wallet/reconcile-entry-payments";
 import {
-  bundleLedgerCharges,
-  type LedgerChargeCandidate,
-} from "@/lib/utils/ledger-charge-bundles";
+  buildCheckoutFinalizationBatches,
+  customerLedgerChargeAmount,
+  settlementIdsAbsorbedByCheckoutBatches,
+} from "@/lib/ledger/checkout-finalization";
 import {
   formatLedgerBalanceLabel,
   formatPaymentReceivedDescription,
@@ -32,6 +31,8 @@ import CustomerBalancePayment from "@/models/CustomerBalancePayment";
 import NotebookEntry from "@/models/NotebookEntry";
 import NotebookSettlement from "@/models/NotebookSettlement";
 import Transaction from "@/models/Transaction";
+import Bill from "@/models/Bill";
+import Visit from "@/models/Visit";
 import { getCustomerPagePaymentBlockDue } from "@/lib/visit-bill/active-visit-checkout-due";
 
 type RawLedgerEvent = {
@@ -130,37 +131,6 @@ function isLegacyPayLaterDescription(description: string): boolean {
 
 function stripLegacyPayLaterPrefix(description: string): string {
   return description.trim().replace(PAY_LATER_PREFIX_PATTERN, "").trim();
-}
-
-function customerLedgerChargeAmount(
-  entry: ReturnType<typeof toNotebookEntryDTO>,
-  customerId: string
-): number | null {
-  if (entry.status === "CANCELLED") {
-    return null;
-  }
-
-  const contributor = entry.contributors?.find(
-    (row) => row.customerId === customerId
-  );
-  if (contributor) {
-    return contributor.amount;
-  }
-
-  if (entry.customerId === customerId) {
-    return entry.amount;
-  }
-
-  return null;
-}
-
-function customerOutstandingAmount(
-  entry: ReturnType<typeof toNotebookEntryDTO>,
-  customerId: string
-): number {
-  return getLedgerObligations(entry)
-    .filter((obligation) => obligation.customerId === customerId)
-    .reduce((sum, obligation) => sum + obligation.amount, 0);
 }
 
 function ledgerEventSortPriority(event: RawLedgerEvent): number {
@@ -362,12 +332,15 @@ export async function getCustomerLedgerSummary(
     return null;
   }
 
-  const [pendingItems, lastVisitEntry, lastPayment, visitCount, activeVisitDueAmount] =
+  const [finishedOutstandingBills, lastVisitEntry, lastPayment, visitCount, activeVisitDueAmount] =
     await Promise.all([
-      NotebookEntry.find({
-        status: { $in: ["PENDING", "REVERSED", "PAID"] },
-        $or: [{ customerId }, { "contributors.customerId": customerId }],
-      }).lean(),
+      Bill.find({
+        customerId: new mongoose.Types.ObjectId(customerId),
+        status: "FINISHED",
+        dueAmount: { $gt: 0 },
+      })
+        .select("_id")
+        .lean(),
       NotebookEntry.findOne({
         status: { $ne: "CANCELLED" },
         $or: [{ customerId }, { "contributors.customerId": customerId }],
@@ -380,15 +353,6 @@ export async function getCustomerLedgerSummary(
       getCustomerPagePaymentBlockDue(customerId),
     ]);
 
-  let openBillsCount = 0;
-
-  for (const entry of pendingItems) {
-    const dto = toNotebookEntryDTO(entry);
-    const remaining = customerOutstandingAmount(dto, customerId);
-    if (remaining <= 0) continue;
-    openBillsCount += 1;
-  }
-
   const ledgerLines = await buildCustomerLedgerLines(customerId, customer);
   const outstandingAmount =
     ledgerLines.at(-1)?.outstandingBalance ?? 0;
@@ -398,7 +362,7 @@ export async function getCustomerLedgerSummary(
     outstandingAmount,
     activeVisitDueAmount,
     hasActiveVisitWithDue: activeVisitDueAmount > 0,
-    openBillsCount,
+    openBillsCount: finishedOutstandingBills.length,
     visitCount,
     lastVisitAt: lastVisitEntry?.createdAt?.toISOString() ?? null,
     lastPaymentAt: lastPayment?.createdAt ?? null,
@@ -498,72 +462,53 @@ export async function getCustomerLedger(
   return buildCustomerLedgerLines(customerId, customer);
 }
 
-function recordEarliestSettlementAt(
-  map: Map<string, Date>,
-  entryId: string,
-  settlementAt: Date
-): void {
-  const existing = map.get(entryId);
-  if (!existing || settlementAt.getTime() < existing.getTime()) {
-    map.set(entryId, settlementAt);
-  }
-}
-
-function buildEarliestSettlementAtByEntryId(
-  settlements: Array<{
-    createdAt: Date;
-    entryIds: mongoose.Types.ObjectId[];
-    contributorPayments?: { entryId: mongoose.Types.ObjectId }[];
-  }>
-): Map<string, Date> {
-  const map = new Map<string, Date>();
-  for (const settlement of settlements) {
-    const at = settlement.createdAt;
-    for (const entryId of settlement.entryIds ?? []) {
-      recordEarliestSettlementAt(map, entryId.toString(), at);
-    }
-    for (const payment of settlement.contributorPayments ?? []) {
-      recordEarliestSettlementAt(map, payment.entryId.toString(), at);
-    }
-  }
-  return map;
-}
-
-function ledgerChargeCommitAt(
-  entry: {
-    checkoutDismissedAt?: Date;
-    createdAt: Date;
-    status: string;
-  },
-  earliestSettlementAt?: Date
-): Date | null {
-  const candidates: Date[] = [];
-  if (earliestSettlementAt) {
-    candidates.push(earliestSettlementAt);
-  }
-  if (entry.checkoutDismissedAt) {
-    candidates.push(entry.checkoutDismissedAt);
-  }
-  if (candidates.length === 0) {
-    if (entry.status === "PAID") {
-      return entry.createdAt;
-    }
-    return null;
-  }
-  return candidates.reduce((earliest, date) =>
-    date.getTime() < earliest.getTime() ? date : earliest
-  );
-}
-
 async function buildCustomerLedgerLines(
   customerId: string,
   customer: { createdAt: Date }
 ): Promise<CustomerLedgerLineDTO[]> {
   const events: RawLedgerEvent[] = [];
-  const chargeCandidates: LedgerChargeCandidate[] = [];
+
+  const [finishedBills, finishedVisits] = await Promise.all([
+    Bill.find({
+      customerId: new mongoose.Types.ObjectId(customerId),
+      status: "FINISHED",
+    })
+      .select("_id dueAmount")
+      .lean(),
+    Visit.find({
+      customerId: new mongoose.Types.ObjectId(customerId),
+      status: "FINISHED",
+    })
+      .select("billId finishedAt ledgerCommittedAt")
+      .lean(),
+  ]);
+
+  const finishedBillIds = finishedBills.map((bill) => bill._id);
+  const finalizedAtByBillId = new Map<string, Date>();
+  for (const visit of finishedVisits) {
+    const at = visit.ledgerCommittedAt ?? visit.finishedAt;
+    if (!at) continue;
+    finalizedAtByBillId.set(visit.billId.toString(), at);
+  }
+  const dueAmountByBillId = new Map(
+    finishedBills.map((bill) => [bill._id.toString(), bill.dueAmount])
+  );
 
   const entries = await NotebookEntry.find({
-    $or: [{ customerId }, { "contributors.customerId": customerId }],
+    $or: [
+      {
+        customerId: new mongoose.Types.ObjectId(customerId),
+        billId: { $in: finishedBillIds },
+      },
+      {
+        contributors: {
+          $elemMatch: {
+            customerId: new mongoose.Types.ObjectId(customerId),
+            billId: { $in: finishedBillIds },
+          },
+        },
+      },
+    ],
   })
     .sort({ createdAt: 1 })
     .limit(LEDGER_ENTRY_LIMIT)
@@ -580,6 +525,10 @@ async function buildCustomerLedgerLines(
 
   const entryDtoById = new Map(
     refreshedEntries.map((entry) => [entry._id.toString(), toNotebookEntryDTO(entry)])
+  );
+
+  const entryDtos = refreshedEntries.map((entry) =>
+    toNotebookEntryDTO(entry)
   );
 
   const settlementIds = [
@@ -606,122 +555,87 @@ async function buildCustomerLedgerLines(
     .sort({ createdAt: 1 })
     .lean();
 
-  const earliestSettlementAtByEntryId =
-    buildEarliestSettlementAtByEntryId(settlements);
+  const checkoutBatches = buildCheckoutFinalizationBatches(
+    entryDtos,
+    settlements,
+    customerId,
+    finalizedAtByBillId,
+    dueAmountByBillId
+  );
+  const absorbedCheckoutSettlementIds =
+    settlementIdsAbsorbedByCheckoutBatches(checkoutBatches);
 
-  for (const entry of refreshedEntries) {
-    const dto = entryDtoById.get(entry._id.toString());
-    if (!dto) {
-      continue;
-    }
-    const chargeAmount = customerLedgerChargeAmount(dto, customerId);
-    if (chargeAmount == null || dto.status === "CANCELLED") {
-      continue;
-    }
-    if (!isEntryLedgerChargeable(dto)) {
-      continue;
-    }
-
-    const commitAt = ledgerChargeCommitAt(
-      entry,
-      earliestSettlementAtByEntryId.get(entry._id.toString())
-    );
-    if (!commitAt) {
-      continue;
-    }
-
-    const rawDescription = chargeDescription(dto);
-    if (isLegacyPayLaterDescription(rawDescription)) {
-      continue;
-    }
-
-    chargeCandidates.push({
-      entryId: entry._id.toString(),
-      section: dto.section,
-      timestamp: commitAt,
-      description: stripLegacyPayLaterPrefix(rawDescription),
-      amount: chargeAmount,
-      staffUsername: entry.createdBy,
-      isPayLaterObligation: Boolean(dto.checkoutDismissedAt),
-    });
-  }
-
-  for (const bundle of bundleLedgerCharges(chargeCandidates)) {
-    const affectsOutstanding = bundle.payLaterAmount > 0;
-    events.push({
-      id: bundle.id,
-      timestamp: bundle.timestamp,
-      description: bundle.description,
-      amount: -bundle.amount,
-      kind: "charge",
-      eventSubtype: "charge",
-      staffUsername: bundle.staffUsername,
-      affectsOutstanding,
-      affectsWallet: false,
-      walletDelta: 0,
-      outstandingDelta: affectsOutstanding ? bundle.payLaterAmount : 0,
-    });
-  }
-
-  const dismissGroups = new Map<string, OutstandingDismissGroup>();
-
-  for (const entry of refreshedEntries) {
-    if (!entry.checkoutDismissedAt) {
-      continue;
-    }
-
-    const dto = entryDtoById.get(entry._id.toString());
-    if (!dto || !isEntryLedgerChargeable(dto)) {
-      continue;
-    }
-
-    const isCustomerEntry =
-      entry.customerId?.toString() === customerId ||
-      entry.contributors?.some(
-        (row) => row.customerId.toString() === customerId
+  for (const batch of checkoutBatches) {
+    const batchEntries = batch.entryIds
+      .map((entryId) => entryDtoById.get(entryId))
+      .filter((entry): entry is ReturnType<typeof toNotebookEntryDTO> =>
+        Boolean(entry)
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
-    if (!isCustomerEntry) {
-      continue;
+
+    for (const dto of batchEntries) {
+      const chargeAmount = customerLedgerChargeAmount(dto, customerId);
+      if (chargeAmount == null || chargeAmount <= 0) {
+        continue;
+      }
+
+      const rawDescription = chargeDescription(dto);
+      if (isLegacyPayLaterDescription(rawDescription)) {
+        continue;
+      }
+
+      const entry = refreshedEntries.find((row) => row._id.toString() === dto.id);
+      events.push({
+        id: `charge-${dto.id}`,
+        timestamp: batch.finalizedAt,
+        description: stripLegacyPayLaterPrefix(rawDescription),
+        amount: -chargeAmount,
+        kind: "charge",
+        eventSubtype: "charge",
+        staffUsername: entry?.createdBy ?? batch.staffUsername,
+        affectsOutstanding: true,
+        affectsWallet: false,
+        walletDelta: 0,
+        outstandingDelta: chargeAmount,
+      });
     }
 
-    const balanceAtDismiss = payLaterBalanceAtDismiss(dto);
-    if (balanceAtDismiss <= 0) {
-      continue;
+    if (batch.visitPaymentTotal > 0) {
+      const method = batch.paymentMethod ?? "CASH";
+      events.push({
+        id: `${batch.id}-payment`,
+        timestamp: batch.finalizedAt,
+        description: formatPaymentReceivedDescription(method, "ACTIVE_VISIT"),
+        amount: batch.visitPaymentTotal,
+        kind: "payment",
+        eventSubtype: "payment",
+        paymentContext: "ACTIVE_VISIT",
+        staffUsername: batch.staffUsername,
+        affectsOutstanding: true,
+        affectsWallet: method === "WALLET",
+        walletDelta: method === "WALLET" ? -batch.visitPaymentTotal : 0,
+        outstandingDelta: -batch.visitPaymentTotal,
+      });
     }
 
-    const dismissedAt = entry.checkoutDismissedAt;
-    const staffUsername =
-      entry.checkoutDismissedBy ?? entry.assignedBy ?? entry.createdBy;
-    const groupKey = `${dismissedAt.getTime()}::${staffUsername}`;
-    const existing = dismissGroups.get(groupKey);
-
-    if (existing) {
-      existing.total += balanceAtDismiss;
-      continue;
+    if (batch.outstandingAtFinalize > 0) {
+      events.push({
+        id: `${batch.id}-moved-to-outstanding`,
+        timestamp: batch.finalizedAt,
+        description: LEDGER_STATUS_MOVED_TO_OUTSTANDING,
+        amount: batch.outstandingAtFinalize,
+        kind: "status",
+        eventSubtype: "moved_to_outstanding",
+        staffUsername: batch.staffUsername,
+        affectsOutstanding: false,
+        affectsWallet: false,
+        walletDelta: 0,
+        outstandingDelta: 0,
+      });
     }
-
-    dismissGroups.set(groupKey, {
-      timestamp: dismissedAt,
-      staffUsername,
-      total: balanceAtDismiss,
-      firstEntryId: entry._id.toString(),
-    });
-  }
-
-  for (const group of dismissGroups.values()) {
-    events.push({
-      id: `outstanding-created-${group.firstEntryId}-${group.timestamp.getTime()}`,
-      timestamp: group.timestamp,
-      description: LEDGER_STATUS_MOVED_TO_OUTSTANDING,
-      amount: group.total,
-      kind: "status",
-      eventSubtype: "moved_to_outstanding",
-      staffUsername: group.staffUsername,
-      affectsOutstanding: false,
-      affectsWallet: false,
-      walletDelta: 0,
-      outstandingDelta: 0,
-    });
   }
 
   const settlementWalletTxnIds = new Set(
@@ -738,8 +652,11 @@ async function buildCustomerLedgerLines(
     payment: (typeof balancePayments)[number]
   ): number {
     return payment.allocations.reduce((sum, allocation) => {
-      const dto = entryDtoById.get(allocation.entryId.toString());
-      if (!dto || !isEntryLedgerChargeable(dto)) {
+      const entry = refreshedEntries.find(
+        (row) => row._id.toString() === allocation.entryId.toString()
+      );
+      const billId = entry?.billId?.toString();
+      if (!billId || !finalizedAtByBillId.has(billId)) {
         return sum;
       }
       return sum + allocation.amount;
@@ -776,6 +693,11 @@ async function buildCustomerLedgerLines(
   }
 
   for (const settlement of settlements) {
+    const settlementId = settlement._id.toString();
+    if (absorbedCheckoutSettlementIds.has(settlementId)) {
+      continue;
+    }
+
     const contributorPayment = settlement.contributorPayments?.find(
       (payment) => payment.customerId.toString() === customerId
     );
@@ -910,7 +832,7 @@ export async function getCustomerFinancials(
     return null;
   }
 
-  const [ledgerLines, lastVisitEntry, lastPayment, visitCount, pendingItems, activeVisitDueAmount] =
+  const [ledgerLines, lastVisitEntry, lastPayment, visitCount, finishedOutstandingBills, activeVisitDueAmount] =
     await Promise.all([
       buildCustomerLedgerLines(customerId, customer),
       NotebookEntry.findOne({
@@ -922,27 +844,22 @@ export async function getCustomerFinancials(
         .lean(),
       findLastCustomerPayment(customerId),
       countCustomerVisits(customerId),
-      NotebookEntry.find({
-        status: { $in: ["PENDING", "REVERSED", "PAID"] },
-        $or: [{ customerId }, { "contributors.customerId": customerId }],
-      }).lean(),
+      Bill.find({
+        customerId: new mongoose.Types.ObjectId(customerId),
+        status: "FINISHED",
+        dueAmount: { $gt: 0 },
+      })
+        .select("_id")
+        .lean(),
       getCustomerPagePaymentBlockDue(customerId),
     ]);
-
-  let openBillsCount = 0;
-  for (const entry of pendingItems) {
-    const dto = toNotebookEntryDTO(entry);
-    const remaining = customerOutstandingAmount(dto, customerId);
-    if (remaining <= 0) continue;
-    openBillsCount += 1;
-  }
 
   const summary: CustomerLedgerSummaryDTO = {
     walletBalance: customer.walletEnabled ? customer.balance : 0,
     outstandingAmount: ledgerLines.at(-1)?.outstandingBalance ?? 0,
     activeVisitDueAmount,
     hasActiveVisitWithDue: activeVisitDueAmount > 0,
-    openBillsCount,
+    openBillsCount: finishedOutstandingBills.length,
     visitCount,
     lastVisitAt: lastVisitEntry?.createdAt?.toISOString() ?? null,
     lastPaymentAt: lastPayment?.createdAt ?? null,
@@ -965,27 +882,27 @@ export async function getCustomersWithOutstanding(
 
   await connectDB();
 
-  const entries = await NotebookEntry.find({
-    status: { $in: ["PENDING", "REVERSED"] },
-  }).lean();
-
   const totalsByCustomer = new Map<
     string,
     { outstandingAmount: number; openBillsCount: number }
   >();
 
-  for (const entry of entries) {
-    const dto = toNotebookEntryDTO(entry);
-    const obligations = getLedgerObligations(dto);
-    for (const obligation of obligations) {
-      const existing = totalsByCustomer.get(obligation.customerId) ?? {
-        outstandingAmount: 0,
-        openBillsCount: 0,
-      };
-      existing.outstandingAmount += obligation.amount;
-      existing.openBillsCount += 1;
-      totalsByCustomer.set(obligation.customerId, existing);
-    }
+  const finishedBills = await Bill.find({
+    status: "FINISHED",
+    dueAmount: { $gt: 0 },
+  })
+    .select("customerId dueAmount")
+    .lean();
+
+  for (const bill of finishedBills) {
+    const customerId = bill.customerId.toString();
+    const existing = totalsByCustomer.get(customerId) ?? {
+      outstandingAmount: 0,
+      openBillsCount: 0,
+    };
+    existing.outstandingAmount += bill.dueAmount;
+    existing.openBillsCount += 1;
+    totalsByCustomer.set(customerId, existing);
   }
 
   if (totalsByCustomer.size === 0) {

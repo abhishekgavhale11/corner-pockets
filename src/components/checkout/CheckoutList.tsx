@@ -10,11 +10,12 @@ import {
   useTransition,
 } from "react";
 import Link from "next/link";
-import { settleNotebookEntries } from "@/actions/notebook-settlements";
+import { settleNotebookEntries, reverseNotebookSettlement } from "@/actions/notebook-settlements";
 import { getCustomerLedgerSummary } from "@/actions/customer-ledger";
 import {
+  finishVisit,
   getActiveVisitBillForCustomer,
-  getVisitBillCheckoutItems,
+  getActiveVisitCheckoutSettlements,
 } from "@/actions/visit-bill";
 import {
   getCustomerPendingItems,
@@ -43,6 +44,7 @@ import type {
   CustomerDTO,
   CustomerPendingItemDTO,
   NotebookEntryDTO,
+  NotebookSettlementDTO,
   OpenTabSummaryDTO,
   SessionCheckoutDetailsDTO,
   SessionOpenTabSummaryDTO,
@@ -64,6 +66,7 @@ import {
 } from "@/components/checkout/checkout-payment";
 import type { VerificationMethod } from "@/lib/constants/verification";
 import { cn } from "@/lib/utils/cn";
+import { ConfirmDialog } from "@/components/ui/Dialog";
 
 interface CheckoutListProps {
   tabs: OpenTabSummaryDTO[];
@@ -185,9 +188,13 @@ export function CheckoutList({
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [ledgerOutstanding, setLedgerOutstanding] = useState<number | null>(null);
   const [visitBill, setVisitBill] = useState<ActiveVisitBillDTO | null>(null);
+  const [checkoutSettlements, setCheckoutSettlements] = useState<
+    NotebookSettlementDTO[]
+  >([]);
   const [billDisplayItems, setBillDisplayItems] = useState<
     CustomerPendingItemDTO[]
   >([]);
+  const [finishConfirmOpen, setFinishConfirmOpen] = useState(false);
   const checkoutGroups = useMemo(() => groupCheckoutTabs(tabs), [tabs]);
 
   const activeTab = tabs.find((t) => t.tabKey === expandedKey) ?? null;
@@ -212,21 +219,25 @@ export function CheckoutList({
         : null;
   const totalPending = tabs.reduce((s, t) => s + t.pendingAmount, 0);
 
-  const customerPayableItems = useMemo(() => {
+  const customerBillItems = useMemo(() => {
     if (activeTab?.kind !== "customer") {
       return items;
     }
 
-    const isCheckoutQueueItem = (item: CustomerPendingItemDTO) =>
-      !item.entry.checkoutDismissedAt && item.contributionAmount > 0;
-
-    const queueFromItems = items.filter(isCheckoutQueueItem);
-    if (queueFromItems.length > 0) {
-      return queueFromItems;
+    if (billDisplayItems.length > 0) {
+      return billDisplayItems;
     }
 
-    return billDisplayItems.filter(isCheckoutQueueItem);
+    return items;
   }, [activeTab?.kind, billDisplayItems, items]);
+
+  const customerDueItems = useMemo(
+    () =>
+      customerBillItems.filter((item) => item.contributionAmount > 0),
+    [customerBillItems]
+  );
+
+  const customerPayableItems = customerDueItems;
 
   const grouped = useMemo(() => {
     const groups = {
@@ -235,7 +246,7 @@ export function CheckoutList({
       cafe: [] as CustomerPendingItemDTO[],
     };
     const sourceItems =
-      activeTab?.kind === "customer" ? customerPayableItems : items;
+      activeTab?.kind === "customer" ? customerBillItems : items;
     for (const item of sourceItems) {
       groups[checkoutEntryGroup(item.entry.section)].push(item);
     }
@@ -243,42 +254,24 @@ export function CheckoutList({
   }, [items, customerPayableItems, activeTab?.kind]);
 
   const customerCheckoutSummary = useMemo(() => {
-    if (activeTab?.kind !== "customer") return null;
-
-    const queueItems = customerPayableItems;
-    const queueDue = queueItems.reduce(
-      (sum, item) => sum + item.contributionAmount,
-      0
-    );
-
-    if (queueDue <= 0) return null;
-
-    const queuePaid = queueItems.reduce((sum, item) => {
-      const slice = getCustomerBillSlice(
-        item.entry,
-        item.contributorCustomerId || activeTab.customerId
-      );
-      return sum + (slice?.paid ?? item.linePaidAmount ?? 0);
-    }, 0);
-
-    const billTotal = visitBill?.bill.totalAmount ?? queueDue + queuePaid;
-    const billPaid = visitBill?.bill.paidAmount ?? queuePaid;
+    if (activeTab?.kind !== "customer" || !visitBill) return null;
 
     return {
-      totalAmount: billTotal,
-      paidAmount: billPaid,
-      dueAmount: queueDue,
+      totalAmount: visitBill.bill.totalAmount,
+      paidAmount: visitBill.bill.paidAmount,
+      dueAmount: visitBill.bill.dueAmount,
     };
-  }, [activeTab, customerPayableItems, visitBill]);
+  }, [activeTab?.kind, visitBill]);
 
   const total = useMemo(() => {
     if (activeTab?.kind === "customer") {
-      const fromPayable = customerPayableItems.reduce(
+      if (visitBill) {
+        return visitBill.bill.dueAmount;
+      }
+      return customerDueItems.reduce(
         (sum, item) => sum + item.contributionAmount,
         0
       );
-      if (fromPayable > 0) return fromPayable;
-      return 0;
     }
 
     const fromItems = items.reduce(
@@ -293,7 +286,7 @@ export function CheckoutList({
       return activeTab.pendingAmount;
     }
     return fromItems;
-  }, [items, activeTab, customerPayableItems]);
+  }, [items, activeTab, customerDueItems, visitBill]);
 
   const priorBalance = useMemo(() => {
     if (!ledgerOutstanding || ledgerOutstanding <= total) return 0;
@@ -396,6 +389,7 @@ export function CheckoutList({
       setWalletBalance(null);
       setLedgerOutstanding(null);
       setVisitBill(null);
+      setCheckoutSettlements([]);
       setBillDisplayItems([]);
       if (options?.syncUrl !== false) {
         syncCheckoutUrl(tab);
@@ -407,12 +401,14 @@ export function CheckoutList({
             ? await getTablePendingItems(tab.tableId)
             : await getCustomerPendingItems(tab.customerId);
       if (tab.kind === "customer") {
-        const [activeVisitBill, visitItems] = await Promise.all([
+        const [activeVisitBill, visitItems, settlements] = await Promise.all([
           getActiveVisitBillForCustomer(tab.customerId),
-          getVisitBillCheckoutItems(tab.customerId),
+          getCustomerPendingItems(tab.customerId),
+          getActiveVisitCheckoutSettlements(tab.customerId),
         ]);
         setVisitBill(activeVisitBill);
         setBillDisplayItems(visitItems);
+        setCheckoutSettlements(settlements);
       }
       if (tab.kind === "session") {
         const details = await getSessionCheckoutDetails(tab.sessionId);
@@ -446,6 +442,7 @@ export function CheckoutList({
     setWalletBalance(null);
     setLedgerOutstanding(null);
     setVisitBill(null);
+    setCheckoutSettlements([]);
     setBillDisplayItems([]);
     syncCheckoutUrl(null);
   }, [syncCheckoutUrl]);
@@ -459,12 +456,14 @@ export function CheckoutList({
           ? await getTablePendingItems(activeTab.tableId)
           : await getCustomerPendingItems(activeTab.customerId);
     if (activeTab.kind === "customer") {
-      const [activeVisitBill, visitItems] = await Promise.all([
+      const [activeVisitBill, visitItems, settlements] = await Promise.all([
         getActiveVisitBillForCustomer(activeTab.customerId),
-        getVisitBillCheckoutItems(activeTab.customerId),
+        getCustomerPendingItems(activeTab.customerId),
+        getActiveVisitCheckoutSettlements(activeTab.customerId),
       ]);
       setVisitBill(activeVisitBill);
       setBillDisplayItems(visitItems);
+      setCheckoutSettlements(settlements);
     }
     if (activeTab.kind === "session") {
       const details = await getSessionCheckoutDetails(activeTab.sessionId);
@@ -615,17 +614,12 @@ export function CheckoutList({
       if (result.success) {
         appliedSessionDeepLinkRef.current = null;
         appliedCustomerDeepLinkRef.current = null;
-        if (payTotal >= total) {
-          collapseTab();
-          router.replace("/checkout", { scroll: false });
-        } else {
-          setStep("review");
-          setPayAmount("");
-          setWalletPayer(null);
-          setVerificationMethod(null);
-          setError(null);
-          await reloadExpandedTab();
-        }
+        setStep("review");
+        setPayAmount(total > 0 ? String(Math.max(0, total - payTotal)) : "");
+        setWalletPayer(null);
+        setVerificationMethod(null);
+        setError(null);
+        await reloadExpandedTab();
         router.refresh();
       } else {
         setError(result.error ?? "Settlement failed");
@@ -693,6 +687,59 @@ export function CheckoutList({
       collapseTab();
       router.replace("/checkout", { scroll: false });
       await router.refresh();
+    });
+  };
+
+  const finishCustomerVisit = () => {
+    if (!activeTab || activeTab.kind !== "customer" || !visitBill) return;
+
+    startTransition(async () => {
+      setError(null);
+      const formData = new FormData();
+      formData.set("customerId", activeTab.customerId);
+      const result = await finishVisit(formData);
+      if (!result.success) {
+        setError(result.error ?? "Failed to finish visit");
+        return;
+      }
+      setError(null);
+      setFinishConfirmOpen(false);
+      appliedSessionDeepLinkRef.current = null;
+      appliedCustomerDeepLinkRef.current = null;
+      collapseTab();
+      router.replace("/checkout", { scroll: false });
+      await router.refresh();
+    });
+  };
+
+  const requestFinishCustomerVisit = () => {
+    if (!activeTab || activeTab.kind !== "customer" || !visitBill) return;
+    setFinishConfirmOpen(true);
+  };
+
+  const finishDueAmount =
+    customerCheckoutSummary?.dueAmount ?? visitBill?.bill.dueAmount ?? 0;
+  const finishConfirmMessage =
+    finishDueAmount > 0
+      ? `${formatCurrency(finishDueAmount)} will be moved to Outstanding. This visit will become permanently read-only and cannot be reopened in Checkout.`
+      : "This visit will be completed and locked. All counter entries will become read-only.";
+
+  const removeCheckoutPayment = (settlementId: string) => {
+    if (!activeTab || activeTab.kind !== "customer") return;
+
+    startTransition(async () => {
+      setError(null);
+      const formData = new FormData();
+      formData.set("settlementId", settlementId);
+      formData.set("reversalReason", "DUPLICATE");
+      const result = await reverseNotebookSettlement(formData);
+      if (!result.success) {
+        setError(result.error ?? "Failed to remove payment");
+        return;
+      }
+      setError(null);
+      await reloadExpandedTab();
+      router.refresh();
     });
   };
 
@@ -974,15 +1021,32 @@ export function CheckoutList({
                             addToBalanceDisabled={isPending || !checkoutCustomer}
                             addToBalanceHint={payLaterHint}
                             checkoutMode={customerCheckoutMode}
-                            visitBillTotal={customerCheckoutSummary?.totalAmount}
-                            visitBillPaid={customerCheckoutSummary?.paidAmount}
-                            visitBillDue={customerCheckoutSummary?.dueAmount}
+                            visitBillTotal={
+                              customerCheckoutSummary?.totalAmount ??
+                              visitBill?.bill.totalAmount
+                            }
+                            visitBillPaid={
+                              customerCheckoutSummary?.paidAmount ??
+                              visitBill?.bill.paidAmount
+                            }
+                            visitBillDue={
+                              customerCheckoutSummary?.dueAmount ??
+                              visitBill?.bill.dueAmount
+                            }
                             billDetails={renderBillDetails()}
                             onCloseBill={
                               tab.kind === "customer" && total > 0
                                 ? dismissCustomerCheckout
                                 : undefined
                             }
+                            onFinishVisit={
+                              tab.kind === "customer" && visitBill
+                                ? requestFinishCustomerVisit
+                                : undefined
+                            }
+                            finishVisitDisabled={isPending}
+                            checkoutSettlements={checkoutSettlements}
+                            onRemovePayment={removeCheckoutPayment}
                             error={error}
                             isPending={isPending}
                           />
@@ -1147,6 +1211,16 @@ export function CheckoutList({
         }}
         title="Quick customer"
         selectLabel="Create"
+      />
+
+      <ConfirmDialog
+        open={finishConfirmOpen}
+        onClose={() => setFinishConfirmOpen(false)}
+        onConfirm={finishCustomerVisit}
+        title="Finish visit?"
+        message={finishConfirmMessage}
+        confirmLabel="Finish Visit"
+        isLoading={isPending}
       />
     </div>
   );

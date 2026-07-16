@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/Button";
 import { CustomerPreviewNameButton } from "@/components/counter/CustomerPreviewContext";
 import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
-import { ENTRY_LOCKED_TOOLTIP } from "@/lib/visit-bill/entry-edit-lock-constants";
+import { getEntryLockTooltip } from "@/lib/visit-bill/entry-edit-lock-constants";
 import { isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
 
 interface CafeCustomerTabsProps {
@@ -48,6 +48,9 @@ export function CafeCustomerTabs({
     <ul className="grid gap-0.5 md:grid-cols-2">
       {tabs.map((tab) => {
         const expanded = expandedId === tab.tabKey;
+        const visitFinished =
+          tab.kind === "customer" &&
+          tab.entries.some((entry) => entry.visitStatus === "FINISHED");
         const hasEditableEntries = tab.entries.some(
           (entry) => !isNotebookEntryEditLocked(entry)
         );
@@ -58,6 +61,7 @@ export function CafeCustomerTabs({
             className={cn(
               "border bg-white",
               expanded ? "border-emerald-500" : "border-gray-200",
+              visitFinished && !expanded && "border-slate-300 bg-slate-50/60",
               tab.kind === "table" && !expanded && "border-l-2 border-l-amber-400"
             )}
           >
@@ -89,9 +93,16 @@ export function CafeCustomerTabs({
                       className="w-full truncate text-[15px]"
                     />
                   </span>
-                  <span className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
-                    {formatCurrency(tabAmount(tab))}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {visitFinished ? (
+                      <span className="rounded bg-slate-200 px-1 py-px text-[9px] font-bold tracking-wide text-slate-700">
+                        🔒 Finished
+                      </span>
+                    ) : null}
+                    <span className="text-[14px] font-bold tabular-nums text-gray-900">
+                      {formatCurrency(tabAmount(tab))}
+                    </span>
+                  </div>
                 </div>
                 <p className="truncate text-[11px] text-gray-600">
                   {tab.lines.length > 0
@@ -164,6 +175,11 @@ export function CafeCustomerTabs({
                       const lineLocked = line.entries.every((entry) =>
                         isNotebookEntryEditLocked(entry)
                       );
+                      const lineTooltip = line.entries[0]
+                        ? getEntryLockTooltip({
+                            visitStatus: line.entries[0].visitStatus,
+                          })
+                        : undefined;
 
                       return (
                       <li
@@ -175,7 +191,7 @@ export function CafeCustomerTabs({
                             "flex min-w-0 items-center gap-1 truncate",
                             lineLocked ? "text-gray-500" : "text-gray-800"
                           )}
-                          title={lineLocked ? ENTRY_LOCKED_TOOLTIP : undefined}
+                          title={lineLocked ? lineTooltip : undefined}
                         >
                           {lineLocked ? (
                             <EntryLockIndicator className="shrink-0" />
@@ -198,6 +214,7 @@ export function CafeCustomerTabs({
                     type="button"
                     size="sm"
                     className="h-7 flex-1 px-2 text-[11px] font-semibold"
+                    disabled={visitFinished}
                     onClick={(e) => {
                       e.stopPropagation();
                       onAddItem(tab);
@@ -210,11 +227,17 @@ export function CafeCustomerTabs({
                     size="sm"
                     variant="secondary"
                     className="h-7 flex-1 px-2 text-[11px] font-semibold"
-                    disabled={tab.entries.length === 0 || !hasEditableEntries}
+                    disabled={
+                      visitFinished ||
+                      tab.entries.length === 0 ||
+                      !hasEditableEntries
+                    }
                     title={
-                      tab.entries.length > 0 && !hasEditableEntries
-                        ? ENTRY_LOCKED_TOOLTIP
-                        : undefined
+                      visitFinished
+                        ? getEntryLockTooltip({ visitStatus: "FINISHED" })
+                        : tab.entries.length > 0 && !hasEditableEntries
+                          ? getEntryLockTooltip({ visitStatus: tab.entries[0]?.visitStatus })
+                          : undefined
                     }
                     onClick={(e) => {
                       e.stopPropagation();

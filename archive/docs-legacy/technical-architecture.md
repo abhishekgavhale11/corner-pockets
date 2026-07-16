@@ -1,6 +1,6 @@
 # Corner Pockets — Technical Architecture
 
-Implementation reference. Business rules live in `business-architecture.md`.
+Implementation reference. Financial Engine business rules live in `01-financial-engine.md`.
 
 ---
 
@@ -263,17 +263,17 @@ Visit close
 ```
 getCustomerFinancials / getCustomerLedger
   → Load entries, settlements, balance payments, transactions
+  → buildCheckoutFinalizationBatches (per customer bill)
+    → Only finalized checkouts produce visit charges/payments
   → Build RawLedgerEvent[]
-    → Charges (committed entries only, bundled)
-    → Moved to Outstanding (dismiss groups)
-    → Payments (settlements + balance payments)
+    → Checkout batch: per-line charges, aggregated visit payment, Moved to Outstanding
+    → Customer balance payments (outstanding)
     → Wallet events
   → applyRunningBalances
-    → Synthetic Outstanding Paid (balance-payment only)
   → CustomerLedgerLineDTO[]
 ```
 
-**File:** `src/actions/customer-ledger.ts`
+**Files:** `src/actions/customer-ledger.ts`, `src/lib/ledger/checkout-finalization.ts`
 
 **Helpers:**
 
@@ -287,6 +287,7 @@ getCustomerFinancials / getCustomerLedger
 
 | Module | Path | Role |
 |--------|------|------|
+| Checkout finalization | `checkout-finalization.ts` | Bill-level ledger batch when checkout completes |
 | Entry obligations | `entry-contributors.ts` | Due amounts, checkout vs ledger queue |
 | Bill sync | `sync-bill-totals.ts` | Recompute bill totals from entries |
 | Edit locks | `entry-edit-lock-utils.ts` | Per-row lock rules |

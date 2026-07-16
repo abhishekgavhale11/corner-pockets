@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
+import { isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
+import { VISIT_FINISHED_LOCK_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-constants";
 import { cn } from "@/lib/utils/cn";
 
 interface UnassignedEntryDialogProps {
@@ -76,6 +78,9 @@ export function UnassignedEntryDialog({
 }: UnassignedEntryDialogProps) {
   const router = useRouter();
   const open = entry !== null;
+  const entryLocked = entry
+    ? (entry.isLocked ?? isNotebookEntryEditLocked(entry))
+    : false;
   const [query, setQuery] = useState("");
   const [groups, setGroups] = useState<AssignCustomerSuggestionGroup[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerDTO | null>(
@@ -142,6 +147,13 @@ export function UnassignedEntryDialog({
     <Dialog open={open} onClose={onClose} title="Assign Customer">
       {entry && (
         <div className="flex flex-col gap-4">
+          {entryLocked ? (
+            <p className="rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-700">
+              {entry.visitStatus === "FINISHED"
+                ? VISIT_FINISHED_LOCK_MESSAGE
+                : "This entry is locked and cannot be edited."}
+            </p>
+          ) : null}
           <p className="text-sm text-gray-600">
             {formatTime(entry.createdAt)} · {getEntryDisplayLabel(entry)} ·{" "}
             {formatCurrency(entry.amount)}
@@ -187,7 +199,7 @@ export function UnassignedEntryDialog({
                               key={customer.id}
                               customer={customer}
                               isSelected={selectedCustomer?.id === customer.id}
-                              disabled={isPending}
+                              disabled={isPending || entryLocked}
                               onSelect={() => setSelectedCustomer(customer)}
                             />
                           ))}
@@ -219,7 +231,7 @@ export function UnassignedEntryDialog({
             type="button"
             fullWidth
             onClick={assign}
-            disabled={!selectedCustomer || isPending}
+            disabled={!selectedCustomer || isPending || entryLocked}
           >
             {isPending ? "Assigning…" : "Assign Customer"}
           </Button>
@@ -233,7 +245,7 @@ export function UnassignedEntryDialog({
               variant="secondary"
               fullWidth
               onClick={handleSplit}
-              disabled={isPending}
+              disabled={isPending || entryLocked}
             >
               Split Bill
             </Button>

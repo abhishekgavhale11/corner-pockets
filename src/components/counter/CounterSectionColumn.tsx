@@ -115,6 +115,7 @@ export function CounterSectionColumn({
             entry={entry}
             frameEditable={snookerQuick}
             onEditFrame={setEditFrameEntry}
+            onEditSplit={(entry) => setSplitEntry(entry)}
             onUnassignedAction={setUnassignedEntry}
             onCorrect={setCorrectEntry}
             onShowCorrectionHistory={setHistoryEntry}

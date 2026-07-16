@@ -29,6 +29,9 @@ type LeanVisit = Pick<
   | "businessDate"
   | "status"
   | "startedAt"
+  | "finishedAt"
+  | "finishedBy"
+  | "ledgerCommittedAt"
   | "closedAt"
   | "notes"
   | "createdBy"
@@ -63,6 +66,9 @@ export function toVisitDTO(visit: LeanVisit): VisitDTO {
     businessDate: visit.businessDate,
     status: visit.status,
     startedAt: visit.startedAt.toISOString(),
+    finishedAt: visit.finishedAt?.toISOString(),
+    finishedBy: visit.finishedBy,
+    ledgerCommittedAt: visit.ledgerCommittedAt?.toISOString(),
     closedAt: visit.closedAt?.toISOString(),
     notes: visit.notes,
     createdBy: visit.createdBy,

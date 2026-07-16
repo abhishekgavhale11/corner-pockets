@@ -60,6 +60,14 @@ export function CheckoutDrawer({ tab, entries, onClose }: CheckoutDrawerProps) {
     null
   );
 
+  const walletEnabled = tab?.kind === "customer" ? tab.walletEnabled : false;
+
+  useEffect(() => {
+    if (method === "WALLET" && !walletEnabled) {
+      setMethod("CASH");
+    }
+  }, [method, walletEnabled]);
+
   if (!tab) return null;
 
   const title =
@@ -69,14 +77,7 @@ export function CheckoutDrawer({ tab, entries, onClose }: CheckoutDrawerProps) {
         ? tab.displayLabel
         : tab.customerName;
   const customerId = tab.kind === "customer" ? tab.customerId : null;
-  const walletEnabled = tab.kind === "customer" ? tab.walletEnabled : false;
   const cardId = tab.kind === "customer" ? tab.cardId : undefined;
-
-  useEffect(() => {
-    if (method === "WALLET" && !walletEnabled) {
-      setMethod("CASH");
-    }
-  }, [method, walletEnabled]);
 
   const submit = () => {
     if (submitted) return;

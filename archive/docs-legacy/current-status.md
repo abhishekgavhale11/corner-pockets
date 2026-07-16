@@ -1,6 +1,6 @@
 # Corner Pockets — Current Status
 
-**Last updated:** 2026-07-03
+**Last updated:** 2026-07-08
 
 This file tracks live project state. Update it whenever a major feature ships or an architecture decision changes.
 
@@ -22,9 +22,9 @@ Corner Pockets is a Next.js 15 + MongoDB POS for a snooker club in India. It rep
 |------|--------|
 | Counter (Big Snooker, Pool/Mini, Cafe) | ✅ Production-ready |
 | Checkout (customer + session tabs) | ✅ Working |
-| Visit / Bill engine | ✅ Implemented |
-| Customer ledger | ✅ Working (recent bug fixes applied) |
-| Outstanding collection (Customer Page) | ✅ Working |
+| Visit / Bill engine | ✅ Implemented (`ACTIVE/FINISHED`, `WORKING/FINISHED`) |
+| Customer ledger | ✅ Working (finished-visit gated) |
+| Outstanding collection (Customer Page) | ✅ Working (finished visits only) |
 | Wallet recharge / deduct | ✅ Working |
 | Settlement reversal | ✅ Working |
 | Entry corrections | ✅ Working |
@@ -63,21 +63,21 @@ Corner Pockets is a Next.js 15 + MongoDB POS for a snooker club in India. It rep
 |-------|----------|-------|
 | No automated test suite | Medium | All QA is manual via `testing-checklist.md` |
 | Checkout table tabs | Low | `groupCheckoutTabs` built; UI may only show Pool & Mini + Customers columns — verify `CheckoutList.tsx` |
-| Legacy docs in `/docs` | Low | `business-architecture-v1.0.md`, `PROJECT-CONTEXT.md`, etc. superseded by this folder's canonical files |
+| Legacy docs in `/docs` | Low | Archived in `docs/archive/`; Financial Engine rules live in `01-financial-engine.md` only |
 | Git remote sync | Low | Verify `main` branch is pushed if deploying elsewhere |
 
 ---
 
 ## Current task
 
-**Documentation-first workflow setup** — creating and maintaining `/docs` as single source of truth.
+**Visit-owned financial lifecycle refactor** — finished visits are now the financial commit boundary for ledger and outstanding.
 
 ---
 
 ## Next task
 
-1. Run full regression from `testing-checklist.md` after recent ledger + edit-lock fixes
-2. Resolve checkout table tabs rendering if still missing
+1. Run full regression from `testing-checklist.md` (especially REG-005, REG-008)
+2. Wire an explicit `Finish Visit` checkout action so full-pay no longer auto-finishes implicitly
 3. Add automated tests for critical paths (FIFO, ledger, edit lock) when prioritized
 
 ---
@@ -85,9 +85,10 @@ Corner Pockets is a Next.js 15 + MongoDB POS for a snooker club in India. It rep
 ## Pending improvements
 
 - [ ] Automated integration tests for payment FIFO and ledger events
+- [ ] Replace temporary full-pay auto-finish with explicit `Finish Visit` UI/action wiring
 - [ ] Checkout UI: render all checkout tab groups (table/session/customer)
 - [ ] Ledger filters (games, cafe, payments, date range) — types exist, UI partial
-- [ ] Consolidate or archive legacy doc files (`*-v1.0.md`, `PROJECT-CONTEXT.md`)
+- [x] Consolidate Financial Engine docs into `01-financial-engine.md` (legacy archived)
 - [ ] CI pipeline (lint + typecheck + tests)
 
 ---
@@ -103,7 +104,7 @@ Corner Pockets is a Next.js 15 + MongoDB POS for a snooker club in India. It rep
 
 ### Ledger charge timing
 
-Charges use `isEntryLedgerCommitted` — not counter `createdAt`. Commit = paid at checkout OR `checkoutDismissedAt`.
+Ledger visit events are emitted only when a checkout batch is **finalized** (`buildCheckoutFinalizationBatches`). Active visit rows and partial payments before completion do not appear.
 
 ### Edit lock
 
@@ -123,6 +124,7 @@ Mutations call `revalidateCounterPaths` / `revalidateCustomerPaths` + `router.re
 |--------|------|
 | Business rules (code) | `src/lib/visit-bill/`, `src/lib/utils/entry-contributors.ts` |
 | Ledger engine | `src/actions/customer-ledger.ts` |
+| Checkout finalization | `src/lib/ledger/checkout-finalization.ts` |
 | Checkout settle | `src/actions/notebook-settlements.ts` |
 | Outstanding pay | `src/actions/customer-balance-payments.ts` |
 | Entry CRUD | `src/actions/notebook-entries.ts` |
@@ -134,10 +136,10 @@ Mutations call `revalidateCounterPaths` / `revalidateCustomerPaths` + `router.re
 
 Read in order:
 
-1. `docs/business-architecture.md`
+1. `docs/01-financial-engine.md` — Financial Engine business rules (sole source of truth)
 2. `docs/current-status.md` (this file)
 3. `docs/known-bugs.md`
-4. `docs/technical-architecture.md`
-5. `docs/testing-checklist.md`
+4. `docs/testing-checklist.md`
+5. `docs/technical-architecture.md` — implementation reference only
 
 Do not rely on prior chat history.

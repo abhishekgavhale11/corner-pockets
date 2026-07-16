@@ -828,6 +828,10 @@ export async function setBigSnookerSessionGameCharge(
     if (!entry) {
       return failure("Game entry not found");
     }
+    const lockFailure = await getEntryEditLockFailure(entry);
+    if (lockFailure) {
+      return failure(lockFailure);
+    }
     entry.amount = amount;
     entry.snookerGame = parsed.data.snookerGame;
     entry.rateType = rateType;

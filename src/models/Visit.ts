@@ -8,6 +8,10 @@ export interface IVisit extends Document {
   businessDate: string;
   status: VisitStatus;
   startedAt: Date;
+  finishedAt?: Date;
+  finishedBy?: string;
+  finishedByStaffId?: mongoose.Types.ObjectId;
+  ledgerCommittedAt?: Date;
   closedAt?: Date;
   notes?: string;
   createdBy: string;
@@ -34,11 +38,18 @@ const visitSchema = new Schema<IVisit>(
     businessDate: { type: String, required: true, trim: true, index: true },
     status: {
       type: String,
-      enum: ["ACTIVE", "CLOSED"],
+      enum: ["ACTIVE", "FINISHED"],
       default: "ACTIVE",
       index: true,
     },
     startedAt: { type: Date, required: true, default: Date.now },
+    finishedAt: { type: Date },
+    finishedBy: { type: String, trim: true },
+    finishedByStaffId: {
+      type: Schema.Types.ObjectId,
+      ref: "Staff",
+    },
+    ledgerCommittedAt: { type: Date },
     closedAt: { type: Date },
     notes: { type: String, default: "", trim: true },
     createdBy: { type: String, required: true, trim: true },

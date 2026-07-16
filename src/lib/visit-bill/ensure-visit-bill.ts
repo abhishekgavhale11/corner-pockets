@@ -54,7 +54,7 @@ export async function ensureActiveVisitBill(
         publicId: billPublicId,
         customerId: customerObjectId,
         businessDate,
-        status: "ACTIVE",
+        status: "WORKING",
         totalAmount: 0,
         paidAmount: 0,
         dueAmount: 0,

@@ -5,6 +5,40 @@ Append-only record of completed work.
 
 ---
 
+## 2026-07-09
+
+### Documentation consolidation — Financial Engine
+
+**Files:** `docs/01-financial-engine.md` (new), archived `business-architecture.md`, `financial-invariants.md`, `product-specification.md`, `business-rules-v1.1.md`, legacy docs
+
+**Reason:** One module = one document. Financial Engine business rules now live in a single source of truth.
+
+**Notes:** Approved rules preserved. Wallet, Reversal, Business Day, Reports, Cafe Financial Rules, Inventory remain Pending Design.
+
+---
+
+## 2026-07-07
+
+### Visit-owned financial lifecycle backend
+
+**Files:** `src/models/Visit.ts`, `src/models/Bill.ts`, `src/lib/constants/visit-bill.ts`, `src/lib/visit-bill/finalize-visit.ts`, `src/actions/notebook-entries.ts`, `src/actions/notebook-settlements.ts`, `src/actions/customer-ledger.ts`, `src/actions/customer-balance-payments.ts`, `src/actions/notebook-ledger.ts`
+
+**Reason:** Move financial ownership to `Visit`/`Bill` so checkout stays a working state and ledger/outstanding only read finalized visits.
+
+**Notes:** Added `Visit.status = ACTIVE|FINISHED`, `Bill.status = WORKING|FINISHED`, finish-visit backend flow, finished-visit-only ledger/outstanding reads, and active-visit-only checkout/counter filters. Current full-pay checkout path auto-finishes the visit until an explicit Finish Visit UI action is wired.
+
+---
+
+### Ledger finalization — checkout-completed batches only
+
+**Files:** `src/actions/customer-ledger.ts`, `src/lib/ledger/checkout-finalization.ts`, `src/lib/utils/entry-contributors.ts`
+
+**Reason:** Ledger is a finalized financial journal. Active visit activity (frames, edits, partial payments) must not appear until checkout is completed.
+
+**Notes:** `buildCheckoutFinalizationBatches()` emits charges + aggregated visit payment + Moved to Outstanding at finalization. Regression: REG-005, REG-008.
+
+---
+
 ## 2026-07-03
 
 ### Documentation-first workflow

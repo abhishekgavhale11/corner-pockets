@@ -26,6 +26,8 @@ import type { CustomerBalancePaymentDTO } from "@/types";
 import Customer from "@/models/Customer";
 import CustomerBalancePayment from "@/models/CustomerBalancePayment";
 import NotebookEntry from "@/models/NotebookEntry";
+import Bill from "@/models/Bill";
+import { syncBillTotals } from "@/lib/visit-bill/sync-bill-totals";
 
 function toCustomerBalancePaymentDTO(
   payment: {
@@ -122,6 +124,14 @@ export async function recordCustomerBalancePayment(
       const paidAt = new Date();
       let entries;
 
+      const finishedBills = await Bill.find({
+        customerId: parsed.data.customerId,
+        status: "FINISHED",
+      })
+        .select("_id")
+        .session(dbSession);
+      const finishedBillIds = finishedBills.map((bill) => bill._id);
+
       if (parsed.data.entryIds?.length) {
         entries = await NotebookEntry.find({
           _id: { $in: parsed.data.entryIds },
@@ -137,7 +147,16 @@ export async function recordCustomerBalancePayment(
         }
 
         for (const entry of entries) {
-          if (!entry.checkoutDismissedAt) {
+          const belongsToFinishedBill =
+            (entry.billId &&
+              finishedBillIds.some((billId) => billId.equals(entry.billId!))) ||
+            entry.contributors?.some(
+              (row) =>
+                row.billId &&
+                finishedBillIds.some((billId) => billId.equals(row.billId!))
+            );
+
+          if (!belongsToFinishedBill) {
             throw new Error(CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE);
           }
           if (entryHasContributors({ contributors: entry.contributors })) {
@@ -150,10 +169,19 @@ export async function recordCustomerBalancePayment(
       } else {
         entries = await NotebookEntry.find({
           status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
-          checkoutDismissedAt: { $exists: true, $ne: null },
           $or: [
-            { customerId: parsed.data.customerId },
-            { "contributors.customerId": parsed.data.customerId },
+            {
+              customerId: parsed.data.customerId,
+              billId: { $in: finishedBillIds },
+            },
+            {
+              contributors: {
+                $elemMatch: {
+                  customerId: new mongoose.Types.ObjectId(parsed.data.customerId),
+                  billId: { $in: finishedBillIds },
+                },
+              },
+            },
           ],
         })
           .sort({ createdAt: 1 })
@@ -236,6 +264,9 @@ export async function recordCustomerBalancePayment(
 
     const billIds = collectBillIdsFromEntries(affectedEntries);
     if (billIds.length > 0) {
+      for (const billId of billIds) {
+        await syncBillTotals(new mongoose.Types.ObjectId(billId));
+      }
       await advanceBillPaymentWatermarks(billIds, new Date());
     }
   }

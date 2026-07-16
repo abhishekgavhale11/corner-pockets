@@ -1,5 +1,8 @@
 import type { NotebookEntryContributorDTO, NotebookEntryDTO } from "@/types";
-import { entryAmountRemaining, isEntryOnCustomerBalance } from "@/lib/utils/entry-contributors";
+import {
+  entryAmountRemaining,
+  isEntryOnCustomerBalance,
+} from "@/lib/utils/entry-contributors";
 import {
   contributorTotalPaidAmount,
   entryTotalPaidAmount,
@@ -81,11 +84,9 @@ function frozenPayFromContributor(
 }
 
 /**
- * Counter Pay column rules:
- * - Playing / checkout open: dash
- * - Full pay at checkout: Cash / GPay / Wallet
- * - Partial pay (not pay later): total paid / due
- * - After pay later: frozen snapshot (e.g. ₹160 paid / ₹20 Bal)
+ * Counter Pay column amounts (FR-CTR-001 / FR-VIS-016).
+ * Payment methods never appear on Counter — only paid/remaining amounts.
+ * Remaining label (Due vs Outstanding) is resolved in counter-visit-display.ts.
  */
 export function getCounterPayDisplay(
   entry: NotebookEntryDTO
@@ -113,12 +114,28 @@ export function getCounterPayDisplay(
     };
   }
 
-  if (entry.status === "PENDING") {
+  if (entry.status === "PENDING" || entry.status === "PAID") {
     const paidAmount = entryTotalPaidAmount(entry);
     const balanceAmount = entryAmountRemaining(entry);
+    if (paidAmount > 0 && balanceAmount <= 0) {
+      return {
+        paidAmount: entry.amount,
+        balanceAmount: 0,
+        onBalance: false,
+        frozen: false,
+      };
+    }
+    if (paidAmount > 0) {
+      return {
+        paidAmount,
+        balanceAmount,
+        onBalance: isEntryOnCustomerBalance(entry),
+        frozen: false,
+      };
+    }
     return {
-      paidAmount,
-      balanceAmount,
+      paidAmount: 0,
+      balanceAmount: entry.amount,
       onBalance: isEntryOnCustomerBalance(entry),
       frozen: false,
     };
@@ -155,12 +172,28 @@ export function getContributorCounterPayDisplay(
 
   const paidAmount = contributorTotalPaidAmount(contributor);
   const balanceAmount = Math.max(0, contributor.amount - paidAmount);
+  if (paidAmount > 0 && balanceAmount <= 0) {
+    return {
+      paidAmount: contributor.amount,
+      balanceAmount: 0,
+      onBalance: false,
+      frozen: false,
+    };
+  }
   return {
     paidAmount,
     balanceAmount,
     onBalance: isEntryOnCustomerBalance(entry),
     frozen: false,
   };
+}
+
+export function counterPayShowsFullAtCheckout(
+  display: CounterPayDisplay
+): boolean {
+  return (
+    !display.frozen && display.paidAmount > 0 && display.balanceAmount <= 0
+  );
 }
 
 export function counterPayShowsPartialAtCheckout(
@@ -173,10 +206,4 @@ export function counterPayShowsPartialAtCheckout(
 
 export function counterPayShowsBalanceLabel(display: CounterPayDisplay): boolean {
   return display.balanceAmount > 0 && (display.onBalance || display.frozen);
-}
-
-export function counterRowShowsBalance(entry: NotebookEntryDTO): boolean {
-  const display = getCounterPayDisplay(entry);
-  if (!display) return false;
-  return counterPayShowsBalanceLabel(display);
 }

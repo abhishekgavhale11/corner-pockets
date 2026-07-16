@@ -125,6 +125,7 @@ export interface NotebookEntryContributorDTO {
   paidAt?: string;
   visitId?: string;
   billId?: string;
+  visitStatus?: import("@/lib/constants/visit-bill").VisitStatus;
 }
 
 export interface FrameGlanceLineDTO {
@@ -146,7 +147,9 @@ export interface CustomerVisitGlanceDTO {
   customerId: string;
   customerName: string;
   hasActiveVisit: boolean;
+  visitStatus?: import("@/lib/constants/visit-bill").VisitStatus;
   visitStartedAt?: string;
+  visitFinishedAt?: string;
   billTotal: number;
   paidAmount: number;
   dueAmount: number;
@@ -217,6 +220,7 @@ export interface NotebookEntryDTO {
   counterBalanceAmount?: number;
   visitId?: string;
   billId?: string;
+  visitStatus?: import("@/lib/constants/visit-bill").VisitStatus;
   isLocked?: boolean;
   contributors?: NotebookEntryContributorDTO[];
   createdBy: string;
@@ -253,6 +257,9 @@ export interface VisitDTO {
   businessDate: string;
   status: import("@/lib/constants/visit-bill").VisitStatus;
   startedAt: string;
+  finishedAt?: string;
+  finishedBy?: string;
+  ledgerCommittedAt?: string;
   closedAt?: string;
   notes?: string;
   createdBy: string;

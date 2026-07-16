@@ -30,7 +30,14 @@ import {
 } from "@/components/counter/ContributorsSplitFields";
 import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 import { ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE, ENTRY_LOCKED_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-constants";
-import { entryBlocksCustomerReassignment, isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
+import {
+  entryBlocksCustomerReassignment,
+  FRAME_PARTIAL_LOCK_REASSIGN_HINT,
+  isContributorAssignmentLocked,
+  isFrameStructureLocked,
+  isNotebookEntryEditLocked,
+  splitEntryHasEditableContributor,
+} from "@/lib/visit-bill/entry-edit-lock-utils";
 import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
 import {
   BillingModeToggle,
@@ -140,22 +147,29 @@ export function SnookerFrameEditDialog({
 
     setError(null);
     startTransition(async () => {
-      const formData = new FormData();
-      formData.set("entryId", entry.id);
-      formData.set("frameType", frameType);
-      formData.set("amount", String(parsedAmount));
-      formData.set("entryTime", entryTime);
-      if (frameType === "RUMMY") {
-        formData.set("playerCount", playerCount);
-      }
-      if (billingMode === "single" && selectedCustomerId && !hadContributors && !customerReassignmentBlocked) {
-        formData.set("customerId", selectedCustomerId);
-      }
+      if (!structureLocked) {
+        const formData = new FormData();
+        formData.set("entryId", entry.id);
+        formData.set("frameType", frameType);
+        formData.set("amount", String(parsedAmount));
+        formData.set("entryTime", entryTime);
+        if (frameType === "RUMMY") {
+          formData.set("playerCount", playerCount);
+        }
+        if (
+          billingMode === "single" &&
+          selectedCustomerId &&
+          !hadContributors &&
+          !customerReassignmentBlocked
+        ) {
+          formData.set("customerId", selectedCustomerId);
+        }
 
-      const frameResult = await updateSnookerFrameEntry(formData);
-      if (!frameResult.success) {
-        setError(frameResult.error);
-        return;
+        const frameResult = await updateSnookerFrameEntry(formData);
+        if (!frameResult.success) {
+          setError(frameResult.error);
+          return;
+        }
       }
 
       if (billingMode === "split") {
@@ -175,7 +189,7 @@ export function SnookerFrameEditDialog({
           setError(splitResult.error);
           return;
         }
-      } else if (hadContributors) {
+      } else if (hadContributors && !structureLocked) {
         const clearFormData = new FormData();
         clearFormData.set("entryId", entry.id);
         clearFormData.set("contributors", "[]");
@@ -205,8 +219,10 @@ export function SnookerFrameEditDialog({
   if (!entry) return null;
 
   const customerReassignmentBlocked = entryBlocksCustomerReassignment(entry);
+  const structureLocked = isFrameStructureLocked(entry);
+  const hasEditableSplitContributor = splitEntryHasEditableContributor(entry);
 
-  if (isNotebookEntryEditLocked(entry)) {
+  if (isNotebookEntryEditLocked(entry) && !hasEditableSplitContributor) {
     const lockMessage = entryBlocksCustomerReassignment(entry)
       ? ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE
       : ENTRY_LOCKED_MESSAGE;
@@ -240,10 +256,16 @@ export function SnookerFrameEditDialog({
               setEntryTime(e.target.value);
               setError(null);
             }}
-            disabled={isPending}
+            disabled={isPending || structureLocked}
             className={`mt-1 ${snookerFrameControlClass}`}
           />
         </div>
+
+        {structureLocked && hasEditableSplitContributor ? (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {FRAME_PARTIAL_LOCK_REASSIGN_HINT}
+          </p>
+        ) : null}
 
         <SnookerFrameFields
           variant="dialog"
@@ -257,13 +279,13 @@ export function SnookerFrameEditDialog({
           }}
           playerCount={playerCount}
           onPlayerCountChange={handlePlayerCountChange}
-          disabled={isPending}
+          disabled={isPending || structureLocked}
         />
 
         <BillingModeToggle
           value={billingMode}
           onChange={setBillingMode}
-          disabled={isPending}
+          disabled={isPending || structureLocked}
         />
 
         {billingMode === "split" ? (
@@ -272,6 +294,22 @@ export function SnookerFrameEditDialog({
             rows={contributorRows}
             onRowsChange={setContributorRows}
             disabled={isPending}
+            partiallyLocked={structureLocked}
+            lockedRowIndexes={
+              entry.contributors?.reduce<number[]>((indexes, contributor, index) => {
+                if (
+                  isContributorAssignmentLocked({
+                    status: contributor.status,
+                    visitStatus: contributor.visitStatus,
+                    paidAmount: contributor.paidAmount,
+                    balanceCollectedAmount: contributor.balanceCollectedAmount,
+                  })
+                ) {
+                  indexes.push(index);
+                }
+                return indexes;
+              }, []) ?? []
+            }
           />
         ) : (
           <div>

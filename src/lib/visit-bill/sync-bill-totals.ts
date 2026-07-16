@@ -9,19 +9,7 @@ import Bill from "@/models/Bill";
 function deriveBillStatus(
   bill: Pick<IBill, "status" | "totalAmount" | "paidAmount" | "dueAmount">
 ): BillStatus {
-  if (bill.status === "OUTSTANDING" || bill.status === "SETTLED") {
-    return bill.status;
-  }
-
-  if (bill.totalAmount <= 0) {
-    return "ACTIVE";
-  }
-
-  if (bill.dueAmount <= 0 && bill.paidAmount >= bill.totalAmount) {
-    return "PAID";
-  }
-
-  return "DUE";
+  return bill.status === "FINISHED" ? "FINISHED" : "WORKING";
 }
 
 export async function syncBillTotals(
@@ -76,9 +64,7 @@ export async function syncBillTotals(
   bill.paidAmount = paidAmount;
   bill.dueAmount = dueAmount;
 
-  if (bill.status !== "OUTSTANDING" && bill.status !== "SETTLED") {
-    bill.status = deriveBillStatus(bill);
-  }
+  bill.status = deriveBillStatus(bill);
 
   await bill.save({ session: dbSession });
   return bill;

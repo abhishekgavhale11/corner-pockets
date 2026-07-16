@@ -10,19 +10,23 @@ import {
   getAggregatedCorrections,
 } from "@/lib/utils/entry-corrections";
 import { entryHasContributors } from "@/lib/utils/entry-contributors";
-import { getContributorCounterPayDisplay, counterPayShowsBalanceLabel, counterPayShowsPartialAtCheckout } from "@/lib/utils/counter-pay-display";
 import { CorrectionChangeLine } from "@/components/counter/CorrectionChangeLine";
 import { EntryCorrectionBadge } from "@/components/counter/EntryCorrectionBadge";
 import {
+  CounterPayLine,
   entryRowClass,
-  PartialPaymentLabel,
   splitContributorRowClass,
   SettlementBadge,
 } from "@/components/counter/SettlementBadge";
+import { resolveContributorCounterPayLineView } from "@/lib/utils/counter-visit-display";
 import { isSnookerFrameEntry } from "@/lib/utils/snooker-frame";
 import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
-import { ENTRY_LOCKED_TOOLTIP } from "@/lib/visit-bill/entry-edit-lock-constants";
-import { isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
+import { getEntryLockTooltip, getContributorLockTooltip } from "@/lib/visit-bill/entry-edit-lock-constants";
+import {
+  isContributorAssignmentLocked,
+  isContributorReassignable,
+  isNotebookEntryEditLocked,
+} from "@/lib/visit-bill/entry-edit-lock-utils";
 import {
   CustomerPreviewNameButton,
   customerPreviewRowClass,
@@ -35,12 +39,9 @@ interface CompactLedgerRowProps {
   frameEditable?: boolean;
   onUnassignedAction?: (entry: NotebookEntryDTO) => void;
   onEditFrame?: (entry: NotebookEntryDTO) => void;
+  onEditSplit?: (entry: NotebookEntryDTO) => void;
   onCorrect?: (entry: NotebookEntryDTO) => void;
   onShowCorrectionHistory?: (entry: NotebookEntryDTO) => void;
-}
-
-function paymentMethodLabel(method: string): string {
-  return method === "CASH" ? "Cash" : method === "GPAY" ? "GPay" : "Wallet";
 }
 
 function ContributorPaymentLabel({
@@ -50,54 +51,8 @@ function ContributorPaymentLabel({
   entry: NotebookEntryDTO;
   contributor: NonNullable<NotebookEntryDTO["contributors"]>[number];
 }) {
-  const display = getContributorCounterPayDisplay(entry, contributor);
-
-  if (display.frozen) {
-    if (display.paidAmount > 0 && display.balanceAmount > 0) {
-      return (
-        <PartialPaymentLabel
-          paidAmount={display.paidAmount}
-          remaining={display.balanceAmount}
-          onBalance
-        />
-      );
-    }
-    if (counterPayShowsBalanceLabel(display)) {
-      return (
-        <span className="text-[11px] font-bold text-amber-700">
-          {formatCurrency(display.balanceAmount)} Bal
-        </span>
-      );
-    }
-    if (display.paidAmount > 0 && contributor.paymentMethod) {
-      return (
-        <span className="text-[11px] font-bold text-emerald-700">
-          {paymentMethodLabel(contributor.paymentMethod)}
-        </span>
-      );
-    }
-    return <span className="text-[11px] text-gray-400">—</span>;
-  }
-
-  if (contributor.status === "PAID" && contributor.paymentMethod) {
-    return (
-      <span className="text-[11px] font-bold text-emerald-700">
-        {paymentMethodLabel(contributor.paymentMethod)}
-      </span>
-    );
-  }
-
-  if (counterPayShowsPartialAtCheckout(display)) {
-    return (
-      <PartialPaymentLabel
-        paidAmount={display.paidAmount}
-        remaining={display.balanceAmount}
-        onBalance={false}
-      />
-    );
-  }
-
-  return <span className="text-[11px] text-gray-400">—</span>;
+  const view = resolveContributorCounterPayLineView(entry, contributor);
+  return <CounterPayLine view={view} />;
 }
 
 function PayColumn({
@@ -160,8 +115,10 @@ function SplitContributorRow({
   total,
   timeCell,
   typeCell,
-  editFrameButton,
+  editFrameButton: _editFrameButton,
+  editSplitButton,
   correctionButton,
+  frameFinished,
 }: {
   entry: NotebookEntryDTO;
   contributor: NonNullable<NotebookEntryDTO["contributors"]>[number];
@@ -170,8 +127,23 @@ function SplitContributorRow({
   timeCell: ReactNode;
   typeCell: ReactNode;
   editFrameButton: ReactNode;
+  editSplitButton: ReactNode;
   correctionButton: ReactNode;
+  frameFinished: boolean;
 }) {
+  const contributorFinished = contributor.visitStatus === "FINISHED";
+  const contributorLocked = isContributorAssignmentLocked({
+    status: contributor.status,
+    visitStatus: contributor.visitStatus,
+    paidAmount: contributor.paidAmount,
+    balanceCollectedAmount: contributor.balanceCollectedAmount,
+  });
+  const contributorReassignable = isContributorReassignable({
+    status: contributor.status,
+    visitStatus: contributor.visitStatus,
+    paidAmount: contributor.paidAmount,
+    balanceCollectedAmount: contributor.balanceCollectedAmount,
+  });
   const contributorPreview = useCustomerRowPreviewHandlers(
     contributor.customerId
   );
@@ -180,11 +152,13 @@ function SplitContributorRow({
     <tr
       className={cn(
         splitContributorRowClass(entry, index, total, contributor),
-        customerPreviewRowClass(contributorPreview.isSelected),
-        "cursor-pointer"
+        !contributorFinished && customerPreviewRowClass(contributorPreview.isSelected),
+        !contributorFinished && "cursor-pointer"
       )}
-      onClick={contributorPreview.handleRowClick}
-      onDoubleClick={contributorPreview.handleRowDoubleClick}
+      onClick={contributorFinished ? undefined : contributorPreview.handleRowClick}
+      onDoubleClick={
+        contributorFinished ? undefined : contributorPreview.handleRowDoubleClick
+      }
     >
       {index === 0 && (
         <>
@@ -192,7 +166,14 @@ function SplitContributorRow({
             rowSpan={total}
             className="overflow-visible whitespace-nowrap py-1.5 pl-2 pr-1 align-top"
           >
-            {timeCell}
+            <div className="flex flex-col gap-0.5">
+              {timeCell}
+              {frameFinished ? (
+                <span className="rounded bg-slate-200 px-1 py-px text-[9px] font-bold tracking-wide text-slate-700">
+                  🔒 Finished
+                </span>
+              ) : null}
+            </div>
           </td>
           <td
             rowSpan={total}
@@ -216,7 +197,18 @@ function SplitContributorRow({
           payment={
             <ContributorPaymentLabel entry={entry} contributor={contributor} />
           }
-          editButton={index === 0 ? editFrameButton : undefined}
+          editButton={
+            contributorReassignable ? (
+              editSplitButton
+            ) : contributorLocked ? (
+              <EntryLockIndicator
+                className="h-5 w-5"
+                title={getContributorLockTooltip({
+                  visitStatus: contributor.visitStatus,
+                })}
+              />
+            ) : null
+          }
           correctionButton={
             index === total - 1 ? correctionButton : undefined
           }
@@ -231,6 +223,7 @@ export function CompactLedgerRow({
   frameEditable = false,
   onUnassignedAction,
   onEditFrame,
+  onEditSplit,
   onCorrect: _onCorrect,
   onShowCorrectionHistory,
 }: CompactLedgerRowProps) {
@@ -248,7 +241,22 @@ export function CompactLedgerRow({
   const isPending = entry.status === "PENDING";
   const contributors = entry.contributors ?? [];
   const showContributorSplit = hasContributors && contributors.length > 0;
-  const entryEditLocked = isNotebookEntryEditLocked(entry);
+  const entryEditLocked =
+    entry.isLocked ??
+    isNotebookEntryEditLocked({
+      status: entry.status,
+      visitStatus: entry.visitStatus,
+      paidAmount: entry.paidAmount,
+      balanceCollectedAmount: entry.balanceCollectedAmount,
+      contributors: entry.contributors,
+    });
+  const lockTooltip = getEntryLockTooltip({ visitStatus: entry.visitStatus });
+  const frameFinished =
+    contributors.length > 0
+      ? contributors.every(
+          (contributor) => contributor.visitStatus === "FINISHED"
+        )
+      : entry.visitStatus === "FINISHED";
   const showEditFrame =
     frameEditable &&
     isSnookerFrameEntry(entry) &&
@@ -258,7 +266,7 @@ export function CompactLedgerRow({
 
   const handleUnassignedClick = (e: MouseEvent) => {
     e.stopPropagation();
-    if (!isPending || !entry.isUnassigned) return;
+    if (!isPending || !entry.isUnassigned || entryEditLocked) return;
     onUnassignedAction?.(entry);
   };
 
@@ -269,11 +277,38 @@ export function CompactLedgerRow({
     }
   };
 
+  const handleEditSplitClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    onEditSplit?.(entry);
+  };
+
+  const editSplitButton = onEditSplit ? (
+    <button
+      type="button"
+      onClick={handleEditSplitClick}
+      className="inline-flex h-5 w-5 items-center justify-center rounded text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
+      aria-label="Edit split"
+      title="Edit split"
+    >
+      <svg
+        className="h-3.5 w-3.5"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+        aria-hidden
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+        />
+      </svg>
+    </button>
+  ) : null;
+
   const editFrameButton = entryEditLocked ? (
-    <EntryLockIndicator
-      className="h-5 w-5"
-      title={ENTRY_LOCKED_TOOLTIP}
-    />
+    <EntryLockIndicator className="h-5 w-5" title={lockTooltip} />
   ) : showEditFrame ? (
     <button
       type="button"
@@ -380,7 +415,9 @@ export function CompactLedgerRow({
             timeCell={timeCell}
             typeCell={typeCell}
             editFrameButton={editFrameButton}
+            editSplitButton={editSplitButton}
             correctionButton={correctionButton}
+            frameFinished={frameFinished}
           />
         ))}
       </>
@@ -391,13 +428,23 @@ export function CompactLedgerRow({
     <tr
       className={cn(
         entryRowClass(entry),
+        frameFinished && "bg-slate-50/90",
         entry.customerId && customerPreviewRowClass(rowPreview.isSelected),
-        entry.customerId && "cursor-pointer"
+        entry.customerId && !frameFinished && "cursor-pointer"
       )}
-      onClick={rowPreview.handleRowClick}
-      onDoubleClick={rowPreview.handleRowDoubleClick}
+      onClick={frameFinished ? undefined : rowPreview.handleRowClick}
+      onDoubleClick={frameFinished ? undefined : rowPreview.handleRowDoubleClick}
     >
-      <td className="py-1.5 pl-2 pr-1 align-top">{timeCell}</td>
+      <td className="py-1.5 pl-2 pr-1 align-top">
+        <div className="flex flex-col gap-0.5">
+          {timeCell}
+          {frameFinished ? (
+            <span className="rounded bg-slate-200 px-1 py-px text-[9px] font-bold tracking-wide text-slate-700">
+              🔒 Finished
+            </span>
+          ) : null}
+        </div>
+      </td>
       <td className="whitespace-nowrap px-1.5 py-1.5 align-top text-[14px] font-semibold text-gray-800">
         {typeCell}
       </td>

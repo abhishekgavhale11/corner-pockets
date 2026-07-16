@@ -36,8 +36,8 @@ const billSchema = new Schema<IBill>(
     businessDate: { type: String, required: true, trim: true, index: true },
     status: {
       type: String,
-      enum: ["ACTIVE", "DUE", "PAID", "OUTSTANDING", "SETTLED"],
-      default: "ACTIVE",
+      enum: ["WORKING", "FINISHED"],
+      default: "WORKING",
       index: true,
     },
     totalAmount: { type: Number, default: 0, min: 0 },

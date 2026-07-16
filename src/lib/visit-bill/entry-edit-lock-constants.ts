@@ -1,9 +1,23 @@
-export {
-  ENTRY_LOCKED_MESSAGE,
-  ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE,
-  ENTRY_LOCKED_TOOLTIP,
-  entryReceivedPayment,
-  entryBlocksCustomerReassignment,
-  isNotebookEntryEditLocked,
-} from "@/lib/visit-bill/entry-edit-lock-utils";
-
+export {
+  ENTRY_LOCKED_MESSAGE,
+  ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE,
+  ENTRY_LOCKED_TOOLTIP,
+  VISIT_FINISHED_LOCK_MESSAGE,
+  VISIT_FINISHED_LOCK_TOOLTIP,
+  VISIT_FINISHED_CHECKOUT_MESSAGE,
+  SPLIT_CONTRIBUTOR_LOCKED_MESSAGE,
+  FRAME_STRUCTURE_LOCKED_MESSAGE,
+  FRAME_PARTIAL_LOCK_REASSIGN_HINT,
+  entryReceivedPayment,
+  contributorHasCheckoutPayment,
+  isContributorAssignmentLocked,
+  isContributorReassignable,
+  frameHasPartialPaymentLock,
+  isFrameStructureLocked,
+  entryBlocksCustomerReassignment,
+  isNotebookEntryEditLocked,
+  isContributorEditLocked,
+  splitEntryHasEditableContributor,
+  getEntryLockTooltip,
+  getContributorLockTooltip,
+} from "@/lib/visit-bill/entry-edit-lock-utils";

@@ -232,13 +232,41 @@ Setup on same customer visit:
 2. Open Collect Payment on Customer Page
 3. **Expected:** Blocked; message directs to Checkout; dialog does not open
 
-### REG-005 — Ledger charges only after checkout commit
+### REG-005 — Ledger empty during active visit
 
-1. Add frame on counter (do not checkout)
+**From:** Ledger finalization refactor
+
+1. Add frames and cafe items on counter (do not complete checkout)
 2. View customer ledger
-3. **Expected:** Charge **not** yet in ledger
-4. Complete checkout
-5. **Expected:** Charge appears with commit timestamp
+3. **Expected:** **No** charge lines, **no** visit payments
+
+4. Complete checkout (full pay or pay-later)
+5. **Expected:** All charges + visit payment appear together; Moved to Outstanding only if due remains
+
+### REG-008 — Checkout completion ledger batch order
+
+**From:** Ledger finalization refactor
+
+1. Active visit: Individual ₹180, Rummy ₹480, Singles ₹160, Cafe ₹40 (₹860 total)
+2. Complete checkout: pay ₹220, remainder to outstanding
+3. **Expected ledger order:**
+   - Individual −₹180
+   - Rummy −₹480
+   - Singles −₹160
+   - Cafe −₹40
+   - Cash/GPay Received (Visit) +₹220
+   - Moved to Outstanding ₹640
+4. **Not expected:** ledger entries while visit is still open; per-settlement lines during partial pay before completion
+
+### REG-008b — Full pay omits Moved to Outstanding
+
+1. Complete checkout with full payment
+2. **Expected:** charges + visit payment only; **no** Moved to Outstanding
+
+### REG-005b — Partial pay during open checkout not in ledger
+
+1. Open checkout, pay ₹100 partial, do **not** complete checkout
+2. **Expected:** Ledger still empty for this visit
 
 ### REG-006 — Active visit payment context in ledger
 
