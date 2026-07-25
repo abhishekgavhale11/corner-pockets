@@ -31,7 +31,8 @@ export function CustomerPickerDialog({
   const [mode, setMode] = useState<"search" | "create">("search");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CustomerDTO[]>([]);
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -42,7 +43,8 @@ export function CustomerPickerDialog({
       setMode("search");
       setQuery("");
       setResults([]);
-      setName("");
+      setFirstName("");
+      setLastName("");
       setPhone("");
       setError(null);
       return;
@@ -65,7 +67,8 @@ export function CustomerPickerDialog({
     setError(null);
     startTransition(async () => {
       const formData = new FormData();
-      formData.set("name", name.trim());
+      formData.set("firstName", firstName.trim());
+      formData.set("lastName", lastName.trim());
       if (phone.trim()) {
         formData.set("phone", phone.trim());
       }
@@ -168,18 +171,34 @@ export function CustomerPickerDialog({
             </>
           ) : (
             <form onSubmit={handleCreate} className="flex h-full flex-col space-y-4">
-              <div>
-                <Label htmlFor="quick-customer-name" className="text-sm">
-                  Name
-                </Label>
-                <Input
-                  id="quick-customer-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  autoFocus
-                  className="mt-1.5 h-11 text-base"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="quick-customer-first-name" className="text-sm">
+                    Name
+                  </Label>
+                  <Input
+                    id="quick-customer-first-name"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    required
+                    autoFocus
+                    placeholder="Name"
+                    className="mt-1.5 h-11 text-base"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="quick-customer-last-name" className="text-sm">
+                    Surname
+                  </Label>
+                  <Input
+                    id="quick-customer-last-name"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    required
+                    placeholder="Surname"
+                    className="mt-1.5 h-11 text-base"
+                  />
+                </div>
               </div>
               <div>
                 <Label htmlFor="quick-customer-phone" className="text-sm">

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addCafeItems } from "@/actions/notebook-entries";
+import { getCustomerWalletInfo } from "@/actions/customers";
 import { CAFE_QUICK_ITEMS } from "@/lib/constants/counter-sections";
 import type { CafeTableId } from "@/lib/constants/counter-sections";
 import type { NotebookEntryType } from "@/lib/constants/notebook-entry-types";
@@ -11,7 +12,14 @@ import type { UnpaidSessionOption } from "@/actions/table-sessions";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
+import {
+  EntryPaymentFields,
+  appendEntryPaymentFormData,
+  resolveEntryPaymentSubmit,
+  type EntryPaymentMode,
+} from "@/components/counter/EntryPaymentFields";
 import { cn } from "@/lib/utils/cn";
+import { formatCurrency } from "@/lib/utils/format";
 import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 
 const ADDABLE_ITEMS = CAFE_QUICK_ITEMS.filter((item) => item.key !== "food");
@@ -40,11 +48,17 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
   const [qty, setQty] = useState(1);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const [paidAmount, setPaidAmount] = useState("0");
+  const [paymentMode, setPaymentMode] = useState<EntryPaymentMode | "">("");
+  const [useWallet, setUseWallet] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number | undefined>();
+  const [walletEnabled, setWalletEnabled] = useState(false);
   const [previousSessionId, setPreviousSessionId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const open = target !== null;
+  const isCustomerTarget = target?.kind === "customer";
   const isPoolMiniTable =
     target?.kind === "table" && isPoolMiniTableId(target.tableId);
   const unpaidSessions =
@@ -62,10 +76,40 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
       setQty(1);
       setAmount("");
       setNote("");
+      setPaidAmount("0");
+      setPaymentMode("");
+      setUseWallet(false);
+      setWalletBalance(undefined);
+      setWalletEnabled(false);
       setPreviousSessionId("");
       setError(null);
     }
   }, [open, target]);
+
+  useEffect(() => {
+    if (!open || !isCustomerTarget || !target || target.kind !== "customer") {
+      return;
+    }
+    let cancelled = false;
+    void getCustomerWalletInfo(target.id).then((info) => {
+      if (cancelled || !info) return;
+      setWalletBalance(info.balance);
+      setWalletEnabled(info.walletEnabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isCustomerTarget, target]);
+
+  const orderAmount = useMemo(() => {
+    if (!selected) return 0;
+    if (selected === "FOOD") {
+      return Number.parseInt(amount, 10) || 0;
+    }
+    const preset = ADDABLE_ITEMS.find((item) => item.type === selected);
+    if (!preset || !("unitPrice" in preset)) return 0;
+    return preset.unitPrice * qty;
+  }, [selected, amount, qty]);
 
   if (!target) return null;
 
@@ -76,6 +120,26 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
 
     if (!selected) {
       setError("Select an item");
+      return;
+    }
+
+    const parsedPaid = Number.parseInt(paidAmount, 10) || 0;
+    if (parsedPaid > orderAmount) {
+      setError("Received amount cannot exceed item amount");
+      return;
+    }
+    if (parsedPaid > 0 && !isCustomerTarget) {
+      setError("Assign a customer before recording payment");
+      return;
+    }
+    const paymentCheck = resolveEntryPaymentSubmit({
+      paidAmount: parsedPaid,
+      useWallet,
+      walletBalance: walletBalance ?? 0,
+      paymentMode,
+    });
+    if (!paymentCheck.valid) {
+      setError(paymentCheck.error ?? "Select payment mode");
       return;
     }
 
@@ -131,6 +195,16 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
         }
       }
       formData.set("items", JSON.stringify(items));
+      const paymentFields = appendEntryPaymentFormData(formData, {
+        paidAmount: parsedPaid,
+        useWallet,
+        walletBalance: walletBalance ?? 0,
+        paymentMode,
+      });
+      if (!paymentFields.ok) {
+        setError(paymentFields.error);
+        return;
+      }
       const result = await addCafeItems(formData);
       if (result.success) {
         if (target.kind === "customer") {
@@ -152,7 +226,7 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
         aria-label="Close"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-md rounded-t-xl bg-white p-4 shadow-xl sm:rounded-xl">
+      <div className="relative z-10 max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-xl bg-white p-4 shadow-xl sm:rounded-xl">
         <h2 className="text-lg font-bold text-gray-900">
           Add Item — {target.name}
         </h2>
@@ -178,10 +252,6 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[11px] text-gray-500">
-              Cafe items attach to the active session by default. Use previous
-              session only when correcting an older unpaid bill.
-            </p>
           </div>
         )}
 
@@ -270,6 +340,40 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
                 className="mt-1 h-10 text-base"
               />
             </div>
+          </div>
+        )}
+
+        {selected && (
+          <div className="mt-4 space-y-3 border-t border-gray-100 pt-3">
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="text-gray-500">Amount</span>
+              <span className="font-bold tabular-nums text-gray-900">
+                {formatCurrency(orderAmount)}
+              </span>
+            </div>
+
+            <EntryPaymentFields
+              idPrefix="cafe-add"
+              amount={orderAmount}
+              paidAmount={paidAmount}
+              paymentMode={paymentMode}
+              useWallet={useWallet}
+              disabled={isPending}
+              onPaidAmountChange={(value) => {
+                setPaidAmount(value);
+                setError(null);
+              }}
+              onPaymentModeChange={(value) => {
+                setPaymentMode(value);
+                setError(null);
+              }}
+              onUseWalletChange={(value) => {
+                setUseWallet(value);
+                setError(null);
+              }}
+              walletEnabled={walletEnabled && isCustomerTarget}
+              walletBalance={walletBalance}
+            />
           </div>
         )}
 

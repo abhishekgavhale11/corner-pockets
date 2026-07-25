@@ -53,7 +53,7 @@ The left panel displays a quick summary.
 
 Current fields:
 
-- Customer Name
+- Customer Name (Name + Surname)
 - Outstanding
 - Phone Number
 - Member Status
@@ -94,6 +94,12 @@ Outstanding totals come from the Financial Summary Engine.
 # Collect Outstanding
 
 Outstanding can only be collected from the Customer page.
+
+Customers with Outstanding are shown via the Outstanding filter on the Customers page.
+
+It never collects payment.
+
+Selecting a customer opens the Customer page.
 
 Cashier enters:
 

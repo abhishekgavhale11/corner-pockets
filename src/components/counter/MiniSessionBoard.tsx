@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   getSessionCafeDisplayItems,
   resumeTableSession,
@@ -19,7 +18,6 @@ import {
 import { formatTime } from "@/lib/utils/format-time";
 import { formatCurrency } from "@/lib/utils/format";
 import { formatAssignedCustomers, formatSessionActivityLine } from "@/lib/utils/session-display";
-import { checkoutHrefForSession } from "@/lib/utils/checkout-navigation";
 import {
   paymentMethodLabel,
   paymentStatusLabel,
@@ -36,7 +34,6 @@ import {
   CafeAddItemDialog,
 } from "@/components/counter/CafeAddItemDialog";
 import { useCafeAddItem } from "@/components/counter/useCafeAddItem";
-import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
 import { cn } from "@/lib/utils/cn";
 import { entryTypeLabel } from "@/lib/constants/notebook-entry-types";
 
@@ -308,7 +305,6 @@ function SessionBillPanel({
               editing && cafeItemUsesQuantityArrows(item)
                 ? cafeQuantityItemLabel(item, quantity)
                 : item.label;
-            const itemLocked = item.isLocked;
 
             return (
             <li
@@ -316,12 +312,7 @@ function SessionBillPanel({
               className="flex items-center gap-3 py-2.5"
             >
               <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-semibold text-gray-800">
-                {itemLocked ? (
-                  <EntryLockIndicator className="shrink-0" />
-                ) : null}
-                <span className={cn("truncate", itemLocked && "text-gray-500")}>
-                  {rowLabel}
-                </span>
+                <span className="truncate">{rowLabel}</span>
               </span>
               <div className={cn("ml-auto shrink-0", BILL_CONTROL_WIDTH)}>
               {editing ? (
@@ -329,13 +320,13 @@ function SessionBillPanel({
                   <QuantityStepper
                     quantity={quantity}
                     unitPrice={item.unitPrice && item.unitPrice > 0 ? item.unitPrice : 1}
-                    disabled={isPending || itemLocked}
+                    disabled={isPending}
                     onChange={(next) => setCafeQuantity(item, next)}
                   />
                 ) : (
                   <DirectAmountInput
                     value={foodInputs[item.entryId] ?? String(item.amount)}
-                    disabled={isPending || itemLocked}
+                    disabled={isPending}
                     onChange={(value) =>
                       setFoodInputs((prev) => ({
                         ...prev,
@@ -694,13 +685,6 @@ function MiniSessionLedgerRow({
                       Edit Amount
                     </button>
                   )}
-                  <Link
-                    href={checkoutHrefForSession(session.id)}
-                    className={miniActionPrimary}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    Open Checkout
-                  </Link>
                 </div>
               </div>
             ) : item.kind === "history" ? (

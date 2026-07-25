@@ -20,14 +20,16 @@ export function CafeNewTabDialog({
   onCreated,
   submitLabel = "Create & Add Item",
 }: CafeNewTabDialogProps) {
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
     if (!open) {
-      setName("");
+      setFirstName("");
+      setLastName("");
       setPhone("");
       setError(null);
     }
@@ -40,7 +42,8 @@ export function CafeNewTabDialog({
     setError(null);
     startTransition(async () => {
       const formData = new FormData();
-      formData.set("name", name.trim());
+      formData.set("firstName", firstName.trim());
+      formData.set("lastName", lastName.trim());
       if (phone.trim()) {
         formData.set("phone", phone.trim());
       }
@@ -65,16 +68,30 @@ export function CafeNewTabDialog({
       <div className="relative z-10 w-full max-w-md rounded-t-xl bg-white p-4 shadow-xl sm:rounded-xl">
         <h2 className="text-lg font-bold text-gray-900">New Customer</h2>
         <form onSubmit={submit} className="mt-3 space-y-3">
-          <div>
-            <Label htmlFor="cafe-tab-name">Name *</Label>
-            <Input
-              id="cafe-tab-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              autoFocus
-              className="mt-1 h-10 text-base"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="cafe-tab-first-name">Name *</Label>
+              <Input
+                id="cafe-tab-first-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+                autoFocus
+                placeholder="Name"
+                className="mt-1 h-10 text-base"
+              />
+            </div>
+            <div>
+              <Label htmlFor="cafe-tab-last-name">Surname *</Label>
+              <Input
+                id="cafe-tab-last-name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+                placeholder="Surname"
+                className="mt-1 h-10 text-base"
+              />
+            </div>
           </div>
           <div>
             <Label htmlFor="cafe-tab-phone">Phone (optional)</Label>

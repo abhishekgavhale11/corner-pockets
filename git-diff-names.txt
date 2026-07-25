@@ -1,0 +1,205 @@
+﻿git : warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+At C:\Users\Corner Pockets\AppData\Local\Temp\ps-script-dbb699e3-df6e-4ba9-bdef-70261418614e.ps1:108 char:77
++ ...  git-status-out.txt -Encoding utf8; git diff --name-only 2>&1 | Out-F ...
++                                         ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (warning: in the... Git touches it:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+warning: in the working copy of 'scripts/reset-dev-db.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/actions/customer-activity.ts', LF will be replaced by CRLF the next time Git 
+touches it
+warning: in the working copy of 'src/actions/customer-ledger.ts', LF will be replaced by CRLF the next time Git 
+touches it
+warning: in the working copy of 'src/actions/customers.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/actions/notebook-entries.ts', LF will be replaced by CRLF the next time Git 
+touches it
+warning: in the working copy of 'src/actions/notebook-ledger.ts', LF will be replaced by CRLF the next time Git 
+touches it
+warning: in the working copy of 'src/actions/table-sessions.ts', LF will be replaced by CRLF the next time Git touches 
+it
+warning: in the working copy of 'src/app/(dashboard)/counter/big-snooker/page.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/app/(dashboard)/customers/[id]/page.tsx', LF will be replaced by CRLF the next 
+time Git touches it
+warning: in the working copy of 'src/components/counter/BillingModeToggle.tsx', LF will be replaced by CRLF the next 
+time Git touches it
+warning: in the working copy of 'src/components/counter/CafeAddItemDialog.tsx', LF will be replaced by CRLF the next 
+time Git touches it
+warning: in the working copy of 'src/components/counter/CafeCustomerGlanceHover.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/components/counter/CafeCustomerTabs.tsx', LF will be replaced by CRLF the next 
+time Git touches it
+warning: in the working copy of 'src/components/counter/CafeEntryEditDialog.tsx', LF will be replaced by CRLF the next 
+time Git touches it
+warning: in the working copy of 'src/components/counter/CompactLedgerRow.tsx', LF will be replaced by CRLF the next 
+time Git touches it
+warning: in the working copy of 'src/components/counter/ContributorsSplitDialog.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/components/counter/ContributorsSplitFields.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/components/counter/CounterLedgerTable.tsx', LF will be replaced by CRLF the next 
+time Git touches it
+warning: in the working copy of 'src/components/counter/CounterSectionColumn.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/components/counter/CustomerPreviewContext.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/components/counter/EntryCorrectionDialog.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/components/counter/SnookerFrameEditDialog.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/components/customers/CustomerActivityTimeline.tsx', LF will be replaced by CRLF 
+the next time Git touches it
+warning: in the working copy of 'src/components/customers/CustomerDetailView.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/components/customers/CustomerForm.tsx', LF will be replaced by CRLF the next time 
+Git touches it
+warning: in the working copy of 'src/components/customers/CustomerSummaryCard.tsx', LF will be replaced by CRLF the 
+next time Git touches it
+warning: in the working copy of 'src/components/customers/OutstandingPage.tsx', LF will be replaced by CRLF the next 
+time Git touches it
+warning: in the working copy of 'src/components/layout/Sidebar.tsx', LF will be replaced by CRLF the next time Git 
+touches it
+warning: in the working copy of 'src/components/layout/TopBar.tsx', LF will be replaced by CRLF the next time Git 
+touches it
+warning: in the working copy of 'src/lib/mappers/notebook.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/lib/utils/business-date.ts', LF will be replaced by CRLF the next time Git 
+touches it
+warning: in the working copy of 'src/lib/validators/customer.ts', LF will be replaced by CRLF the next time Git 
+touches it
+warning: in the working copy of 'src/lib/validators/notebook.ts', LF will be replaced by CRLF the next time Git 
+touches it
+warning: in the working copy of 'src/middleware.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/models/NotebookEntry.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/models/TableSession.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/types/index.ts', LF will be replaced by CRLF the next time Git touches it
+ARCHITECTURE.md
+README.md
+archive/docs-legacy/DEPLOYMENT.md
+archive/docs-legacy/E2E-TESTING.md
+archive/docs-legacy/NOTEBOOK-V2-TESTING.md
+archive/docs-legacy/README.md
+archive/docs-legacy/archive/PROJECT-CONTEXT.md
+archive/docs-legacy/archive/README.md
+archive/docs-legacy/archive/business-architecture-v1.0.md
+archive/docs-legacy/archive/business-architecture.md
+archive/docs-legacy/archive/business-rules-v1.1.md
+archive/docs-legacy/archive/financial-invariants.md
+archive/docs-legacy/archive/product-specification.md
+archive/docs-legacy/changelog.md
+archive/docs-legacy/current-status.md
+archive/docs-legacy/known-bugs.md
+archive/docs-legacy/screenshots/01-counter-big-snooker.png
+archive/docs-legacy/screenshots/02-counter-pool-mini.png
+archive/docs-legacy/screenshots/03-counter-cafe.png
+archive/docs-legacy/screenshots/04-checkout.png
+archive/docs-legacy/screenshots/05-customers.png
+archive/docs-legacy/screenshots/06-admin.png
+archive/docs-legacy/screenshots/06-customer-detail.png
+archive/docs-legacy/screenshots/07-admin.png
+archive/docs-legacy/technical-architecture.md
+archive/docs-legacy/testing-checklist.md
+docs/01-financial-engine.md
+docs/archive/01-financial-engine-v0.md
+docs/archive/README.md
+docs/business-scenarios.md
+docs/business-vision.md
+scripts/inspect-bill-mismatch.ts
+scripts/inspect-counters.ts
+scripts/inspect-entry-linkage.ts
+scripts/inspect-vishal-bills.ts
+scripts/repair-bill-totals.ts
+scripts/reset-dev-db.ts
+scripts/verify-module-1-visit-bill.ts
+src/actions/customer-activity.ts
+src/actions/customer-balance-payments.ts
+src/actions/customer-ledger.ts
+src/actions/notebook-closing.ts
+src/actions/notebook-entries.ts
+src/actions/notebook-ledger.ts
+src/actions/notebook-settlements.ts
+src/actions/table-sessions.ts
+src/actions/visit-bill.ts
+src/app/(dashboard)/checkout/page.tsx
+src/app/(dashboard)/counter/big-snooker/page.tsx
+src/app/(dashboard)/counter/cafe/page.tsx
+src/app/(dashboard)/customers/[id]/page.tsx
+src/app/(dashboard)/notebook/checkout/page.tsx
+src/app/(dashboard)/notebook/tabs/[customerId]/page.tsx
+src/app/(dashboard)/notebook/tabs/[customerId]/settle/page.tsx
+src/app/(dashboard)/notebook/tabs/page.tsx
+src/components/checkout/CheckoutDrawer.tsx
+src/components/checkout/CheckoutList.tsx
+src/components/checkout/SessionCheckoutPanel.tsx
+src/components/checkout/checkout-bill-lines.tsx
+src/components/checkout/checkout-payment.tsx
+src/components/counter/BillingModeToggle.tsx
+src/components/counter/CafeAddItemDialog.tsx
+src/components/counter/CafeCustomerGlanceHover.tsx
+src/components/counter/CafeCustomerTabs.tsx
+src/components/counter/CafeEditPickerDialog.tsx
+src/components/counter/CafeEntryEditDialog.tsx
+src/components/counter/CompactLedgerRow.tsx
+src/components/counter/ContributorsSplitDialog.tsx
+src/components/counter/ContributorsSplitFields.tsx
+src/components/counter/CounterLedgerTable.tsx
+src/components/counter/CustomerPreviewContext.tsx
+src/components/counter/EntryCorrectionDialog.tsx
+src/components/counter/EntryLockIndicator.tsx
+src/components/counter/MiniSessionBoard.tsx
+src/components/counter/PoolMiniSessionBoard.tsx
+src/components/counter/SessionHistoryRow.tsx
+src/components/counter/SettlementBadge.tsx
+src/components/counter/SnookerFrameEditDialog.tsx
+src/components/counter/UnassignedEntryDialog.tsx
+src/components/customers/ActiveVisitCheckoutDialog.tsx
+src/components/customers/BalanceCollectionList.tsx
+src/components/customers/CollectPaymentTrigger.tsx
+src/components/customers/CustomerActivityTimeline.tsx
+src/components/customers/CustomerDetailView.tsx
+src/components/customers/CustomerSummaryCard.tsx
+src/components/customers/OutstandingPage.tsx
+src/components/layout/Sidebar.tsx
+src/components/layout/TopBar.tsx
+src/components/notebook/NotebookBottomNav.tsx
+src/components/notebook/OpenTabsList.tsx
+src/components/notebook/SettlementForm.tsx
+src/lib/constants/visit-bill.ts
+src/lib/ledger/checkout-finalization.ts
+src/lib/mappers/notebook.ts
+src/lib/mappers/visit-bill.ts
+src/lib/utils/business-date.ts
+src/lib/utils/checkout-navigation.ts
+src/lib/utils/checkout-tabs.ts
+src/lib/utils/counter-pay-display.ts
+src/lib/utils/counter-visit-display.ts
+src/lib/utils/customer-visit-glance.ts
+src/lib/utils/freeze-counter-pay-snapshot.ts
+src/lib/utils/ledger-charge-bundles.ts
+src/lib/utils/revalidate-counter.ts
+src/lib/utils/session-checkout-timeline.ts
+src/lib/validators/notebook.ts
+src/lib/validators/visit-bill.ts
+src/lib/visit-bill/active-visit-checkout-due.ts
+src/lib/visit-bill/active-visit.ts
+src/lib/visit-bill/attach-entry.ts
+src/lib/visit-bill/backfill.ts
+src/lib/visit-bill/customer-bill-slice.ts
+src/lib/visit-bill/ensure-visit-bill.ts
+src/lib/visit-bill/entry-edit-lock-constants.ts
+src/lib/visit-bill/entry-edit-lock-utils.ts
+src/lib/visit-bill/entry-edit-lock.ts
+src/lib/visit-bill/finalize-visit.ts
+src/lib/visit-bill/finished-visit-lock.ts
+src/lib/visit-bill/link-split-entry.ts
+src/lib/visit-bill/public-id.ts
+src/lib/visit-bill/recalculate-active-visit.ts
+src/lib/visit-bill/sync-bill-totals.ts
+src/lib/wallet/reconcile-entry-payments.ts
+src/middleware.ts
+src/models/Bill.ts
+src/models/NotebookEntry.ts
+src/models/NotebookSettlement.ts
+src/models/NotebookSettlementReversal.ts
+src/models/TableSession.ts
+src/models/Visit.ts
+src/types/index.ts

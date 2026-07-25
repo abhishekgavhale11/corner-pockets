@@ -24,7 +24,8 @@ export function NotebookCustomerPicker({
   const [mode, setMode] = useState<"search" | "create">("search");
   const [cardId, setCardId] = useState("");
   const [phone, setPhone] = useState("");
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -70,7 +71,8 @@ export function NotebookCustomerPicker({
     setError(null);
     setIsLoading(true);
     const formData = new FormData();
-    formData.set("name", name);
+    formData.set("firstName", firstName);
+    formData.set("lastName", lastName);
     formData.set("phone", newPhone);
     const result = await createQuickCustomer(formData);
     setIsLoading(false);
@@ -173,14 +175,27 @@ export function NotebookCustomerPicker({
         </div>
       ) : (
         <form onSubmit={handleCreate} className="space-y-3">
-          <div>
-            <Label htmlFor="nb-name">Name</Label>
-            <Input
-              id="nb-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="nb-first-name">Name</Label>
+              <Input
+                id="nb-first-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+                placeholder="Name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="nb-last-name">Surname</Label>
+              <Input
+                id="nb-last-name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+                placeholder="Surname"
+              />
+            </div>
           </div>
           <div>
             <Label htmlFor="nb-new-phone">Phone (optional)</Label>

@@ -14,7 +14,10 @@ export interface ICustomerDetailChange {
 
 export interface ICustomer extends Document {
   cardId: string;
+  /** Display / search full name (firstName + lastName). */
   name: string;
+  firstName: string;
+  lastName: string;
   phone: string;
   notes?: string;
   isStudent: boolean;
@@ -50,6 +53,8 @@ const customerSchema = new Schema<ICustomer>(
   {
     cardId: { type: String, default: "", trim: true },
     name: { type: String, required: true, trim: true },
+    firstName: { type: String, default: "", trim: true },
+    lastName: { type: String, default: "", trim: true },
     phone: { type: String, default: "", trim: true },
     notes: { type: String, trim: true, maxlength: 500 },
     isStudent: { type: Boolean, default: false },
@@ -63,8 +68,9 @@ const customerSchema = new Schema<ICustomer>(
   { timestamps: true }
 );
 
-customerSchema.index({ name: "text", phone: "text", cardId: "text" });
+customerSchema.index({ name: "text", firstName: "text", lastName: "text", phone: "text", cardId: "text" });
 customerSchema.index({ isActive: 1, name: 1 });
+customerSchema.index({ isActive: 1, lastName: 1, firstName: 1 });
 customerSchema.index(
   { phone: 1 },
   {

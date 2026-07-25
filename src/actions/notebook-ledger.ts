@@ -15,62 +15,43 @@ import {
   sectionLedgerSchema,
 } from "@/lib/validators/notebook";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
-import { enrichEntriesWithEditLock } from "@/lib/visit-bill/entry-edit-lock";
-import { reconcileEntryPaymentFields, repairCounterSnapshotsForEntries } from "@/lib/wallet/reconcile-entry-payments";
 import { toCustomerDTO } from "@/lib/mappers";
 import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
 import TableSession from "@/models/TableSession";
+import { getOpenBusinessDayContext } from "@/lib/business-day/require-open-business-day";
 import type { CustomerDTO, NotebookEntryDTO, TableSessionDTO } from "@/types";
-
-function getDayBounds(dateInput?: string) {
-  const date = dateInput ? new Date(dateInput) : new Date();
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(date);
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
-}
 
 export async function getSectionLedger(
   section: NotebookSection,
-  dateInput?: string
+  _dateInput?: string
 ): Promise<NotebookEntryDTO[]> {
   const authResult = await authorizePermission("NOTEBOOK_VIEW");
   if (!("session" in authResult)) {
     return [];
   }
 
-  const parsed = sectionLedgerSchema.safeParse({ section, date: dateInput });
+  const parsed = sectionLedgerSchema.safeParse({ section });
   if (!parsed.success) {
     return [];
   }
 
-  const { start, end } = getDayBounds(parsed.data.date);
-
   await connectDB();
+
+  const openDay = await getOpenBusinessDayContext();
+  if (!openDay) {
+    return [];
+  }
 
   const entries = await NotebookEntry.find({
     section: parsed.data.section,
-    createdAt: { $gte: start, $lte: end },
+    businessDayId: openDay.businessDayId,
+    status: { $nin: ["CANCELLED", "REVERSED"] },
   })
     .sort({ createdAt: 1 })
     .lean();
 
-  const entryIds = entries.map((entry) => entry._id.toString());
-
-  await reconcileEntryPaymentFields(entryIds);
-  await repairCounterSnapshotsForEntries(entryIds);
-
-  const refreshed = await NotebookEntry.find({
-    _id: { $in: entryIds },
-  })
-    .sort({ createdAt: 1 })
-    .lean();
-
-  return enrichEntriesWithEditLock(
-    refreshed.map((entry) => toNotebookEntryDTO(entry))
-  );
+  return entries.map((entry) => toNotebookEntryDTO(entry));
 }
 
 export async function getRecentNotebookCustomers(
@@ -218,31 +199,34 @@ export async function getAssignCustomerSuggestions(
   const parsed = notebookCustomerSearchSchema.safeParse({ query });
   const term = parsed.success ? parsed.data.query?.trim() : undefined;
 
-  const { start, end } = getDayBounds();
-  const frequentLookbackStart = new Date(start);
+  await connectDB();
+
+  const openDay = await getOpenBusinessDayContext();
+  const frequentLookbackStart = new Date();
   frequentLookbackStart.setDate(
     frequentLookbackStart.getDate() - ASSIGN_SUGGESTION_FREQUENT_LOOKBACK_DAYS
   );
-
-  await connectDB();
 
   const [activeSessions, todayEntries, frequentAgg, searchCustomers] =
     await Promise.all([
       TableSession.find({
         status: { $in: [...ACTIVE_TABLE_SESSION_STATUSES] },
+        ...(openDay ? { businessDayId: openDay.businessDayId } : {}),
       })
         .select("assignedCustomers")
         .lean(),
-      NotebookEntry.find({
-        createdAt: { $gte: start, $lte: end },
-        status: { $ne: "CANCELLED" },
-      })
-        .select("customerId contributors createdAt status")
-        .lean(),
+      openDay
+        ? NotebookEntry.find({
+            businessDayId: openDay.businessDayId,
+            status: { $ne: "CANCELLED" },
+          })
+            .select("customerId contributors createdAt status")
+            .lean()
+        : Promise.resolve([]),
       NotebookEntry.aggregate([
         {
           $match: {
-            createdAt: { $gte: frequentLookbackStart, $lte: end },
+            createdAt: { $gte: frequentLookbackStart },
             status: { $ne: "CANCELLED" },
           },
         },
@@ -285,12 +269,13 @@ export async function getAssignCustomerSuggestions(
   const playingIds = new Set<string>();
   const playingActivity = new Map<string, Date>();
   const todayActivity = new Map<string, Date>();
+  const now = new Date();
 
   for (const session of activeSessions) {
     for (const assigned of session.assignedCustomers ?? []) {
       const customerId = assigned.customerId.toString();
       playingIds.add(customerId);
-      touchActivity(playingActivity, customerId, end);
+      touchActivity(playingActivity, customerId, now);
     }
   }
 
@@ -482,30 +467,38 @@ export async function getCafePageData(): Promise<CafePageData> {
     };
   }
 
-  const { start, end } = getDayBounds();
   await connectDB();
+
+  const openDay = await getOpenBusinessDayContext();
+  if (!openDay) {
+    return {
+      cafeEntries: [],
+      gameEntries: [],
+      cardIdByCustomerId: {},
+      poolMiniSessions: [],
+    };
+  }
 
   const [cafeEntries, gameEntries, openSessions] = await Promise.all([
     NotebookEntry.find({
       section: CAFE_SECTION,
-      createdAt: { $gte: start, $lte: end },
+      businessDayId: openDay.businessDayId,
     })
       .sort({ createdAt: 1 })
       .lean(),
     NotebookEntry.find({
       section: { $in: [...CAFE_TABLE_IDS] },
-      createdAt: { $gte: start, $lte: end },
+      businessDayId: openDay.businessDayId,
     })
       .sort({ createdAt: 1 })
       .lean(),
     TableSession.find({
       status: { $in: [...ACTIVE_TABLE_SESSION_STATUSES] },
+      businessDayId: openDay.businessDayId,
     }).lean(),
   ]);
 
-  const cafeDtos = await enrichEntriesWithEditLock(
-    cafeEntries.map((entry) => toNotebookEntryDTO(entry))
-  );
+  const cafeDtos = cafeEntries.map((entry) => toNotebookEntryDTO(entry));
   const customerIds = [
     ...new Set(
       cafeDtos
@@ -544,9 +537,7 @@ export async function getCafePageData(): Promise<CafePageData> {
 
   return {
     cafeEntries: cafeDtos,
-    gameEntries: await enrichEntriesWithEditLock(
-      gameEntries.map((entry) => toNotebookEntryDTO(entry))
-    ),
+    gameEntries: gameEntries.map((entry) => toNotebookEntryDTO(entry)),
     cardIdByCustomerId,
     poolMiniSessions,
   };

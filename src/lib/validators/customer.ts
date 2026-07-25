@@ -1,10 +1,15 @@
 import { z } from "zod";
 
+const namePartSchema = z
+  .string()
+  .min(1, "Required")
+  .max(50, "Too long")
+  .transform((val) => val.trim())
+  .refine((val) => val.length >= 1, "Required");
+
 export const createCustomerSchema = z.object({
-  name: z
-    .string()
-    .min(2, "Name must be at least 2 characters")
-    .max(100, "Name is too long"),
+  firstName: namePartSchema,
+  lastName: namePartSchema,
   phone: z
     .string()
     .min(10, "Phone number must be at least 10 digits")
@@ -20,10 +25,8 @@ export const createCustomerSchema = z.object({
 });
 
 export const quickCustomerSchema = z.object({
-  name: z
-    .string()
-    .min(2, "Name must be at least 2 characters")
-    .max(100, "Name is too long"),
+  firstName: namePartSchema,
+  lastName: namePartSchema,
   phone: z
     .string()
     .optional()
@@ -42,12 +45,9 @@ export const quickCustomerSchema = z.object({
 
 export const customerSearchSchema = z.object({
   query: z.string().max(100).optional(),
-  filter: z
-    .enum(["all", "regular", "members", "students", "wallet"])
-    .optional()
-    .default("all"),
+  filter: z.enum(["all", "outstanding"]).optional().default("all"),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(25),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
 });
 
 export const customerActivityFilterSchema = z.object({
@@ -75,7 +75,7 @@ export const updateStudentStatusSchema = z.object({
 });
 
 export const updateCustomerDetailsSchema = createCustomerSchema
-  .pick({ name: true, phone: true })
+  .pick({ firstName: true, lastName: true, phone: true })
   .extend({
     customerId: z.string().min(1, "Customer is required"),
     cardId: z

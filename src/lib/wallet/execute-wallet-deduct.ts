@@ -1,16 +1,23 @@
 import type { ClientSession } from "mongoose";
 import type { VerificationMethod } from "@/lib/constants/verification";
+import type { WalletPaymentContext } from "@/lib/wallet/wallet-payment-context";
 import Customer from "@/models/Customer";
 import Transaction from "@/models/Transaction";
+import mongoose from "mongoose";
 
 export type ExecuteWalletDeductInput = {
   customerId: string;
   amount: number;
   description: string;
-  verificationMethod: VerificationMethod;
+  verificationMethod?: VerificationMethod;
   staffId: string;
   staffUsername: string;
   dbSession: ClientSession;
+  /** Cash/GPay used for the bill remainder after Wallet (timeline). */
+  remainingPaymentMethod?: "CASH" | "GPAY";
+  /** Structured context for Customer Timeline (presentation). */
+  paymentContext?: WalletPaymentContext;
+  businessDayId?: string;
 };
 
 export type ExecuteWalletDeductResult = {
@@ -49,6 +56,9 @@ export async function executeWalletDeduct(
   customer.balance = balanceAfter;
   await customer.save({ session: input.dbSession });
 
+  const businessDayId =
+    input.businessDayId ?? input.paymentContext?.businessDayId;
+
   const [transaction] = await Transaction.create(
     [
       {
@@ -61,6 +71,15 @@ export async function executeWalletDeduct(
         staffUsername: input.staffUsername,
         isReversal: false,
         verificationMethod: input.verificationMethod,
+        ...(input.remainingPaymentMethod
+          ? { remainingPaymentMethod: input.remainingPaymentMethod }
+          : {}),
+        ...(input.paymentContext
+          ? { paymentContext: input.paymentContext }
+          : {}),
+        ...(businessDayId && mongoose.Types.ObjectId.isValid(businessDayId)
+          ? { businessDayId: new mongoose.Types.ObjectId(businessDayId) }
+          : {}),
       },
     ],
     { session: input.dbSession }

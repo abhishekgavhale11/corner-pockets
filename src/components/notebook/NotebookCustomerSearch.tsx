@@ -25,7 +25,8 @@ export function NotebookCustomerSearch({
   const [mode, setMode] = useState<"search" | "create">("search");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CustomerDTO[]>([]);
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
@@ -61,7 +62,8 @@ export function NotebookCustomerSearch({
     setError(null);
     startTransition(async () => {
       const formData = new FormData();
-      formData.set("name", name);
+      formData.set("firstName", firstName);
+      formData.set("lastName", lastName);
       if (newPhone.trim()) {
         formData.set("phone", newPhone.trim());
       }
@@ -69,7 +71,8 @@ export function NotebookCustomerSearch({
       if (result.success) {
         onSelect(result.data);
         setMode("search");
-        setName("");
+        setFirstName("");
+        setLastName("");
         setNewPhone("");
         return;
       }
@@ -220,14 +223,27 @@ export function NotebookCustomerSearch({
         </div>
       ) : (
         <form onSubmit={handleCreate} className="space-y-3">
-          <div>
-            <Label htmlFor="nb-name">Name</Label>
-            <Input
-              id="nb-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="nb-first-name">Name</Label>
+              <Input
+                id="nb-first-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+                placeholder="Name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="nb-last-name">Surname</Label>
+              <Input
+                id="nb-last-name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+                placeholder="Surname"
+              />
+            </div>
           </div>
           <div>
             <Label htmlFor="nb-new-phone">Phone (optional)</Label>

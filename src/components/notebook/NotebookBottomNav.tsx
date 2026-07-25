@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils/cn";
 const NAV_ITEMS = [
   { href: "/notebook/snooker", label: "Snooker", emoji: "🎱" },
   { href: "/notebook/cafe", label: "Cafe", emoji: "☕" },
-  { href: "/notebook/checkout", label: "Checkout", emoji: "📋" },
 ] as const;
 
 export function NotebookBottomNav() {

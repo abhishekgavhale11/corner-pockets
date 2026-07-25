@@ -3,15 +3,15 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
-const filters = [
-  { id: "all", label: "All Customers" },
-  { id: "members", label: "Members" },
-  { id: "students", label: "Students" },
-  { id: "wallet", label: "Wallet Enabled" },
-  { id: "regular", label: "Regular" },
-] as const;
+interface CustomerFiltersProps {
+  allCount: number;
+  outstandingCount: number;
+}
 
-export function CustomerFilters() {
+export function CustomerFilters({
+  allCount,
+  outstandingCount,
+}: CustomerFiltersProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const active = searchParams.get("filter") ?? "all";
@@ -24,26 +24,49 @@ export function CustomerFilters() {
       params.set("filter", filter);
     }
     params.delete("page");
-    router.replace(`/customers?${params.toString()}`);
+    const qs = params.toString();
+    router.replace(qs ? `/customers?${qs}` : "/customers");
   };
 
+  const filters = [
+    { id: "all", label: "All", count: allCount },
+    { id: "outstanding", label: "Outstanding", count: outstandingCount },
+  ] as const;
+
   return (
-    <div className="flex flex-wrap gap-1">
-      {filters.map((filter) => (
-        <button
-          key={filter.id}
-          type="button"
-          onClick={() => setFilter(filter.id)}
-          className={cn(
-            "rounded-md px-3 py-1.5 text-[13px] font-bold",
-            active === filter.id
-              ? "bg-emerald-800 text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-          )}
-        >
-          {filter.label}
-        </button>
-      ))}
+    <div
+      className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5"
+      role="tablist"
+      aria-label="Customer filters"
+    >
+      {filters.map((filter) => {
+        const isActive = active === filter.id;
+        return (
+          <button
+            key={filter.id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            onClick={() => setFilter(filter.id)}
+            className={cn(
+              "rounded-md px-3.5 py-1.5 text-sm font-semibold transition-colors",
+              isActive
+                ? "bg-white text-emerald-800 shadow-sm ring-1 ring-emerald-200"
+                : "text-gray-500 hover:text-gray-800"
+            )}
+          >
+            {filter.label}
+            <span
+              className={cn(
+                "ml-1.5 tabular-nums",
+                isActive ? "text-emerald-700" : "text-gray-400"
+              )}
+            >
+              ({filter.count})
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

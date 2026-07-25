@@ -27,11 +27,11 @@ import {
 } from "@/components/counter/BillingModeToggle";
 import {
   ContributorsSplitFields,
+  contributorRowsToPayload,
   validateContributorRows,
   type ContributorRow,
 } from "@/components/counter/ContributorsSplitFields";
-import { ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-constants";
-import { entryBlocksCustomerReassignment } from "@/lib/visit-bill/entry-edit-lock-utils";
+import { initialUseWalletFromPayment } from "@/components/counter/EntryPaymentFields";
 import { assignCounterEntryCustomer } from "@/actions/notebook-entries";
 
 interface EntryCorrectionDialogProps {
@@ -66,6 +66,16 @@ export function EntryCorrectionDialog({
         customerId: contributor.customerId,
         customerName: contributor.customerName,
         amount: String(contributor.amount),
+        paidAmount: String(contributor.paidAmount ?? 0),
+        paymentMethod:
+          contributor.paymentMethod === "CASH" ||
+          contributor.paymentMethod === "GPAY" ||
+          contributor.paymentMethod === "WALLET"
+            ? contributor.paymentMethod
+            : "",
+        useWallet: initialUseWalletFromPayment({
+          paymentMethod: contributor.paymentMethod,
+        }),
       })) ?? []
     );
     setSelectedCustomerId(entry.customerId ?? "");
@@ -117,7 +127,7 @@ export function EntryCorrectionDialog({
     formData.set("correctionReason", reason.trim());
     formData.set("amount", String(parsedAmount));
 
-    if (billingMode === "single" && selectedCustomerId && !customerReassignmentBlocked) {
+    if (billingMode === "single" && selectedCustomerId) {
       formData.set("customerId", selectedCustomerId);
     }
 
@@ -138,17 +148,12 @@ export function EntryCorrectionDialog({
         return;
       }
 
-      if (billingMode === "split" && !customerReassignmentBlocked) {
+      if (billingMode === "split") {
         const splitFormData = new FormData();
         splitFormData.set("entryId", entry.id);
         splitFormData.set(
           "contributors",
-          JSON.stringify(
-            contributorRows.map((row) => ({
-              customerId: row.customerId,
-              amount: Number.parseInt(row.amount, 10),
-            }))
-          )
+          JSON.stringify(contributorRowsToPayload(contributorRows))
         );
         const splitResult = await setEntryContributors(splitFormData);
         if (!splitResult.success) {
@@ -183,7 +188,6 @@ export function EntryCorrectionDialog({
   };
 
   const canChangeCustomer = Boolean(entry?.assignedAt);
-  const customerReassignmentBlocked = entryBlocksCustomerReassignment(entry);
   const showBillingToggle =
     entry.type === "RUMMY" || entry.type === "SNOOKER";
 
@@ -201,12 +205,6 @@ export function EntryCorrectionDialog({
         {billingMode === "single" && canChangeCustomer && (
           <div>
             <Label htmlFor="correction-customer">Customer</Label>
-            {customerReassignmentBlocked ? (
-              <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                {ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE}
-              </p>
-            ) : (
-              <>
             <Input
               id="correction-customer"
               value={customerQuery}
@@ -242,18 +240,10 @@ export function EntryCorrectionDialog({
                 ))}
               </ul>
             )}
-              </>
-            )}
           </div>
         )}
 
-        {billingMode === "split" && customerReassignmentBlocked && (
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            {ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE}
-          </p>
-        )}
-
-        {billingMode === "split" && !customerReassignmentBlocked && (
+        {billingMode === "split" && (
           <ContributorsSplitFields
             totalAmount={Number.parseInt(amount, 10) || entry.amount}
             rows={contributorRows}

@@ -18,6 +18,23 @@ export interface ITransaction extends Document {
   reversalReason?: string;
   reversalTransactionId?: mongoose.Types.ObjectId;
   verificationMethod?: "CARD" | "PHONE";
+  /** How the customer paid for the recharge (Cash / GPay). */
+  paymentMethod?: "CASH" | "GPAY";
+  /** When Wallet did not cover the full bill — Cash or GPay for the remainder. */
+  remainingPaymentMethod?: "CASH" | "GPAY";
+  /** Timeline context: purpose, bill breakdown, Business Day. */
+  paymentContext?: {
+    purpose: "FRAME_PAYMENT" | "CAFE_PAYMENT" | "OUTSTANDING_COLLECTION" | "OTHER";
+    billAmount: number;
+    walletUsed: number;
+    remainderAmount: number;
+    remainderMethod?: "CASH" | "GPAY";
+    totalPaid: number;
+    lines?: { label: string; quantity?: number }[];
+    businessDayId?: string;
+  };
+  /** Open Business Day when this wallet event occurred. */
+  businessDayId?: mongoose.Types.ObjectId;
   createdAt: Date;
 }
 
@@ -53,6 +70,42 @@ const transactionSchema = new Schema<ITransaction>(
     verificationMethod: {
       type: String,
       enum: ["CARD", "PHONE"],
+    },
+    paymentMethod: {
+      type: String,
+      enum: ["CASH", "GPAY"],
+    },
+    remainingPaymentMethod: {
+      type: String,
+      enum: ["CASH", "GPAY"],
+    },
+    paymentContext: {
+      purpose: {
+        type: String,
+        enum: [
+          "FRAME_PAYMENT",
+          "CAFE_PAYMENT",
+          "OUTSTANDING_COLLECTION",
+          "OTHER",
+        ],
+      },
+      billAmount: { type: Number, min: 0 },
+      walletUsed: { type: Number, min: 0 },
+      remainderAmount: { type: Number, min: 0 },
+      remainderMethod: { type: String, enum: ["CASH", "GPAY"] },
+      totalPaid: { type: Number, min: 0 },
+      lines: [
+        {
+          label: { type: String, trim: true },
+          quantity: { type: Number, min: 0 },
+        },
+      ],
+      businessDayId: { type: String, trim: true },
+    },
+    businessDayId: {
+      type: Schema.Types.ObjectId,
+      ref: "BusinessDay",
+      index: true,
     },
   },
   { timestamps: { createdAt: true, updatedAt: false } }

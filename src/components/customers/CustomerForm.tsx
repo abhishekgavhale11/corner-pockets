@@ -26,9 +26,28 @@ export function CustomerForm() {
     <Card>
       <CardTitle className="mb-6">Register Customer</CardTitle>
       <form action={formAction} className="space-y-5">
-        <div>
-          <Label htmlFor="name">Full Name *</Label>
-          <Input id="name" name="name" required autoComplete="name" />
+        <div className="grid grid-cols-2 gap-5">
+          <div>
+            <Label htmlFor="firstName">Name *</Label>
+            <Input
+              id="firstName"
+              name="firstName"
+              required
+              autoComplete="given-name"
+              autoFocus
+              placeholder="Name"
+            />
+          </div>
+          <div>
+            <Label htmlFor="lastName">Surname *</Label>
+            <Input
+              id="lastName"
+              name="lastName"
+              required
+              autoComplete="family-name"
+              placeholder="Surname"
+            />
+          </div>
         </div>
 
         <div>

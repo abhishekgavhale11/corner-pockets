@@ -1,14 +1,6 @@
-import { getCustomersWithOutstanding } from "@/actions/customer-ledger";
-import { OutstandingPage } from "@/components/customers/OutstandingPage";
+import { redirect } from "next/navigation";
 
-interface BalancesPageProps {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
-
-export default async function BalancesPage({ searchParams }: BalancesPageProps) {
-  const params = await searchParams;
-  const rows = await getCustomersWithOutstanding(params);
-  const initialQuery = typeof params.q === "string" ? params.q : "";
-
-  return <OutstandingPage rows={rows} initialQuery={initialQuery} />;
+/** Outstanding is a Customers page filter — keep old bookmarks working. */
+export default function BalancesPage() {
+  redirect("/customers?filter=outstanding");
 }

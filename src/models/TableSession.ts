@@ -34,6 +34,8 @@ export interface ITableSession extends Document {
   hourlyRate: number;
   gameChargeAmount: number;
   gameEntryId?: mongoose.Types.ObjectId;
+  businessDayId?: mongoose.Types.ObjectId;
+  businessDate?: Date;
   assignedCustomers: ITableSessionAssignedCustomer[];
   auditLog: ITableSessionAuditEntry[];
   createdBy: string;
@@ -114,6 +116,15 @@ const tableSessionSchema = new Schema<ITableSession>(
     hourlyRate: { type: Number, default: 0, min: 0 },
     gameChargeAmount: { type: Number, default: 0, min: 0 },
     gameEntryId: { type: Schema.Types.ObjectId, ref: "NotebookEntry" },
+    businessDayId: {
+      type: Schema.Types.ObjectId,
+      ref: "BusinessDay",
+      index: true,
+    },
+    businessDate: {
+      type: Date,
+      index: true,
+    },
     assignedCustomers: {
       type: [tableSessionAssignedCustomerSchema],
       default: [],
@@ -133,6 +144,26 @@ tableSessionSchema.index({ tableId: 1, startedAt: -1 });
 tableSessionSchema.index({ tableId: 1, status: 1 });
 tableSessionSchema.index({ status: 1, startedAt: -1 });
 tableSessionSchema.index({ sessionNumber: 1 }, { unique: true });
+tableSessionSchema.index({ businessDayId: 1, status: 1 });
+
+tableSessionSchema.pre("validate", async function () {
+  if (!this.isNew) {
+    return;
+  }
+  if (this.businessDayId && this.businessDate) {
+    return;
+  }
+  const { requireOpenBusinessDayContext } = await import(
+    "@/lib/business-day/require-open-business-day"
+  );
+  const ctx = await requireOpenBusinessDayContext();
+  if (!this.businessDayId) {
+    this.businessDayId = ctx.businessDayId;
+  }
+  if (!this.businessDate) {
+    this.businessDate = ctx.businessDate;
+  }
+});
 
 const TableSession: Model<ITableSession> =
   mongoose.models.TableSession ??

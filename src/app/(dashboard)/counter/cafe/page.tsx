@@ -1,19 +1,16 @@
-import { getCafePageData } from "@/actions/notebook-ledger";
-import { CafeCounter } from "@/components/counter/CafeCounter";
+import { getOpenBusinessDayCafeOrders } from "@/actions/cafe-orders";
+import { CafeOrdersWorkspace } from "@/components/counter/CafeOrdersWorkspace";
+import { CounterWorkspaceTabs } from "@/components/counter/CounterWorkspaceTabs";
+
+export const dynamic = "force-dynamic";
 
 export default async function CafeCounterPage() {
-  const { cafeEntries, gameEntries, cardIdByCustomerId, poolMiniSessions } =
-    await getCafePageData();
+  const orders = await getOpenBusinessDayCafeOrders();
 
   return (
     <div>
-      <h1 className="mb-2 text-xl font-bold text-gray-900">Cafe</h1>
-      <CafeCounter
-        cafeEntries={cafeEntries}
-        gameEntries={gameEntries}
-        cardIdByCustomerId={cardIdByCustomerId}
-        poolMiniSessions={poolMiniSessions}
-      />
+      <CounterWorkspaceTabs />
+      <CafeOrdersWorkspace orders={orders} />
     </div>
   );
 }

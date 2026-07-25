@@ -4,14 +4,14 @@ import {
   formatCafeLineExpanded,
   formatCafeTabSummary,
   type CafeOpenTab,
+  type CafeTabLine,
 } from "@/lib/utils/cafe-tabs";
 import { formatCurrency } from "@/lib/utils/format";
+import { framePaidAmount } from "@/lib/utils/frame-payment";
 import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/Button";
 import { CustomerPreviewNameButton } from "@/components/counter/CustomerPreviewContext";
-import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
-import { getEntryLockTooltip } from "@/lib/visit-bill/entry-edit-lock-constants";
-import { isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
+import { HistoryPaymentStatusCell } from "@/components/business-day/HistoryPaymentStatusCell";
 
 interface CafeCustomerTabsProps {
   tabs: CafeOpenTab[];
@@ -27,6 +27,21 @@ function tabTitle(tab: CafeOpenTab): string {
 
 function tabAmount(tab: CafeOpenTab): number {
   return tab.kind === "table" ? tab.cafeTotal : tab.total;
+}
+
+function linePaymentTotals(line: CafeTabLine): {
+  paidAmount: number;
+  paymentMethod?: "CASH" | "GPAY" | "WALLET";
+} {
+  let paidAmount = 0;
+  let paymentMethod: "CASH" | "GPAY" | "WALLET" | undefined;
+  for (const entry of line.entries) {
+    paidAmount += framePaidAmount(entry.paidAmount);
+    if (!paymentMethod && (entry.paymentMethod === "CASH" || entry.paymentMethod === "GPAY")) {
+      paymentMethod = entry.paymentMethod;
+    }
+  }
+  return { paidAmount, paymentMethod };
 }
 
 export function CafeCustomerTabs({
@@ -48,12 +63,6 @@ export function CafeCustomerTabs({
     <ul className="grid gap-0.5 md:grid-cols-2">
       {tabs.map((tab) => {
         const expanded = expandedId === tab.tabKey;
-        const visitFinished =
-          tab.kind === "customer" &&
-          tab.entries.some((entry) => entry.visitStatus === "FINISHED");
-        const hasEditableEntries = tab.entries.some(
-          (entry) => !isNotebookEntryEditLocked(entry)
-        );
 
         return (
           <li
@@ -61,7 +70,6 @@ export function CafeCustomerTabs({
             className={cn(
               "border bg-white",
               expanded ? "border-emerald-500" : "border-gray-200",
-              visitFinished && !expanded && "border-slate-300 bg-slate-50/60",
               tab.kind === "table" && !expanded && "border-l-2 border-l-amber-400"
             )}
           >
@@ -93,16 +101,9 @@ export function CafeCustomerTabs({
                       className="w-full truncate text-[15px]"
                     />
                   </span>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {visitFinished ? (
-                      <span className="rounded bg-slate-200 px-1 py-px text-[9px] font-bold tracking-wide text-slate-700">
-                        🔒 Finished
-                      </span>
-                    ) : null}
-                    <span className="text-[14px] font-bold tabular-nums text-gray-900">
-                      {formatCurrency(tabAmount(tab))}
-                    </span>
-                  </div>
+                  <span className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">
+                    {formatCurrency(tabAmount(tab))}
+                  </span>
                 </div>
                 <p className="truncate text-[11px] text-gray-600">
                   {tab.lines.length > 0
@@ -170,40 +171,28 @@ export function CafeCustomerTabs({
                 )}
 
                 {tab.lines.length > 0 && (
-                  <ul className="space-y-0">
+                  <ul className="space-y-0.5">
                     {tab.lines.map((line) => {
-                      const lineLocked = line.entries.every((entry) =>
-                        isNotebookEntryEditLocked(entry)
-                      );
-                      const lineTooltip = line.entries[0]
-                        ? getEntryLockTooltip({
-                            visitStatus: line.entries[0].visitStatus,
-                          })
-                        : undefined;
-
+                      const payment = linePaymentTotals(line);
                       return (
-                      <li
-                        key={line.lineKey}
-                        className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[12px] leading-snug"
-                      >
-                        <span
-                          className={cn(
-                            "flex min-w-0 items-center gap-1 truncate",
-                            lineLocked ? "text-gray-500" : "text-gray-800"
-                          )}
-                          title={lineLocked ? lineTooltip : undefined}
+                        <li
+                          key={line.lineKey}
+                          className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 text-[12px] leading-snug"
                         >
-                          {lineLocked ? (
-                            <EntryLockIndicator className="shrink-0" />
-                          ) : null}
-                          <span className="truncate">
+                          <span className="min-w-0 truncate text-gray-800">
                             {formatCafeLineExpanded(line)}
                           </span>
-                        </span>
-                        <span className="shrink-0 font-semibold tabular-nums text-gray-900">
-                          {formatCurrency(line.amount)}
-                        </span>
-                      </li>
+                          <span className="shrink-0 font-semibold tabular-nums text-gray-900">
+                            {formatCurrency(line.amount)}
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <HistoryPaymentStatusCell
+                              amount={line.amount}
+                              paidAmount={payment.paidAmount}
+                              paymentMethod={payment.paymentMethod}
+                            />
+                          </span>
+                        </li>
                       );
                     })}
                   </ul>
@@ -214,7 +203,6 @@ export function CafeCustomerTabs({
                     type="button"
                     size="sm"
                     className="h-7 flex-1 px-2 text-[11px] font-semibold"
-                    disabled={visitFinished}
                     onClick={(e) => {
                       e.stopPropagation();
                       onAddItem(tab);
@@ -227,18 +215,7 @@ export function CafeCustomerTabs({
                     size="sm"
                     variant="secondary"
                     className="h-7 flex-1 px-2 text-[11px] font-semibold"
-                    disabled={
-                      visitFinished ||
-                      tab.entries.length === 0 ||
-                      !hasEditableEntries
-                    }
-                    title={
-                      visitFinished
-                        ? getEntryLockTooltip({ visitStatus: "FINISHED" })
-                        : tab.entries.length > 0 && !hasEditableEntries
-                          ? getEntryLockTooltip({ visitStatus: tab.entries[0]?.visitStatus })
-                          : undefined
-                    }
+                    disabled={tab.entries.length === 0}
                     onClick={(e) => {
                       e.stopPropagation();
                       onEdit(tab);

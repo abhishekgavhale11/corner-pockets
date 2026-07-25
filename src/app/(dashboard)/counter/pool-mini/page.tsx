@@ -1,23 +1,23 @@
-import { getPoolMiniSessionBoardData } from "@/actions/table-sessions";
-import { MiniSessionBoard } from "@/components/counter/MiniSessionBoard";
+import { getSectionLedger } from "@/actions/notebook-ledger";
+import { CounterGrid } from "@/components/counter/CounterGrid";
+import { CounterWorkspaceTabs } from "@/components/counter/CounterWorkspaceTabs";
+import { POOL_MINI_SECTIONS } from "@/lib/constants/counter-sections";
+
+export const dynamic = "force-dynamic";
 
 export default async function PoolMiniCounterPage() {
-  const board = await getPoolMiniSessionBoardData();
-  const mini = board.tables.find((table) => table.tableId === "MINI_SNOOKER");
-
-  if (!mini) {
-    return <p className="text-sm text-gray-500">Mini table data unavailable.</p>;
-  }
+  const sections = [...POOL_MINI_SECTIONS];
+  const ledgersList = await Promise.all(
+    sections.map((section) => getSectionLedger(section))
+  );
+  const ledgers = Object.fromEntries(
+    sections.map((section, i) => [section, ledgersList[i]])
+  );
 
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <MiniSessionBoard
-        session={mini.session}
-        pendingCheckouts={mini.pendingCheckouts}
-        summary={mini.summary}
-        history={mini.history}
-        canStartNewSession={mini.canStartNewSession}
-      />
+    <div>
+      <CounterWorkspaceTabs />
+      <CounterGrid sections={sections} ledgers={ledgers} poolMiniQuick />
     </div>
   );
 }

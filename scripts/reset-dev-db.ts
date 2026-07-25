@@ -11,9 +11,13 @@ import Transaction from "../src/models/Transaction";
 import Counter from "../src/models/Counter";
 import Staff from "../src/models/Staff";
 import NotebookEntry from "../src/models/NotebookEntry";
-import NotebookSettlement from "../src/models/NotebookSettlement";
-import NotebookSettlementReversal from "../src/models/NotebookSettlementReversal";
 import TableSession from "../src/models/TableSession";
+import BusinessDay from "../src/models/BusinessDay";
+import Outstanding from "../src/models/Outstanding";
+import OutstandingCollection from "../src/models/OutstandingCollection";
+import CustomerBalancePayment from "../src/models/CustomerBalancePayment";
+import CafeOrder from "../src/models/CafeOrder";
+import CafePurchase from "../src/models/CafePurchase";
 
 async function reset() {
   assertDevDatabaseAllowed("Database reset");
@@ -33,18 +37,26 @@ async function reset() {
     counterCount,
     staffCount,
     entryCount,
-    settlementCount,
-    reversalCount,
     sessionCount,
+    businessDayCount,
+    outstandingCount,
+    outstandingCollectionCount,
+    balancePaymentCount,
+    cafeOrderCount,
+    cafePurchaseCount,
   ] = await Promise.all([
     Customer.countDocuments(),
     Transaction.countDocuments(),
     Counter.countDocuments(),
     Staff.countDocuments(),
     NotebookEntry.countDocuments(),
-    NotebookSettlement.countDocuments(),
-    NotebookSettlementReversal.countDocuments(),
     TableSession.countDocuments(),
+    BusinessDay.countDocuments(),
+    Outstanding.countDocuments(),
+    OutstandingCollection.countDocuments(),
+    CustomerBalancePayment.countDocuments(),
+    CafeOrder.countDocuments(),
+    CafePurchase.countDocuments(),
   ]);
 
   await Promise.all([
@@ -52,9 +64,13 @@ async function reset() {
     Transaction.deleteMany({}),
     Counter.deleteMany({}),
     NotebookEntry.deleteMany({}),
-    NotebookSettlement.deleteMany({}),
-    NotebookSettlementReversal.deleteMany({}),
     TableSession.deleteMany({}),
+    BusinessDay.deleteMany({}),
+    Outstanding.deleteMany({}),
+    OutstandingCollection.deleteMany({}),
+    CustomerBalancePayment.deleteMany({}),
+    CafeOrder.deleteMany({}),
+    CafePurchase.deleteMany({}),
   ]);
 
   let removedStaff = 0;
@@ -64,17 +80,21 @@ async function reset() {
   }
 
   console.log("\nRemoved:");
-  console.log(`  Customers:              ${customerCount}`);
-  console.log(`  Transactions:           ${transactionCount}`);
-  console.log(`  Counters:               ${counterCount}`);
-  console.log(`  Notebook entries:       ${entryCount}`);
-  console.log(`  Notebook settlements:   ${settlementCount}`);
-  console.log(`  Settlement reversals:   ${reversalCount}`);
-  console.log(`  Table sessions:         ${sessionCount}`);
+  console.log(`  Customers:                 ${customerCount}`);
+  console.log(`  Transactions:              ${transactionCount}`);
+  console.log(`  Counters:                  ${counterCount}`);
+  console.log(`  Notebook entries:          ${entryCount}`);
+  console.log(`  Table sessions:            ${sessionCount}`);
+  console.log(`  Business Days:             ${businessDayCount}`);
+  console.log(`  Outstanding records:       ${outstandingCount}`);
+  console.log(`  Outstanding collections:   ${outstandingCollectionCount}`);
+  console.log(`  Balance payments:          ${balancePaymentCount}`);
+  console.log(`  Cafe orders:               ${cafeOrderCount}`);
+  console.log(`  Cafe purchases:            ${cafePurchaseCount}`);
   if (includeStaff) {
-    console.log(`  Staff:        ${removedStaff}`);
+    console.log(`  Staff:                     ${removedStaff}`);
   } else {
-    console.log(`  Staff:        kept (${staffCount} account(s))`);
+    console.log(`  Staff:                     kept (${staffCount} account(s))`);
   }
 
   console.log("\nDatabase reset complete.");

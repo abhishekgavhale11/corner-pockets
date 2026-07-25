@@ -1,4 +1,5 @@
 import type { CustomerDTO, TransactionDTO } from "@/types";
+import { resolveCustomerNameParts } from "@/lib/utils/customer-name";
 
 type LeanCustomerDetailFieldChange = {
   field: "name" | "phone" | "cardId";
@@ -16,6 +17,8 @@ type LeanCustomer = {
   _id: { toString(): string };
   cardId: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   phone: string;
   notes?: string;
   isStudent: boolean;
@@ -46,6 +49,7 @@ type LeanTransaction = {
   reversalReason?: string;
   reversalTransactionId?: { toString(): string };
   verificationMethod?: "CARD" | "PHONE";
+  paymentMethod?: "CASH" | "GPAY";
   createdAt: Date;
 };
 
@@ -53,11 +57,14 @@ export function toCustomerDTO(customer: LeanCustomer): CustomerDTO {
   const detailChanges = [...(customer.detailChanges ?? [])].sort(
     (a, b) => b.changedAt.getTime() - a.changedAt.getTime()
   );
+  const names = resolveCustomerNameParts(customer);
 
   return {
     id: customer._id.toString(),
     cardId: customer.cardId ?? "",
-    name: customer.name,
+    name: names.name,
+    firstName: names.firstName,
+    lastName: names.lastName,
     phone: customer.phone,
     notes: customer.notes,
     isStudent: customer.isStudent,
@@ -98,6 +105,7 @@ export function toTransactionDTO(transaction: LeanTransaction): TransactionDTO {
     reversalReason: transaction.reversalReason,
     reversalTransactionId: transaction.reversalTransactionId?.toString(),
     verificationMethod: transaction.verificationMethod,
+    paymentMethod: transaction.paymentMethod,
     createdAt: transaction.createdAt.toISOString(),
   };
 }

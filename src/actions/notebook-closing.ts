@@ -6,7 +6,6 @@ import { NOTEBOOK_SECTIONS } from "@/lib/constants/notebook-sections";
 import { dailyClosingSchema } from "@/lib/validators/notebook";
 import type { DailyClosingDTO } from "@/types";
 import NotebookEntry from "@/models/NotebookEntry";
-import NotebookSettlement from "@/models/NotebookSettlement";
 
 function getDayBounds(dateInput?: string) {
   const date = dateInput ? new Date(dateInput) : new Date();
@@ -36,24 +35,7 @@ export async function getDailyClosing(
 
   await connectDB();
 
-  const [paymentRows, pendingRow, sectionRows] = await Promise.all([
-    NotebookSettlement.aggregate<{
-      _id: string;
-      total: number;
-    }>([
-      {
-        $match: {
-          status: "COMPLETED",
-          createdAt: { $gte: start, $lte: end },
-        },
-      },
-      {
-        $group: {
-          _id: "$paymentMethod",
-          total: { $sum: "$totalAmount" },
-        },
-      },
-    ]),
+  const [pendingRow, sectionRows] = await Promise.all([
     NotebookEntry.aggregate<{ total: number }>([
       { $match: { status: "PENDING" } },
       { $group: { _id: null, total: { $sum: "$amount" } } },
@@ -77,13 +59,11 @@ export async function getDailyClosing(
     ]),
   ]);
 
-  const paymentMap = Object.fromEntries(
-    paymentRows.map((row) => [row._id, row.total])
-  );
-
-  const cashCollection = paymentMap.CASH ?? 0;
-  const gpayCollection = paymentMap.GPAY ?? 0;
-  const walletCollection = paymentMap.WALLET ?? 0;
+  // Settlement aggregates removed with Financial Engine V1 — payment method
+  // totals are stubbed until OS V2 closing is wired.
+  const cashCollection = 0;
+  const gpayCollection = 0;
+  const walletCollection = 0;
   const pendingAmount = pendingRow[0]?.total ?? 0;
 
   const sectionSummary = NOTEBOOK_SECTIONS.map((section) => ({

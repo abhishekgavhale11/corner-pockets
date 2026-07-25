@@ -3,10 +3,11 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  assignCounterEntryCustomer,
   setEntryContributors,
   updateSnookerFrameEntry,
-  assignCounterEntryCustomer,
 } from "@/actions/notebook-entries";
+import { getCustomerWalletInfo } from "@/actions/customers";
 import { searchNotebookCustomers } from "@/actions/notebook-ledger";
 import type { SnookerFrameType } from "@/lib/constants/counter-sections";
 import type { CustomerDTO, NotebookEntryDTO } from "@/types";
@@ -25,30 +26,33 @@ import {
 } from "@/components/counter/SnookerFrameFields";
 import {
   ContributorsSplitFields,
+  contributorRowsToPayload,
   validateContributorRows,
   type ContributorRow,
 } from "@/components/counter/ContributorsSplitFields";
-import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
-import { ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE, ENTRY_LOCKED_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-constants";
-import {
-  entryBlocksCustomerReassignment,
-  FRAME_PARTIAL_LOCK_REASSIGN_HINT,
-  isContributorAssignmentLocked,
-  isFrameStructureLocked,
-  isNotebookEntryEditLocked,
-  splitEntryHasEditableContributor,
-} from "@/lib/visit-bill/entry-edit-lock-utils";
-import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
 import {
   BillingModeToggle,
   type EntryBillingMode,
 } from "@/components/counter/BillingModeToggle";
+import {
+  EntryPaymentFields,
+  appendEntryPaymentFormData,
+  initialUseWalletFromPayment,
+  resolveEntryPaymentSubmit,
+  type EntryPaymentMode,
+} from "@/components/counter/EntryPaymentFields";
+import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 
 interface SnookerFrameEditDialogProps {
   entry: NotebookEntryDTO | null;
   onClose: () => void;
 }
 
+/**
+ * Counter Edit Frame dialog.
+ * Frame ownership: single customer or split.
+ * Payment: per frame (single) or per contributor (split). Due is always calculated.
+ */
 export function SnookerFrameEditDialog({
   entry,
   onClose,
@@ -56,6 +60,11 @@ export function SnookerFrameEditDialog({
   const router = useRouter();
   const [frameType, setFrameType] = useState<SnookerFrameType | "">("");
   const [amount, setAmount] = useState("");
+  const [paidAmount, setPaidAmount] = useState("0");
+  const [paymentMode, setPaymentMode] = useState<EntryPaymentMode | "">("");
+  const [useWallet, setUseWallet] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number | undefined>();
+  const [walletEnabled, setWalletEnabled] = useState(false);
   const [playerCount, setPlayerCount] = useState("4");
   const [entryTime, setEntryTime] = useState("");
   const [customerQuery, setCustomerQuery] = useState("");
@@ -71,6 +80,9 @@ export function SnookerFrameEditDialog({
   const hadContributors = entry ? entryHasContributors(entry) : false;
   const defaultAmount = useSnookerFrameAmountDefaults(frameType, playerCount);
 
+  const parsedAmount = Number.parseInt(amount, 10) || 0;
+  const parsedPaid = Number.parseInt(paidAmount, 10) || 0;
+
   useEffect(() => {
     if (!open || !entry) return;
 
@@ -79,6 +91,20 @@ export function SnookerFrameEditDialog({
     setBillingMode(hasSplit ? "split" : "single");
     setFrameType(initialType);
     setAmount(String(entry.amount));
+    setPaidAmount(String(entry.paidAmount ?? 0));
+    setPaymentMode(
+      entry.paymentMethod === "CASH" ||
+        entry.paymentMethod === "GPAY" ||
+        entry.paymentMethod === "WALLET"
+        ? entry.paymentMethod
+        : ""
+    );
+    setUseWallet(
+      initialUseWalletFromPayment({
+        paymentMethod: entry.paymentMethod,
+        walletAmount: entry.walletAmount,
+      })
+    );
     setPlayerCount(entry.playerCount ? String(entry.playerCount) : "4");
     setEntryTime(toTimeInputValue(entry.createdAt));
     setSelectedCustomerId(entry.customerId ?? "");
@@ -88,12 +114,70 @@ export function SnookerFrameEditDialog({
         customerId: contributor.customerId,
         customerName: contributor.customerName,
         amount: String(contributor.amount),
+        paidAmount: String(contributor.paidAmount ?? 0),
+        paymentMethod:
+          contributor.paymentMethod === "CASH" ||
+          contributor.paymentMethod === "GPAY" ||
+          contributor.paymentMethod === "WALLET"
+            ? contributor.paymentMethod
+            : "",
+        useWallet: initialUseWalletFromPayment({
+          paymentMethod: contributor.paymentMethod,
+          walletAmount: contributor.walletAmount,
+        }),
       })) ?? []
     );
     setCustomerResults([]);
     setError(null);
     setSkipAmountReset(true);
+    setWalletBalance(undefined);
+    setWalletEnabled(false);
+
+    if (entry.contributors && entry.contributors.length > 0) {
+      void Promise.all(
+        entry.contributors.map(async (contributor) => {
+          const info = await getCustomerWalletInfo(contributor.customerId);
+          return {
+            customerId: contributor.customerId,
+            balance: info?.balance,
+            walletEnabled: info?.walletEnabled,
+          };
+        })
+      ).then((infos) => {
+        setContributorRows((rows) =>
+          rows.map((row) => {
+            const match = infos.find((info) => info.customerId === row.customerId);
+            if (!match) return row;
+            return {
+              ...row,
+              walletBalance: match.balance,
+              walletEnabled: match.walletEnabled,
+            };
+          })
+        );
+      });
+    }
   }, [open, entry]);
+
+  useEffect(() => {
+    if (!open || !selectedCustomerId || billingMode !== "single") {
+      if (!selectedCustomerId) {
+        setWalletBalance(undefined);
+        setWalletEnabled(false);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    void getCustomerWalletInfo(selectedCustomerId).then((info) => {
+      if (cancelled || !info) return;
+      setWalletBalance(info.balance);
+      setWalletEnabled(info.walletEnabled);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedCustomerId, billingMode]);
 
   useEffect(() => {
     if (!open || skipAmountReset || !frameType) return;
@@ -123,9 +207,8 @@ export function SnookerFrameEditDialog({
       return;
     }
 
-    const parsedAmount = Number.parseInt(amount, 10);
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      setError("Enter a valid amount");
+      setError("Enter a valid frame amount");
       return;
     }
 
@@ -134,7 +217,11 @@ export function SnookerFrameEditDialog({
       return;
     }
 
-    if (billingMode === "split" && contributorRows.length > 0) {
+    if (billingMode === "split") {
+      if (contributorRows.length < 2) {
+        setError("Split requires at least two customers");
+        return;
+      }
       const contributorError = validateContributorRows(
         contributorRows,
         parsedAmount
@@ -143,33 +230,61 @@ export function SnookerFrameEditDialog({
         setError(contributorError);
         return;
       }
+    } else {
+      if (!Number.isFinite(parsedPaid) || parsedPaid < 0) {
+        setError("Enter a valid received amount");
+        return;
+      }
+      if (parsedPaid > parsedAmount) {
+        setError("Received amount cannot exceed frame amount");
+        return;
+      }
+      const paymentCheck = resolveEntryPaymentSubmit({
+        paidAmount: parsedPaid,
+        useWallet,
+        walletBalance: walletBalance ?? 0,
+        paymentMode,
+      });
+      if (!paymentCheck.valid) {
+        setError(paymentCheck.error ?? "Select payment mode");
+        return;
+      }
     }
 
     setError(null);
     startTransition(async () => {
-      if (!structureLocked) {
-        const formData = new FormData();
-        formData.set("entryId", entry.id);
-        formData.set("frameType", frameType);
-        formData.set("amount", String(parsedAmount));
-        formData.set("entryTime", entryTime);
-        if (frameType === "RUMMY") {
-          formData.set("playerCount", playerCount);
-        }
-        if (
-          billingMode === "single" &&
-          selectedCustomerId &&
-          !hadContributors &&
-          !customerReassignmentBlocked
-        ) {
-          formData.set("customerId", selectedCustomerId);
-        }
+      const formData = new FormData();
+      formData.set("entryId", entry.id);
+      formData.set("frameType", frameType);
+      formData.set("amount", String(parsedAmount));
+      formData.set("entryTime", entryTime);
+      if (frameType === "RUMMY") {
+        formData.set("playerCount", playerCount);
+      }
 
-        const frameResult = await updateSnookerFrameEntry(formData);
-        if (!frameResult.success) {
-          setError(frameResult.error);
+      if (billingMode === "single") {
+        const paymentFields = appendEntryPaymentFormData(formData, {
+          paidAmount: parsedPaid,
+          useWallet,
+          walletBalance: walletBalance ?? 0,
+          paymentMode,
+        });
+        if (!paymentFields.ok) {
+          setError(paymentFields.error);
           return;
         }
+        if (selectedCustomerId && !hadContributors) {
+          formData.set("customerId", selectedCustomerId);
+        }
+      } else {
+        // Payment lives on contributors — setEntryContributors owns received totals.
+        formData.set("splitBilling", "true");
+      }
+
+      const frameResult = await updateSnookerFrameEntry(formData);
+      if (!frameResult.success) {
+        setError(frameResult.error);
+        return;
       }
 
       if (billingMode === "split") {
@@ -177,19 +292,14 @@ export function SnookerFrameEditDialog({
         splitFormData.set("entryId", entry.id);
         splitFormData.set(
           "contributors",
-          JSON.stringify(
-            contributorRows.map((row) => ({
-              customerId: row.customerId,
-              amount: Number.parseInt(row.amount, 10),
-            }))
-          )
+          JSON.stringify(contributorRowsToPayload(contributorRows))
         );
         const splitResult = await setEntryContributors(splitFormData);
         if (!splitResult.success) {
           setError(splitResult.error);
           return;
         }
-      } else if (hadContributors && !structureLocked) {
+      } else if (hadContributors) {
         const clearFormData = new FormData();
         clearFormData.set("entryId", entry.id);
         clearFormData.set("contributors", "[]");
@@ -208,40 +318,45 @@ export function SnookerFrameEditDialog({
             return;
           }
         }
+        // Re-apply single paid after clearing split.
+        const paidForm = new FormData();
+        paidForm.set("entryId", entry.id);
+        paidForm.set("frameType", frameType);
+        paidForm.set("amount", String(parsedAmount));
+        const paidFields = appendEntryPaymentFormData(paidForm, {
+          paidAmount: parsedPaid,
+          useWallet,
+          walletBalance: walletBalance ?? 0,
+          paymentMode,
+        });
+        if (!paidFields.ok) {
+          setError(paidFields.error);
+          return;
+        }
+        paidForm.set("entryTime", entryTime);
+        if (frameType === "RUMMY") {
+          paidForm.set("playerCount", playerCount);
+        }
+        if (selectedCustomerId) {
+          paidForm.set("customerId", selectedCustomerId);
+        }
+        const paidResult = await updateSnookerFrameEntry(paidForm);
+        if (!paidResult.success) {
+          setError(paidResult.error);
+          return;
+        }
       }
 
-      invalidateCustomerGlanceCache();
+      invalidateCustomerGlanceCache(selectedCustomerId || entry.customerId);
+      for (const row of contributorRows) {
+        invalidateCustomerGlanceCache(row.customerId);
+      }
       router.refresh();
       onClose();
     });
   };
 
   if (!entry) return null;
-
-  const customerReassignmentBlocked = entryBlocksCustomerReassignment(entry);
-  const structureLocked = isFrameStructureLocked(entry);
-  const hasEditableSplitContributor = splitEntryHasEditableContributor(entry);
-
-  if (isNotebookEntryEditLocked(entry) && !hasEditableSplitContributor) {
-    const lockMessage = entryBlocksCustomerReassignment(entry)
-      ? ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE
-      : ENTRY_LOCKED_MESSAGE;
-    return (
-      <Dialog open={open} onClose={onClose} title="Frame locked">
-        <div className="space-y-3">
-          <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-            <EntryLockIndicator className="mt-0.5 shrink-0" />
-            <p className="text-sm text-gray-700">{lockMessage}</p>
-          </div>
-          <div className="flex justify-end">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Close
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    );
-  }
 
   return (
     <Dialog open={open} onClose={onClose} title="Edit Frame">
@@ -256,16 +371,10 @@ export function SnookerFrameEditDialog({
               setEntryTime(e.target.value);
               setError(null);
             }}
-            disabled={isPending || structureLocked}
+            disabled={isPending}
             className={`mt-1 ${snookerFrameControlClass}`}
           />
         </div>
-
-        {structureLocked && hasEditableSplitContributor ? (
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            {FRAME_PARTIAL_LOCK_REASSIGN_HINT}
-          </p>
-        ) : null}
 
         <SnookerFrameFields
           variant="dialog"
@@ -279,117 +388,117 @@ export function SnookerFrameEditDialog({
           }}
           playerCount={playerCount}
           onPlayerCountChange={handlePlayerCountChange}
-          disabled={isPending || structureLocked}
+          disabled={isPending}
         />
 
         <BillingModeToggle
           value={billingMode}
           onChange={setBillingMode}
-          disabled={isPending || structureLocked}
+          disabled={isPending}
         />
 
         {billingMode === "split" ? (
           <ContributorsSplitFields
-            totalAmount={Number.parseInt(amount, 10) || entry.amount}
+            totalAmount={parsedAmount || entry.amount}
             rows={contributorRows}
             onRowsChange={setContributorRows}
             disabled={isPending}
-            partiallyLocked={structureLocked}
-            lockedRowIndexes={
-              entry.contributors?.reduce<number[]>((indexes, contributor, index) => {
-                if (
-                  isContributorAssignmentLocked({
-                    status: contributor.status,
-                    visitStatus: contributor.visitStatus,
-                    paidAmount: contributor.paidAmount,
-                    balanceCollectedAmount: contributor.balanceCollectedAmount,
-                  })
-                ) {
-                  indexes.push(index);
-                }
-                return indexes;
-              }, []) ?? []
-            }
           />
         ) : (
-          <div>
-            <Label htmlFor="frame-entry-customer">Customer</Label>
-            {customerReassignmentBlocked ? (
-              <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                {ENTRY_CUSTOMER_REASSIGN_BLOCKED_MESSAGE}
-              </p>
-            ) : (
-              <>
-            <Input
-              id="frame-entry-customer"
-              value={customerQuery}
-              onChange={(e) => {
-                setCustomerQuery(e.target.value);
-                if (!e.target.value.trim()) {
-                  setSelectedCustomerId("");
-                }
-                void searchCustomers(e.target.value);
-              }}
-              onFocus={() => void searchCustomers(customerQuery)}
-              placeholder="Search name, phone, or card"
+          <>
+            <div>
+              <Label htmlFor="frame-entry-customer">Customer</Label>
+              <Input
+                id="frame-entry-customer"
+                value={customerQuery}
+                onChange={(e) => {
+                  setCustomerQuery(e.target.value);
+                  if (!e.target.value.trim()) {
+                    setSelectedCustomerId("");
+                    setWalletBalance(undefined);
+                    setWalletEnabled(false);
+                  }
+                  void searchCustomers(e.target.value);
+                }}
+                onFocus={() => void searchCustomers(customerQuery)}
+                placeholder="Search name or mobile"
+                disabled={isPending}
+                className={`mt-1 ${snookerFrameControlClass}`}
+                autoComplete="off"
+              />
+              {customerResults.length > 0 && (
+                <ul className="mt-1 max-h-36 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-sm">
+                  {customerResults.map((customer) => (
+                    <li key={customer.id}>
+                      <button
+                        type="button"
+                        className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-emerald-50"
+                        onClick={() => {
+                          setSelectedCustomerId(customer.id);
+                          setCustomerQuery(customer.name);
+                          setWalletBalance(customer.balance);
+                          setWalletEnabled(customer.walletEnabled);
+                          setCustomerResults([]);
+                          setError(null);
+                        }}
+                      >
+                        <span className="font-medium text-gray-900">
+                          {customer.name}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {formatCustomerContactLine(customer)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <EntryPaymentFields
+              amount={parsedAmount}
+              paidAmount={paidAmount}
+              paymentMode={paymentMode}
+              useWallet={useWallet}
               disabled={isPending}
-              className="mt-1 text-sm"
+              onPaidAmountChange={(value) => {
+                setPaidAmount(value);
+                setError(null);
+              }}
+              onPaymentModeChange={(mode) => {
+                setPaymentMode(mode);
+                setError(null);
+              }}
+              onUseWalletChange={(value) => {
+                setUseWallet(value);
+                setError(null);
+              }}
+              idPrefix="frame"
+              walletEnabled={walletEnabled && Boolean(selectedCustomerId)}
+              walletBalance={walletBalance}
             />
-            {customerResults.length > 0 && (
-              <ul className="mt-1 max-h-32 overflow-y-auto rounded border border-gray-200">
-                {customerResults.map((customer) => (
-                  <li key={customer.id}>
-                    <button
-                      type="button"
-                      className={`w-full px-2 py-1.5 text-left text-xs hover:bg-emerald-50 ${
-                        selectedCustomerId === customer.id ? "bg-emerald-50" : ""
-                      }`}
-                      onClick={() => {
-                        setSelectedCustomerId(customer.id);
-                        setCustomerQuery(customer.name);
-                        setCustomerResults([]);
-                      }}
-                    >
-                      <span className="font-medium">{customer.name}</span>
-                      <span className="ml-2 text-gray-500">
-                        {formatCustomerContactLine(customer)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {!selectedCustomerId && (
-              <p className="mt-1 text-[11px] text-gray-500">
-                Leave empty to keep unassigned
-              </p>
-            )}
-              </>
-            )}
-          </div>
+          </>
         )}
 
-        {error && <p className="text-xs text-red-600">{error}</p>}
+        {error ? (
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        ) : null}
+      </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row-reverse">
-          <Button
-            type="button"
-            fullWidth
-            disabled={isPending || !frameType}
-            onClick={submit}
-          >
-            {isPending ? "Saving…" : "Save Changes"}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            fullWidth
-            disabled={isPending}
-            onClick={onClose}
-          >
-            Cancel
-          </Button>
-        </div>
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row-reverse">
+        <Button type="button" onClick={submit} disabled={isPending}>
+          {isPending ? "Saving..." : "Save"}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={onClose}
+          disabled={isPending}
+        >
+          Cancel
+        </Button>
       </div>
     </Dialog>
   );

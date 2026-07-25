@@ -1,55 +1,59 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { formatBusinessDayDate } from "@/lib/business-day/format";
 import { formatCurrency } from "@/lib/utils/format";
-import {
-  formatLastPaymentLabel,
-  formatLastVisitLabel,
-} from "@/lib/utils/customer-ledger-display";
-import {
-  buildOutstandingBalanceMessage,
-  whatsAppShareUrl,
-} from "@/lib/utils/whatsapp-balance";
 import type { CustomerOutstandingRowDTO } from "@/types";
-import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { CollectPaymentTrigger } from "@/components/customers/CollectPaymentTrigger";
-import { cn } from "@/lib/utils/cn";
 
 interface OutstandingPageProps {
   rows: CustomerOutstandingRowDTO[];
   initialQuery?: string;
 }
 
+/**
+ * Outstanding identification page only.
+ * Collection always happens on the Customer page.
+ */
 export function OutstandingPage({
   rows,
   initialQuery = "",
 }: OutstandingPageProps) {
   const [query, setQuery] = useState(initialQuery);
 
-  const filtered = rows.filter((row) => {
-    if (!query.trim()) return true;
+  const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (
-      row.customerName.toLowerCase().includes(q) ||
-      row.phoneNumber.includes(q)
+    if (!q) return rows;
+    return rows.filter(
+      (row) =>
+        row.customerName.toLowerCase().includes(q) ||
+        row.phoneNumber.includes(q)
     );
-  });
+  }, [rows, query]);
 
   const totalOutstanding = filtered.reduce(
     (sum, row) => sum + row.outstandingAmount,
     0
   );
 
+  const oldestAcrossClub =
+    filtered.length === 0
+      ? null
+      : filtered.reduce((oldest, row) =>
+          row.oldestOutstandingDate < oldest
+            ? row.oldestOutstandingDate
+            : oldest,
+          filtered[0].oldestOutstandingDate
+        );
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-gray-900">Outstanding</h1>
           <p className="text-sm text-gray-500">
-            {filtered.length} customer{filtered.length === 1 ? "" : "s"} ·{" "}
-            {formatCurrency(totalOutstanding)} total owed
+            Customers who currently owe the club money
           </p>
         </div>
         <div className="w-full max-w-xs">
@@ -62,92 +66,98 @@ export function OutstandingPage({
         </div>
       </div>
 
+      <section className="grid gap-3 sm:grid-cols-3">
+        <div className="border border-gray-200 bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Total Outstanding
+          </p>
+          <p className="mt-1 text-xl font-bold tabular-nums text-orange-700">
+            {formatCurrency(totalOutstanding)}
+          </p>
+        </div>
+        <div className="border border-gray-200 bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Customers with Outstanding
+          </p>
+          <p className="mt-1 text-xl font-bold tabular-nums text-gray-900">
+            {filtered.length}
+          </p>
+        </div>
+        <div className="border border-gray-200 bg-white px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Oldest Outstanding Date
+          </p>
+          <p className="mt-1 text-xl font-bold tabular-nums text-gray-900">
+            {oldestAcrossClub
+              ? formatBusinessDayDate(oldestAcrossClub)
+              : "—"}
+          </p>
+        </div>
+      </section>
+
       {filtered.length === 0 ? (
         <div className="border border-gray-200 bg-white px-4 py-10 text-center text-sm text-gray-500">
-          No outstanding balances.
+          No customers with Outstanding.
         </div>
       ) : (
-        <div className="grid gap-2">
-          {filtered.map((row) => {
-            const whatsAppHref = whatsAppShareUrl(
-              row.phoneNumber,
-              buildOutstandingBalanceMessage(
-                row.customerName,
-                row.outstandingAmount
-              )
-            );
-
-            return (
-              <article
-                key={row.customerId}
-                className="border border-gray-200 bg-white px-4 py-3"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-base font-bold text-gray-900">
+        <div className="overflow-x-auto border border-gray-200 bg-white">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                <th className="px-4 py-2.5 font-semibold">Customer</th>
+                <th className="px-4 py-2.5 font-semibold">Mobile</th>
+                <th className="px-4 py-2.5 text-right font-semibold">
+                  Current Outstanding
+                </th>
+                <th className="px-4 py-2.5 text-right font-semibold">
+                  Unpaid Business Days
+                </th>
+                <th className="px-4 py-2.5 font-semibold">
+                  Oldest Outstanding Date
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filtered.map((row) => (
+                <tr key={row.customerId} className="hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/customers/${row.customerId}`}
+                      className="font-semibold text-gray-900 hover:text-emerald-800"
+                    >
                       {row.customerName}
-                    </h2>
-                    <p
-                      className={cn(
-                        "mt-1 text-lg font-bold",
-                        row.outstandingAmount > 0
-                          ? "text-red-700"
-                          : "text-gray-900"
-                      )}
-                    >
-                      Outstanding: {formatCurrency(row.outstandingAmount)}
-                    </p>
-                    <dl className="mt-2 space-y-0.5 text-sm text-gray-600">
-                      <div className="flex gap-2">
-                        <dt>Last Visit:</dt>
-                        <dd className="font-medium text-gray-900">
-                          {formatLastVisitLabel(row.lastVisitAt)}
-                        </dd>
-                      </div>
-                      <div className="flex gap-2">
-                        <dt>Last Payment:</dt>
-                        <dd className="font-medium text-gray-900">
-                          {formatLastPaymentLabel(
-                            row.lastPaymentAmount,
-                            row.lastPaymentAt
-                          )}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <CollectPaymentTrigger
-                      customer={{
-                        id: row.customerId,
-                        name: row.customerName,
-                        walletEnabled: row.walletEnabled,
-                        cardId: row.cardId,
-                        phone: row.phoneNumber,
-                      }}
-                      outstandingAmount={row.outstandingAmount}
-                      hasActiveVisitWithDue={row.hasActiveVisitWithDue}
-                      activeVisitDueAmount={row.activeVisitDueAmount}
-                    />
-                    <Link href={`/customers/${row.customerId}`}>
-                      <Button size="sm" variant="secondary">
-                        View Profile
-                      </Button>
                     </Link>
-                    <a
-                      href={whatsAppHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-gray-700">
+                    <Link
+                      href={`/customers/${row.customerId}`}
+                      className="hover:text-emerald-800"
                     >
-                      <Button size="sm" variant="secondary">
-                        WhatsApp
-                      </Button>
-                    </a>
-                  </div>
-                </div>
-              </article>
-            );
-          })}
+                      {row.phoneNumber}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      href={`/customers/${row.customerId}`}
+                      className="font-bold tabular-nums text-orange-700 hover:text-emerald-800"
+                    >
+                      {formatCurrency(row.outstandingAmount)}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-900">
+                    <Link href={`/customers/${row.customerId}`}>
+                      {row.unpaidBusinessDayCount}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-gray-800">
+                    <Link href={`/customers/${row.customerId}`}>
+                      {formatBusinessDayDate(row.oldestOutstandingDate)}
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

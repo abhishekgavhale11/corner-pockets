@@ -13,14 +13,18 @@ import Customer from "@/models/Customer";
 import Transaction from "@/models/Transaction";
 import {
   rechargeSchema,
+  customerRechargeSchema,
   rechargeAmountsSchema,
   deductSchema,
   reverseTransactionSchema,
 } from "@/lib/validators/transaction";
+import { resolveRechargeCredit } from "@/lib/wallet/recharge-credit";
 import { toTransactionDTO } from "@/lib/mappers";
 import { executeWalletDeduct } from "@/lib/wallet/execute-wallet-deduct";
 import { getReversalReasonLabel } from "@/lib/constants/reversal-reasons";
 import type { ReversalReasonKey } from "@/lib/constants/reversal-reasons";
+import { getOpenBusinessDayContext } from "@/lib/business-day/require-open-business-day";
+import { getCustomerOutstandingBalance } from "@/lib/outstanding/queries";
 import { formatDate } from "@/lib/utils/format";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import type { TransactionDTO } from "@/types";
@@ -81,6 +85,7 @@ export async function rechargeWallet(
 
   await connectDB();
 
+  const openDay = await getOpenBusinessDayContext();
   const dbSession = await mongoose.startSession();
 
   try {
@@ -127,6 +132,7 @@ export async function rechargeWallet(
             staffUsername: session.user.username,
             isReversal: false,
             verificationMethod: parsed.data.verificationMethod,
+            ...(openDay ? { businessDayId: openDay.businessDayId } : {}),
           },
         ],
         { session: dbSession }
@@ -141,6 +147,119 @@ export async function rechargeWallet(
 
     revalidateCustomerPaths(parsed.data.customerId);
 
+    return success(toTransactionDTO(transactionDoc));
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Recharge failed";
+    return failure(message);
+  } finally {
+    dbSession.endSession();
+  }
+}
+
+/**
+ * Customer Details recharge — presets/custom amount + Cash/GPay.
+ * Uses the same transactional Customer + Transaction writes as plan recharge.
+ */
+export async function rechargeCustomerWalletAction(
+  formData: FormData
+): Promise<ActionResult<TransactionDTO>> {
+  const authResult = await authorizePermission("WALLET_RECHARGE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const session = authResult.session;
+
+  const parsed = customerRechargeSchema.safeParse({
+    customerId: formData.get("customerId"),
+    paidAmount: formData.get("paidAmount"),
+    paymentMethod: formData.get("paymentMethod"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const outstanding = await getCustomerOutstandingBalance(
+    parsed.data.customerId
+  );
+  if (outstanding > 0) {
+    return failure(
+      "Please collect the customer's outstanding before recharging the wallet."
+    );
+  }
+
+  const openDay = await getOpenBusinessDayContext();
+  const dbSession = await mongoose.startSession();
+
+  try {
+    let transactionDoc: Parameters<typeof toTransactionDTO>[0] | null = null;
+
+    await dbSession.withTransaction(async () => {
+      const customer = await Customer.findById(parsed.data.customerId).session(
+        dbSession
+      );
+
+      if (!customer || !customer.isActive) {
+        throw new Error("Customer not found");
+      }
+
+      // First recharge enables wallet membership for this customer.
+      if (!customer.walletEnabled) {
+        customer.walletEnabled = true;
+      }
+
+      const amounts = resolveRechargeCredit(parsed.data.paidAmount);
+      const amountsParsed = rechargeAmountsSchema.safeParse(amounts);
+      if (!amountsParsed.success) {
+        throw new Error(
+          amountsParsed.error.issues[0]?.message ?? "Invalid recharge amounts"
+        );
+      }
+
+      const { paidAmount, bonusAmount, creditedAmount } = amountsParsed.data;
+      const balanceAfter = customer.balance + creditedAmount;
+
+      customer.balance = balanceAfter;
+      await customer.save({ session: dbSession });
+
+      const description =
+        bonusAmount > 0
+          ? `Wallet recharge — Paid ₹${paidAmount.toLocaleString("en-IN")}, bonus ₹${bonusAmount.toLocaleString("en-IN")}, credited ₹${creditedAmount.toLocaleString("en-IN")} (${parsed.data.paymentMethod === "CASH" ? "Cash" : "GPay"})`
+          : `Wallet recharge — Paid ₹${paidAmount.toLocaleString("en-IN")}, credited ₹${creditedAmount.toLocaleString("en-IN")} (${parsed.data.paymentMethod === "CASH" ? "Cash" : "GPay"})`;
+
+      const [transaction] = await Transaction.create(
+        [
+          {
+            customerId: customer._id,
+            type: "credit",
+            paidAmount,
+            bonusAmount,
+            creditedAmount,
+            balanceAfter,
+            description,
+            staffId: session.user.id,
+            staffUsername: session.user.username,
+            isReversal: false,
+            paymentMethod: parsed.data.paymentMethod,
+            // Stored for later reporting — does not change Business Day UI.
+            ...(openDay ? { businessDayId: openDay.businessDayId } : {}),
+          },
+        ],
+        { session: dbSession }
+      );
+
+      transactionDoc = transaction;
+    });
+
+    if (!transactionDoc) {
+      return failure("Recharge failed");
+    }
+
+    revalidateCustomerPaths(parsed.data.customerId);
     return success(toTransactionDTO(transactionDoc));
   } catch (error) {
     const message =

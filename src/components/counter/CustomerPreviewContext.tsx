@@ -12,38 +12,39 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { getCustomerVisitGlance } from "@/actions/visit-bill";
-import { CustomerVisitGlancePanel } from "@/components/counter/CafeCustomerGlanceHover";
+import { getCustomerCounterDrawerAction } from "@/actions/customer-drawer";
+import { CustomerCounterDrawerPanel } from "@/components/counter/CustomerCounterDrawerPanel";
 import { cn } from "@/lib/utils/cn";
+import type { CustomerCounterDrawerDTO } from "@/types";
 
 const MODAL_WIDTH_PX = 420;
 const MODAL_ANIMATION_MS = 175;
 const SINGLE_CLICK_DELAY_MS = 220;
 
-/** Bumped when counter/cafe data changes so open previews refetch. */
-let glanceEpoch = 0;
-const glanceEpochListeners = new Set<() => void>();
+/** Bumped when counter data changes so open drawers refetch. */
+let drawerEpoch = 0;
+const drawerEpochListeners = new Set<() => void>();
 
-function subscribeGlanceEpoch(listener: () => void) {
-  glanceEpochListeners.add(listener);
+function subscribeDrawerEpoch(listener: () => void) {
+  drawerEpochListeners.add(listener);
   return () => {
-    glanceEpochListeners.delete(listener);
+    drawerEpochListeners.delete(listener);
   };
 }
 
-function bumpGlanceEpoch() {
-  glanceEpoch += 1;
-  glanceEpochListeners.forEach((listener) => listener());
+function bumpDrawerEpoch() {
+  drawerEpoch += 1;
+  drawerEpochListeners.forEach((listener) => listener());
 }
 
 export function invalidateCustomerGlanceCache(_customerId?: string) {
-  bumpGlanceEpoch();
+  bumpDrawerEpoch();
 }
 
 interface CustomerPreviewContextValue {
   selectedCustomerId: string | null;
   isSelected: (customerId: string) => boolean;
-  selectCustomer: (customerId: string) => void;
+  selectCustomer: (customerId: string, customerName?: string) => void;
   clearSelection: () => void;
 }
 
@@ -51,61 +52,53 @@ const CustomerPreviewContext = createContext<CustomerPreviewContextValue | null>
   null
 );
 
-function useCustomerVisitGlance(
-  customerId: string | null,
-  enabled: boolean,
-  fetchGeneration: number
-) {
-  const [glance, setGlance] = useState<Awaited<
-    ReturnType<typeof getCustomerVisitGlance>
-  > | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [epoch, setEpoch] = useState(glanceEpoch);
-  const requestIdRef = useRef(0);
-
-  useEffect(() => subscribeGlanceEpoch(() => setEpoch(glanceEpoch)), []);
-
-  useEffect(() => {
-    if (!enabled || !customerId) {
-      setGlance(null);
-      setLoading(false);
-      return;
-    }
-
-    const requestId = ++requestIdRef.current;
-    setLoading(true);
-    setGlance(null);
-
-    void getCustomerVisitGlance(customerId).then((data) => {
-      if (requestId !== requestIdRef.current) return;
-      setGlance(data);
-      setLoading(false);
-    });
-  }, [customerId, enabled, fetchGeneration, epoch]);
-
-  return { glance, loading };
+function emptyDrawer(
+  customerId: string,
+  customerName?: string
+): CustomerCounterDrawerDTO {
+  return {
+    customerId,
+    customerName: customerName || "Customer",
+    todaysBill: 0,
+    totalReceived: 0,
+    totalDue: 0,
+    todaysFrames: [],
+    todaysCafeOrders: [],
+  };
 }
 
-function CustomerPreviewModal({
+function CustomerDrawerModal({
   customerId,
+  customerName,
   visible,
   onClose,
 }: {
   customerId: string;
+  customerName?: string;
   visible: boolean;
   onClose: () => void;
 }) {
-  const [fetchGeneration, setFetchGeneration] = useState(0);
-  const { glance, loading } = useCustomerVisitGlance(
-    customerId,
-    true,
-    fetchGeneration
+  const [epoch, setEpoch] = useState(drawerEpoch);
+  const [summary, setSummary] = useState<CustomerCounterDrawerDTO>(() =>
+    emptyDrawer(customerId, customerName)
   );
+  const [loading, setLoading] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => subscribeDrawerEpoch(() => setEpoch(drawerEpoch)), []);
+
   useEffect(() => {
-    setFetchGeneration((generation) => generation + 1);
-  }, [customerId]);
+    let cancelled = false;
+    setLoading(true);
+    void getCustomerCounterDrawerAction(customerId).then((data) => {
+      if (cancelled) return;
+      setSummary(data ?? emptyDrawer(customerId, customerName));
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId, customerName, epoch]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -113,14 +106,13 @@ function CustomerPreviewModal({
         onClose();
       }
     };
-
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
   useEffect(() => {
     dialogRef.current?.focus();
-  }, [customerId]);
+  }, [customerId, epoch]);
 
   if (typeof document === "undefined") {
     return null;
@@ -133,7 +125,7 @@ function CustomerPreviewModal({
     >
       <button
         type="button"
-        aria-label="Close preview"
+        aria-label="Close customer drawer"
         tabIndex={-1}
         className={cn(
           "absolute inset-0 bg-black/35 backdrop-blur-[2px] transition-opacity ease-out",
@@ -147,7 +139,7 @@ function CustomerPreviewModal({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Customer preview"
+        aria-label="Customer summary"
         tabIndex={-1}
         className={cn(
           "relative z-10 max-h-[min(90vh,720px)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-2xl transition-all ease-out",
@@ -163,29 +155,16 @@ function CustomerPreviewModal({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close preview"
+          aria-label="Close"
           className="absolute right-2 top-2 rounded p-0.5 text-[15px] leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
         >
           ✕
         </button>
 
         {loading ? (
-          <div className="py-10 text-center">
-            <p className="text-sm text-gray-500">Loading visit…</p>
-          </div>
-        ) : glance ? (
-          <CustomerVisitGlancePanel glance={glance} onClose={onClose} />
+          <p className="py-8 text-center text-sm text-gray-500">Loading…</p>
         ) : (
-          <div className="py-10 text-center">
-            <p className="text-sm text-gray-500">Could not load visit.</p>
-            <button
-              type="button"
-              onClick={onClose}
-              className="mt-3 text-sm font-medium text-gray-600 hover:text-gray-900"
-            >
-              Close
-            </button>
-          </div>
+          <CustomerCounterDrawerPanel summary={summary} />
         )}
       </div>
     </div>,
@@ -195,6 +174,7 @@ function CustomerPreviewModal({
 
 export function CustomerPreviewProvider({ children }: { children: ReactNode }) {
   const [openCustomerId, setOpenCustomerId] = useState<string | null>(null);
+  const [openCustomerName, setOpenCustomerName] = useState<string | undefined>();
   const [visible, setVisible] = useState(false);
   const closeTimerRef = useRef<number | null>(null);
 
@@ -206,9 +186,10 @@ export function CustomerPreviewProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const selectCustomer = useCallback(
-    (customerId: string) => {
+    (customerId: string, customerName?: string) => {
       clearCloseTimer();
       setOpenCustomerId(customerId);
+      setOpenCustomerName(customerName);
       requestAnimationFrame(() => setVisible(true));
     },
     [clearCloseTimer]
@@ -220,6 +201,7 @@ export function CustomerPreviewProvider({ children }: { children: ReactNode }) {
     closeTimerRef.current = window.setTimeout(() => {
       closeTimerRef.current = null;
       setOpenCustomerId(null);
+      setOpenCustomerName(undefined);
     }, MODAL_ANIMATION_MS);
   }, [clearCloseTimer]);
 
@@ -241,8 +223,9 @@ export function CustomerPreviewProvider({ children }: { children: ReactNode }) {
     >
       {children}
       {openCustomerId ? (
-        <CustomerPreviewModal
+        <CustomerDrawerModal
           customerId={openCustomerId}
+          customerName={openCustomerName}
           visible={visible}
           onClose={clearSelection}
         />
@@ -303,7 +286,7 @@ export function CustomerPreviewNameButton({
     clearClickTimer();
     clickTimerRef.current = window.setTimeout(() => {
       clickTimerRef.current = null;
-      preview.selectCustomer(customerId);
+      preview.selectCustomer(customerId, customerName);
     }, SINGLE_CLICK_DELAY_MS);
   };
 
@@ -326,7 +309,7 @@ export function CustomerPreviewNameButton({
       )}
       title={
         title ??
-        `${customerName} — click to preview, double-click for profile`
+        `${customerName} — click for today's summary, double-click for customer page`
       }
     >
       {customerName}
@@ -335,7 +318,8 @@ export function CustomerPreviewNameButton({
 }
 
 export function useCustomerRowPreviewHandlers(
-  customerId: string | null | undefined
+  customerId: string | null | undefined,
+  customerName?: string
 ) {
   const preview = useCustomerPreviewOptional();
   const router = useRouter();
@@ -358,10 +342,10 @@ export function useCustomerRowPreviewHandlers(
       clearClickTimer();
       clickTimerRef.current = window.setTimeout(() => {
         clickTimerRef.current = null;
-        preview.selectCustomer(customerId);
+        preview.selectCustomer(customerId, customerName);
       }, SINGLE_CLICK_DELAY_MS);
     },
-    [clearClickTimer, customerId, preview]
+    [clearClickTimer, customerId, customerName, preview]
   );
 
   const handleRowDoubleClick = useCallback(

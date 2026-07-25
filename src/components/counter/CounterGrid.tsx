@@ -8,31 +8,28 @@ import type { NotebookEntryDTO } from "@/types";
 import { CounterSectionColumn } from "@/components/counter/CounterSectionColumn";
 import { CustomerPreviewProvider } from "@/components/counter/CustomerPreviewContext";
 import { CafeNewTabDialog } from "@/components/counter/CafeNewTabDialog";
-import { CafeExistingCustomerDialog } from "@/components/counter/CafeExistingCustomerDialog";
-import { CafeAddItemDialog } from "@/components/counter/CafeAddItemDialog";
-import { useCafeAddItem } from "@/components/counter/useCafeAddItem";
 import { cn } from "@/lib/utils/cn";
 
 interface CounterGridProps {
   sections: NotebookSection[];
   ledgers: Record<string, NotebookEntryDTO[]>;
   snookerQuick?: boolean;
+  poolMiniQuick?: boolean;
 }
 
 export function CounterGrid({
   sections,
   ledgers,
   snookerQuick = false,
+  poolMiniQuick = false,
 }: CounterGridProps) {
   const router = useRouter();
   const [mobileSection, setMobileSection] = useState(sections[0]);
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
-  const [pickCustomerForCafe, setPickCustomerForCafe] = useState(false);
-  const { cafeTarget, closeCafe, openCafeForCustomer } = useCafeAddItem();
 
   return (
     <CustomerPreviewProvider>
-      {snookerQuick && (
+      {(snookerQuick || poolMiniQuick) && (
         <div className="mb-3 flex flex-wrap justify-start gap-2">
           <button
             type="button"
@@ -40,13 +37,6 @@ export function CounterGrid({
             className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-[13px] font-bold text-emerald-900 shadow-sm transition-colors hover:border-emerald-400 hover:bg-emerald-50"
           >
             + New Customer
-          </button>
-          <button
-            type="button"
-            onClick={() => setPickCustomerForCafe(true)}
-            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] font-bold text-amber-950 shadow-sm"
-          >
-            + Add Cafe
           </button>
         </div>
       )}
@@ -76,30 +66,21 @@ export function CounterGrid({
             section={section}
             entries={ledgers[section] ?? []}
             snookerQuick={snookerQuick}
+            poolMiniQuick={poolMiniQuick}
             activeMobile={section === mobileSection}
           />
         ))}
       </div>
 
-      {snookerQuick && (
-        <>
-          <CafeNewTabDialog
-            open={newCustomerOpen}
-            onClose={() => setNewCustomerOpen(false)}
-            submitLabel="Create Customer"
-            onCreated={() => {
-              router.refresh();
-            }}
-          />
-          <CafeExistingCustomerDialog
-            open={pickCustomerForCafe}
-            onClose={() => setPickCustomerForCafe(false)}
-            onSelect={(customer) => {
-              openCafeForCustomer(customer.id, customer.name);
-            }}
-          />
-          <CafeAddItemDialog target={cafeTarget} onClose={closeCafe} />
-        </>
+      {(snookerQuick || poolMiniQuick) && (
+        <CafeNewTabDialog
+          open={newCustomerOpen}
+          onClose={() => setNewCustomerOpen(false)}
+          submitLabel="Create Customer"
+          onCreated={() => {
+            router.refresh();
+          }}
+        />
       )}
     </CustomerPreviewProvider>
   );

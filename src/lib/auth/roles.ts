@@ -2,6 +2,10 @@ export const STAFF_ROLES = ["SUPER_MASTER", "MASTER", "STAFF"] as const;
 
 export type StaffRole = (typeof STAFF_ROLES)[number];
 
+/** Product-facing roles shown in Users UI (maps to MASTER / STAFF). */
+export const USER_PRODUCT_ROLES = ["ADMIN", "STAFF"] as const;
+export type UserProductRole = (typeof USER_PRODUCT_ROLES)[number];
+
 export const PERMISSIONS = {
   CUSTOMER_SEARCH: ["SUPER_MASTER", "MASTER", "STAFF"],
   CUSTOMER_REGISTER: ["SUPER_MASTER", "MASTER", "STAFF"],
@@ -13,15 +17,20 @@ export const PERMISSIONS = {
   CUSTOMER_EDIT_DETAILS: ["SUPER_MASTER", "MASTER"],
   CUSTOMER_STUDENT_STATUS: ["SUPER_MASTER", "MASTER"],
   STAFF_VIEW: ["SUPER_MASTER", "MASTER"],
+  STAFF_MANAGE: ["SUPER_MASTER", "MASTER"],
   STAFF_RESET_PASSWORD: ["SUPER_MASTER", "MASTER"],
   STAFF_SET_ACTIVE: ["SUPER_MASTER", "MASTER"],
-  STAFF_CHANGE_ROLE: ["SUPER_MASTER"],
+  STAFF_CHANGE_ROLE: ["SUPER_MASTER", "MASTER"],
   NOTEBOOK_VIEW: ["SUPER_MASTER", "MASTER", "STAFF"],
   NOTEBOOK_ENTRY_CREATE: ["SUPER_MASTER", "MASTER", "STAFF"],
   NOTEBOOK_ENTRY_REVERSE: ["SUPER_MASTER", "MASTER", "STAFF"],
   NOTEBOOK_SETTLE: ["SUPER_MASTER", "MASTER", "STAFF"],
   NOTEBOOK_SETTLEMENT_REVERSE: ["SUPER_MASTER", "MASTER", "STAFF"],
   NOTEBOOK_CLOSING_VIEW: ["SUPER_MASTER", "MASTER", "STAFF"],
+  BUSINESS_DAY_MANAGE: ["SUPER_MASTER", "MASTER", "STAFF"],
+  EXPENSE_VIEW: ["SUPER_MASTER", "MASTER", "STAFF"],
+  EXPENSE_CREATE: ["SUPER_MASTER", "MASTER", "STAFF"],
+  EXPENSE_MANAGE: ["SUPER_MASTER", "MASTER"],
 } as const satisfies Record<string, StaffRole[]>;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -30,52 +39,48 @@ export function hasPermission(role: StaffRole, permission: Permission): boolean 
   return (PERMISSIONS[permission] as readonly StaffRole[]).includes(role);
 }
 
+export function isAdminRole(role: StaffRole): boolean {
+  return role === "MASTER" || role === "SUPER_MASTER";
+}
+
+/** Display label for login accounts (Admin / Staff only). */
 export function roleLabel(role: StaffRole): string {
   switch (role) {
     case "SUPER_MASTER":
-      return "Super Master";
     case "MASTER":
-      return "Master";
+      return "Admin";
     case "STAFF":
       return "Staff";
   }
 }
 
-export function canResetPassword(
-  actorRole: StaffRole,
-  targetRole: StaffRole
-): boolean {
-  if (actorRole === "SUPER_MASTER") {
-    return true;
-  }
-
-  return actorRole === "MASTER" && targetRole === "STAFF";
+export function toProductRole(role: StaffRole): UserProductRole {
+  return role === "STAFF" ? "STAFF" : "ADMIN";
 }
 
-export function canSetActiveStatus(
-  actorRole: StaffRole,
-  targetRole: StaffRole
-): boolean {
-  if (actorRole === "SUPER_MASTER") {
-    return true;
-  }
+export function fromProductRole(role: UserProductRole): StaffRole {
+  return role === "ADMIN" ? "MASTER" : "STAFF";
+}
 
-  return actorRole === "MASTER" && targetRole === "STAFF";
+/** Any Admin can manage any login account (except self, enforced in actions). */
+export function canManageUsers(actorRole: StaffRole): boolean {
+  return isAdminRole(actorRole);
+}
+
+export function canResetPassword(actorRole: StaffRole): boolean {
+  return isAdminRole(actorRole);
+}
+
+export function canSetActiveStatus(actorRole: StaffRole): boolean {
+  return isAdminRole(actorRole);
 }
 
 export function canChangeRole(actorRole: StaffRole): boolean {
-  return actorRole === "SUPER_MASTER";
+  return isAdminRole(actorRole);
 }
 
-export function canViewStaffAccount(
-  actorRole: StaffRole,
-  targetRole: StaffRole
-): boolean {
-  if (actorRole === "SUPER_MASTER") {
-    return true;
-  }
-
-  return actorRole === "MASTER" && targetRole === "STAFF";
+export function canViewStaffAccount(actorRole: StaffRole): boolean {
+  return isAdminRole(actorRole);
 }
 
 export function getDefaultHomePath(role?: StaffRole): string {

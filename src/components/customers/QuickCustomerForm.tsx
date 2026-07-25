@@ -29,9 +29,26 @@ export function QuickCustomerForm({ onSuccess, onCancel }: QuickCustomerFormProp
 
   return (
     <form action={formAction} className="space-y-3">
-      <div>
-        <Label htmlFor="quick-name">Name</Label>
-        <Input id="quick-name" name="name" required autoFocus />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor="quick-first-name">Name</Label>
+          <Input
+            id="quick-first-name"
+            name="firstName"
+            required
+            autoFocus
+            placeholder="Name"
+          />
+        </div>
+        <div>
+          <Label htmlFor="quick-last-name">Surname</Label>
+          <Input
+            id="quick-last-name"
+            name="lastName"
+            required
+            placeholder="Surname"
+          />
+        </div>
       </div>
       <div>
         <Label htmlFor="quick-phone">Phone (optional)</Label>

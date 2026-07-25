@@ -24,11 +24,11 @@ const RATE_TABLE: Record<
   },
   MINI: {
     REGULAR: 260,
-    HAPPY_HOUR: 210,
+    HAPPY_HOUR: 200,
   },
   POOL: {
     REGULAR: 240,
-    HAPPY_HOUR: 200,
+    HAPPY_HOUR: 180,
   },
   BIG_SNOOKER_TIME: {
     REGULAR: 320,

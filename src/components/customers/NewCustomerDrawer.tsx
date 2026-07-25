@@ -83,7 +83,11 @@ export function NewCustomerButton({ autoOpen = false }: NewCustomerButtonProps) 
 
   return (
     <>
-      <Button type="button" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="h-10 px-4 text-sm font-semibold shadow-sm"
+      >
         + New Customer
       </Button>
       <NewCustomerDrawer open={open} onClose={() => setOpen(false)} />

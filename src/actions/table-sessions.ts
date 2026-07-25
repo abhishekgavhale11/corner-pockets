@@ -20,12 +20,9 @@ import {
 } from "@/lib/constants/counter-rates";
 import { toTableSessionDTO } from "@/lib/mappers/table-session";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
-import {
-  enrichEntriesWithEditLock,
-  getEntryEditLockFailure,
-} from "@/lib/visit-bill/entry-edit-lock";
 import { toCustomerDTO } from "@/lib/mappers";
 import { generateTableSessionNumber, generateTableLocalSessionNumber } from "@/lib/table-sessions/session-number";
+import { getOpenBusinessDayContext } from "@/lib/business-day/require-open-business-day";
 import {
   calculateSessionGameCharge,
   resolveHourlyRate,
@@ -43,7 +40,6 @@ import {
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
 import NotebookEntry from "@/models/NotebookEntry";
-import NotebookSettlement from "@/models/NotebookSettlement";
 import TableSession from "@/models/TableSession";
 import {
   buildTableSessionHistoryRow,
@@ -52,6 +48,7 @@ import {
 import type {
   PoolMiniTableSummaryDTO,
   SessionCheckoutDetailsDTO,
+  CompactSessionCheckoutLineDTO,
   SessionCafeEditItemDTO,
   TableSessionDTO,
   TableSessionHistoryDTO,
@@ -59,9 +56,9 @@ import type {
   NotebookEntryDTO,
 } from "@/types";
 import { CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/constants/notebook-payments";
-import { buildCompactSessionCheckoutTimeline } from "@/lib/utils/session-checkout-timeline";
+import { entryAmountRemaining } from "@/lib/utils/entry-contributors";
 import { formatTableSessionLabel } from "@/lib/utils/session-display";
-import { formatCafeItemLabel } from "@/lib/utils/notebook-entry-label";
+import { formatCafeItemLabel, getEntryDisplayLabel } from "@/lib/utils/notebook-entry-label";
 import Customer from "@/models/Customer";
 
 export type BigSnookerSessionBoardData = {
@@ -85,14 +82,6 @@ export type PoolMiniSessionBoardData = {
     canStartNewSession: boolean;
   }[];
 };
-
-function getDayBounds() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
-}
 
 async function sumCafeChargesForSession(sessionId: string): Promise<number> {
   const entries = await NotebookEntry.find({
@@ -177,12 +166,25 @@ export async function getPoolMiniSessionBoardData(): Promise<PoolMiniSessionBoar
 
   await connectDB();
 
-  const { start, end } = getDayBounds();
   const tableIds: PoolMiniTableId[] = ["MINI_SNOOKER", "POOL_1", "POOL_2"];
+
+  const openDay = await getOpenBusinessDayContext();
+  if (!openDay) {
+    return {
+      tables: tableIds.map((tableId) => ({
+        tableId,
+        session: null,
+        pendingCheckouts: [],
+        summary: { revenueToday: 0, sessionsToday: 0, pendingCount: 0 },
+        history: [],
+        canStartNewSession: true,
+      })),
+    };
+  }
 
   const todaySessions = await TableSession.find({
     tableId: { $in: tableIds },
-    startedAt: { $gte: start, $lte: end },
+    businessDayId: openDay.businessDayId,
   })
     .sort({ startedAt: -1 })
     .lean();
@@ -192,15 +194,7 @@ export async function getPoolMiniSessionBoardData(): Promise<PoolMiniSessionBoar
     ? await NotebookEntry.find({ sessionId: { $in: sessionIds } }).lean()
     : [];
 
-  const entryIds = allEntries.map((e) => e._id);
-  const allSettlements =
-    entryIds.length > 0
-      ? await NotebookSettlement.find({
-          entryIds: { $in: entryIds },
-        })
-          .sort({ createdAt: 1 })
-          .lean()
-      : [];
+  // Settlements removed with Financial Engine V1 - history uses entry status only.
 
   const tables = await Promise.all(
     tableIds.map(async (tableId) => {
@@ -216,22 +210,10 @@ export async function getPoolMiniSessionBoardData(): Promise<PoolMiniSessionBoar
       const historyRows = tableTodaySessions
         .filter(isHistorySessionRow)
         .map((session) => {
-          const sessionEntryIds = new Set(
-            allEntries
-              .filter(
-                (e) => e.sessionId?.toString() === session._id.toString()
-              )
-              .map((e) => e._id.toString())
-          );
-          const settlements = allSettlements.filter((settlement) =>
-            settlement.entryIds.some((id) =>
-              sessionEntryIds.has(id.toString())
-            )
-          );
           return buildTableSessionHistoryRow(
             session,
             allEntries,
-            settlements
+            []
           );
         });
 
@@ -239,16 +221,8 @@ export async function getPoolMiniSessionBoardData(): Promise<PoolMiniSessionBoar
       for (const pending of pendingSessions) {
         const pendingId = pending._id.toString();
         if (historyIds.has(pendingId)) continue;
-        const sessionEntryIds = new Set(
-          allEntries
-            .filter((e) => e.sessionId?.toString() === pendingId)
-            .map((e) => e._id.toString())
-        );
-        const settlements = allSettlements.filter((settlement) =>
-          settlement.entryIds.some((id) => sessionEntryIds.has(id.toString()))
-        );
         historyRows.push(
-          buildTableSessionHistoryRow(pending, allEntries, settlements)
+          buildTableSessionHistoryRow(pending, allEntries, [])
         );
       }
 
@@ -312,7 +286,7 @@ export async function startTableSession(
       existing.tableSessionNumber ?? existing.sessionNumber
     );
     return failure(
-      `${sectionLabel(existing.tableId)} already has a session in play (${label}). End or pause it before starting another — unpaid ended sessions do not block a new start.`
+      `${sectionLabel(existing.tableId)} already has a session in play (${label}). End or pause it before starting another â€” unpaid ended sessions do not block a new start.`
     );
   }
 
@@ -674,16 +648,29 @@ export async function getBigSnookerSessionBoardData(): Promise<BigSnookerSession
 
   await connectDB();
 
-  const { start, end } = getDayBounds();
   const tableIds: BigSnookerTableId[] = [
     "BIG_SNOOKER_1",
     "BIG_SNOOKER_2",
     "BIG_SNOOKER_3",
   ];
 
+  const openDay = await getOpenBusinessDayContext();
+  if (!openDay) {
+    return {
+      tables: tableIds.map((tableId) => ({
+        tableId,
+        session: null,
+        pendingCheckouts: [],
+        summary: { revenueToday: 0, sessionsToday: 0, pendingCount: 0 },
+        history: [],
+        canStartNewSession: true,
+      })),
+    };
+  }
+
   const todaySessions = await TableSession.find({
     tableId: { $in: tableIds },
-    startedAt: { $gte: start, $lte: end },
+    businessDayId: openDay.businessDayId,
   })
     .sort({ startedAt: -1 })
     .lean();
@@ -693,15 +680,7 @@ export async function getBigSnookerSessionBoardData(): Promise<BigSnookerSession
     ? await NotebookEntry.find({ sessionId: { $in: sessionIds } }).lean()
     : [];
 
-  const entryIds = allEntries.map((e) => e._id);
-  const allSettlements =
-    entryIds.length > 0
-      ? await NotebookSettlement.find({
-          entryIds: { $in: entryIds },
-        })
-          .sort({ createdAt: 1 })
-          .lean()
-      : [];
+  // Settlements removed with Financial Engine V1 - history uses entry status only.
 
   const tables = await Promise.all(
     tableIds.map(async (tableId) => {
@@ -717,22 +696,10 @@ export async function getBigSnookerSessionBoardData(): Promise<BigSnookerSession
       const historyRows = tableTodaySessions
         .filter(isHistorySessionRow)
         .map((session) => {
-          const sessionEntryIds = new Set(
-            allEntries
-              .filter(
-                (e) => e.sessionId?.toString() === session._id.toString()
-              )
-              .map((e) => e._id.toString())
-          );
-          const settlements = allSettlements.filter((settlement) =>
-            settlement.entryIds.some((id) =>
-              sessionEntryIds.has(id.toString())
-            )
-          );
           return buildTableSessionHistoryRow(
             session,
             allEntries,
-            settlements
+            []
           );
         });
 
@@ -740,16 +707,8 @@ export async function getBigSnookerSessionBoardData(): Promise<BigSnookerSession
       for (const pending of pendingSessions) {
         const pendingId = pending._id.toString();
         if (historyIds.has(pendingId)) continue;
-        const sessionEntryIds = new Set(
-          allEntries
-            .filter((e) => e.sessionId?.toString() === pendingId)
-            .map((e) => e._id.toString())
-        );
-        const settlements = allSettlements.filter((settlement) =>
-          settlement.entryIds.some((id) => sessionEntryIds.has(id.toString()))
-        );
         historyRows.push(
-          buildTableSessionHistoryRow(pending, allEntries, settlements)
+          buildTableSessionHistoryRow(pending, allEntries, [])
         );
       }
 
@@ -827,10 +786,6 @@ export async function setBigSnookerSessionGameCharge(
     const entry = await NotebookEntry.findById(session.gameEntryId);
     if (!entry) {
       return failure("Game entry not found");
-    }
-    const lockFailure = await getEntryEditLockFailure(entry);
-    if (lockFailure) {
-      return failure(lockFailure);
     }
     entry.amount = amount;
     entry.snookerGame = parsed.data.snookerGame;
@@ -1047,10 +1002,9 @@ function mapSessionCafeEditItem(
 async function mapSessionCafeEditItems(
   entries: Parameters<typeof toNotebookEntryDTO>[0][]
 ): Promise<SessionCafeEditItemDTO[]> {
-  const enriched = await enrichEntriesWithEditLock(
-    entries.map((entry) => toNotebookEntryDTO(entry))
-  );
-  return enriched.map((entry) => mapSessionCafeEditItem(entry));
+  return entries
+    .map((entry) => toNotebookEntryDTO(entry))
+    .map((entry) => mapSessionCafeEditItem(entry));
 }
 
 export async function getSessionCafeEditItems(
@@ -1127,10 +1081,6 @@ export async function updateSessionBillAmounts(
       if (session.gameEntryId) {
         const entry = await NotebookEntry.findById(session.gameEntryId);
         if (entry) {
-          const lockFailure = await getEntryEditLockFailure(entry);
-          if (lockFailure) {
-            return failure(lockFailure);
-          }
           entry.amount = gameAmount;
           await entry.save();
         }
@@ -1153,10 +1103,6 @@ export async function updateSessionBillAmounts(
     } else if (session.gameEntryId) {
       const entry = await NotebookEntry.findById(session.gameEntryId);
       if (entry) {
-        const lockFailure = await getEntryEditLockFailure(entry);
-        if (lockFailure) {
-          return failure(lockFailure);
-        }
         entry.amount = 0;
         await entry.save();
       }
@@ -1175,10 +1121,6 @@ export async function updateSessionBillAmounts(
     }
     if (entry.status === "PAID") {
       return failure("Paid cafe items cannot be edited");
-    }
-    const lockFailure = await getEntryEditLockFailure(entry);
-    if (lockFailure) {
-      return failure(lockFailure);
     }
     const amount = Math.round(item.amount);
     const quantity = entry.quantity ?? 1;
@@ -1253,6 +1195,72 @@ export async function getUnpaidSessionsForCafeTable(
       session.tableSessionNumber ?? session.sessionNumber
     ),
   }));
+}
+
+
+function gameTimeLabel(tableId: TableSessionDTO["tableId"]): string {
+  if (isBigSnookerTableId(tableId)) {
+    return "Snooker Time";
+  }
+  return poolMiniGameType(tableId) === "POOL" ? "Pool Time" : "Mini Time";
+}
+
+function lineSortTime(line: CompactSessionCheckoutLineDTO): number {
+  if (line.kind === "game") {
+    return new Date(line.endAt).getTime();
+  }
+  return new Date(line.at).getTime();
+}
+
+function buildCompactSessionCheckoutTimeline(
+  session: TableSessionDTO,
+  entries: NotebookEntryDTO[]
+): CompactSessionCheckoutLineDTO[] {
+  const lines: CompactSessionCheckoutLineDTO[] = [];
+
+  const gameEntry = entries.find(
+    (entry) =>
+      entry.section !== CAFE_SECTION && entry.sessionId === session.id
+  );
+
+  if (gameEntry) {
+    const remaining = entryAmountRemaining(gameEntry);
+    if (remaining > 0) {
+      lines.push({
+        kind: "game",
+        startAt: session.startedAt,
+        endAt: session.endedAt ?? session.startedAt,
+        durationMs: session.activePlayMs,
+        label: isBigSnookerTableId(session.tableId)
+          ? getEntryDisplayLabel(gameEntry)
+          : gameTimeLabel(session.tableId),
+        amount: remaining,
+      });
+    }
+  } else if (session.gameChargeAmount > 0) {
+    lines.push({
+      kind: "game",
+      startAt: session.startedAt,
+      endAt: session.endedAt ?? session.startedAt,
+      durationMs: session.activePlayMs,
+      label: gameTimeLabel(session.tableId),
+      amount: session.gameChargeAmount,
+    });
+  }
+
+  for (const entry of entries) {
+    if (entry.section !== CAFE_SECTION || entry.customerId) continue;
+    const remaining = entryAmountRemaining(entry);
+    if (remaining <= 0) continue;
+    lines.push({
+      kind: "cafe",
+      at: entry.createdAt,
+      label: getEntryDisplayLabel(entry),
+      amount: remaining,
+    });
+  }
+
+  return lines.sort((a, b) => lineSortTime(a) - lineSortTime(b));
 }
 
 export async function getSessionCheckoutDetails(

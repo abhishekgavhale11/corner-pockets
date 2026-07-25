@@ -13,34 +13,21 @@ import {
 import { executeWalletDeduct } from "@/lib/wallet/execute-wallet-deduct";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import { revalidateCustomerFinancials } from "@/lib/utils/revalidate-counter";
-import { reconcileCustomerPaymentFields, repairCounterSnapshotsForEntries } from "@/lib/wallet/reconcile-entry-payments";
-import {
-  advanceBillPaymentWatermarks,
-  collectBillIdsFromEntries,
-} from "@/lib/visit-bill/entry-edit-lock";
-import {
-  CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE,
-  getCustomerPagePaymentBlockDue,
-} from "@/lib/visit-bill/active-visit-checkout-due";
 import type { CustomerBalancePaymentDTO } from "@/types";
 import Customer from "@/models/Customer";
 import CustomerBalancePayment from "@/models/CustomerBalancePayment";
 import NotebookEntry from "@/models/NotebookEntry";
-import Bill from "@/models/Bill";
-import { syncBillTotals } from "@/lib/visit-bill/sync-bill-totals";
 
-function toCustomerBalancePaymentDTO(
-  payment: {
-    _id: { toString(): string };
-    customerId: { toString(): string };
-    amount: number;
-    appliedAmount: number;
-    paymentMethod: CustomerBalancePaymentDTO["paymentMethod"];
-    walletTransactionId?: { toString(): string };
-    createdBy: string;
-    createdAt: Date;
-  }
-): CustomerBalancePaymentDTO {
+function toCustomerBalancePaymentDTO(payment: {
+  _id: { toString(): string };
+  customerId: { toString(): string };
+  amount: number;
+  appliedAmount: number;
+  paymentMethod: CustomerBalancePaymentDTO["paymentMethod"];
+  walletTransactionId?: { toString(): string };
+  createdBy: string;
+  createdAt: Date;
+}): CustomerBalancePaymentDTO {
   return {
     id: payment._id.toString(),
     customerId: payment.customerId.toString(),
@@ -52,7 +39,6 @@ function toCustomerBalancePaymentDTO(
     createdAt: payment.createdAt.toISOString(),
   };
 }
-
 
 export async function recordCustomerBalancePayment(
   formData: FormData
@@ -89,7 +75,6 @@ export async function recordCustomerBalancePayment(
 
   await connectDB();
 
-  await reconcileCustomerPaymentFields(parsed.data.customerId);
 
   const customer = await Customer.findById(parsed.data.customerId);
   if (!customer || !customer.isActive) {
@@ -100,12 +85,7 @@ export async function recordCustomerBalancePayment(
     return failure("Wallet is not enabled for this customer");
   }
 
-  const activeVisitBlockDue = await getCustomerPagePaymentBlockDue(
-    parsed.data.customerId
-  );
-  if (activeVisitBlockDue > 0) {
-    return failure(CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE);
-  }
+  // Active-visit checkout block removed with Financial Engine V1 (always 0).
 
   const dbSession = await mongoose.startSession();
   let paymentDoc: Parameters<typeof toCustomerBalancePaymentDTO>[0] | null =
@@ -114,23 +94,8 @@ export async function recordCustomerBalancePayment(
 
   try {
     await dbSession.withTransaction(async () => {
-      const blockDue = await getCustomerPagePaymentBlockDue(
-        parsed.data.customerId
-      );
-      if (blockDue > 0) {
-        throw new Error(CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE);
-      }
-
       const paidAt = new Date();
       let entries;
-
-      const finishedBills = await Bill.find({
-        customerId: parsed.data.customerId,
-        status: "FINISHED",
-      })
-        .select("_id")
-        .session(dbSession);
-      const finishedBillIds = finishedBills.map((bill) => bill._id);
 
       if (parsed.data.entryIds?.length) {
         entries = await NotebookEntry.find({
@@ -147,18 +112,6 @@ export async function recordCustomerBalancePayment(
         }
 
         for (const entry of entries) {
-          const belongsToFinishedBill =
-            (entry.billId &&
-              finishedBillIds.some((billId) => billId.equals(entry.billId!))) ||
-            entry.contributors?.some(
-              (row) =>
-                row.billId &&
-                finishedBillIds.some((billId) => billId.equals(row.billId!))
-            );
-
-          if (!belongsToFinishedBill) {
-            throw new Error(CUSTOMER_PAGE_PAYMENT_BLOCK_MESSAGE);
-          }
           if (entryHasContributors({ contributors: entry.contributors })) {
             continue;
           }
@@ -169,16 +122,15 @@ export async function recordCustomerBalancePayment(
       } else {
         entries = await NotebookEntry.find({
           status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
+          checkoutDismissedAt: { $exists: true, $ne: null },
           $or: [
-            {
-              customerId: parsed.data.customerId,
-              billId: { $in: finishedBillIds },
-            },
+            { customerId: parsed.data.customerId },
             {
               contributors: {
                 $elemMatch: {
-                  customerId: new mongoose.Types.ObjectId(parsed.data.customerId),
-                  billId: { $in: finishedBillIds },
+                  customerId: new mongoose.Types.ObjectId(
+                    parsed.data.customerId
+                  ),
                 },
               },
             },
@@ -196,12 +148,12 @@ export async function recordCustomerBalancePayment(
         paidAt
       );
       if (appliedAmount <= 0) {
-        throw new Error(
-          "No pay-later balance to collect. Use checkout for open bills."
-        );
+        throw new Error("No pay-later balance to collect.");
       }
       if (appliedAmount !== parsed.data.amount) {
-        throw new Error("Amount exceeds outstanding balance for this customer.");
+        throw new Error(
+          "Amount exceeds outstanding balance for this customer."
+        );
       }
       appliedEntryIds = allocations.map((row) => row.entryId);
 
@@ -254,22 +206,6 @@ export async function recordCustomerBalancePayment(
     return failure("Failed to record payment");
   }
 
-  const affectedEntryIds = [...new Set(appliedEntryIds)];
-  if (affectedEntryIds.length > 0) {
-    await repairCounterSnapshotsForEntries(affectedEntryIds);
-
-    const affectedEntries = await NotebookEntry.find({
-      _id: { $in: affectedEntryIds },
-    }).lean();
-
-    const billIds = collectBillIdsFromEntries(affectedEntries);
-    if (billIds.length > 0) {
-      for (const billId of billIds) {
-        await syncBillTotals(new mongoose.Types.ObjectId(billId));
-      }
-      await advanceBillPaymentWatermarks(billIds, new Date());
-    }
-  }
 
   revalidateCustomerFinancials(parsed.data.customerId);
 

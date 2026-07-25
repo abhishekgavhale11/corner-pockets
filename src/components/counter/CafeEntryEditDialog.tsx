@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { correctCafeEntry } from "@/actions/notebook-entries";
 import { entryTypeLabel } from "@/lib/constants/notebook-entry-types";
@@ -9,11 +9,15 @@ import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
+import {
+  EntryPaymentFields,
+  appendEntryPaymentFormData,
+  resolveEntryPaymentSubmit,
+  type EntryPaymentMode,
+} from "@/components/counter/EntryPaymentFields";
 import { formatCorrectionHistoryEntry } from "@/lib/utils/entry-corrections";
 import { formatCurrency } from "@/lib/utils/format";
-import { ENTRY_LOCKED_MESSAGE } from "@/lib/visit-bill/entry-edit-lock-constants";
-import { isNotebookEntryEditLocked } from "@/lib/visit-bill/entry-edit-lock-utils";
-import { EntryLockIndicator } from "@/components/counter/EntryLockIndicator";
+import { framePaidAmount } from "@/lib/utils/frame-payment";
 
 interface CafeEntryEditDialogProps {
   entry: NotebookEntryDTO | null;
@@ -25,6 +29,8 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
   const [quantity, setQuantity] = useState("");
   const [amount, setAmount] = useState("");
   const [itemNote, setItemNote] = useState("");
+  const [paidAmount, setPaidAmount] = useState("0");
+  const [paymentMode, setPaymentMode] = useState<EntryPaymentMode | "">("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -37,42 +43,38 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
     setQuantity(String(entry.quantity ?? 1));
     setAmount(String(entry.amount));
     setItemNote(entry.itemNote ?? "");
+    setPaidAmount(String(framePaidAmount(entry.paidAmount)));
+    setPaymentMode(
+      entry.paymentMethod === "CASH" || entry.paymentMethod === "GPAY"
+        ? entry.paymentMethod
+        : ""
+    );
     setReason("");
     setError(null);
   }, [open, entry]);
 
+  const effectiveAmount = useMemo(() => {
+    if (!entry) return 0;
+    if (isFood) {
+      return Number.parseInt(amount, 10) || 0;
+    }
+    const nextQty = Number.parseInt(quantity, 10) || 1;
+    const unitPrice =
+      entry.unitPrice ??
+      (entry.quantity ? entry.amount / entry.quantity : entry.amount);
+    return unitPrice * nextQty;
+  }, [entry, isFood, amount, quantity]);
+
   if (!entry) return null;
 
-  if (isNotebookEntryEditLocked(entry)) {
-    return (
-      <Dialog open={open} onClose={onClose} title="Item locked">
-        <div className="space-y-3">
-          <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-            <EntryLockIndicator className="mt-0.5 shrink-0" />
-            <p className="text-sm text-gray-700">{ENTRY_LOCKED_MESSAGE}</p>
-          </div>
-          <div className="flex justify-end">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Close
-            </Button>
-          </div>
-        </div>
-      </Dialog>
-    );
-  }
-
   const submit = () => {
-    if (reason.trim().length < 3) {
-      setError("Please provide a correction reason");
-      return;
-    }
-
     const formData = new FormData();
     formData.set("entryId", entry.id);
-    formData.set("correctionReason", reason.trim());
+
+    let contentChanged = false;
 
     if (isFood) {
-      const nextAmount = Number(amount);
+      const nextAmount = Number.parseInt(amount, 10);
       if (!nextAmount || nextAmount <= 0) {
         setError("Enter a valid amount");
         return;
@@ -83,19 +85,58 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
       }
       if (nextAmount !== entry.amount) {
         formData.set("amount", String(nextAmount));
+        contentChanged = true;
       }
       if (itemNote.trim() !== (entry.itemNote ?? "").trim()) {
         formData.set("itemNote", itemNote.trim());
+        contentChanged = true;
       }
     } else {
-      const nextQty = Number(quantity);
+      const nextQty = Number.parseInt(quantity, 10);
       if (!nextQty || nextQty < 1) {
         setError("Enter a valid quantity");
         return;
       }
       if (nextQty !== (entry.quantity ?? 1)) {
         formData.set("quantity", String(nextQty));
+        contentChanged = true;
       }
+    }
+
+    const parsedPaid = Number.parseInt(paidAmount, 10) || 0;
+    if (parsedPaid > effectiveAmount) {
+      setError("Received amount cannot exceed item amount");
+      return;
+    }
+    // Cafe entry correction has no customer wallet UI — wallet stays off.
+    const paymentCheck = resolveEntryPaymentSubmit({
+      paidAmount: parsedPaid,
+      useWallet: false,
+      walletBalance: 0,
+      paymentMode,
+    });
+    if (!paymentCheck.valid) {
+      setError(paymentCheck.error ?? "Select Cash or GPay");
+      return;
+    }
+
+    const paymentFields = appendEntryPaymentFormData(formData, {
+      paidAmount: parsedPaid,
+      useWallet: false,
+      walletBalance: 0,
+      paymentMode,
+    });
+    if (!paymentFields.ok) {
+      setError(paymentFields.error);
+      return;
+    }
+
+    if (contentChanged) {
+      if (reason.trim().length < 3) {
+        setError("Please provide a correction reason");
+        return;
+      }
+      formData.set("correctionReason", reason.trim());
     }
 
     startTransition(async () => {
@@ -113,7 +154,7 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
     <Dialog open={open} onClose={onClose} title="Edit cafe item">
       <div className="space-y-3">
         <p className="text-sm text-gray-600">
-          {entryTypeLabel(entry.type)} · current {formatCurrency(entry.amount)}
+          {entryTypeLabel(entry.type)} · {formatCurrency(entry.amount)}
         </p>
 
         {isFood ? (
@@ -152,8 +193,34 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
           </div>
         )}
 
+        <EntryPaymentFields
+          idPrefix="cafe-edit"
+          amount={effectiveAmount}
+          paidAmount={paidAmount}
+          paymentMode={paymentMode}
+          useWallet={false}
+          disabled={isPending}
+          onPaidAmountChange={(value) => {
+            setPaidAmount(value);
+            setError(null);
+          }}
+          onPaymentModeChange={(value) => {
+            setPaymentMode(value);
+            setError(null);
+          }}
+          onUseWalletChange={() => {
+            /* wallet not available on cafe entry correction */
+          }}
+          walletEnabled={false}
+        />
+
         <div>
-          <Label htmlFor="cafe-edit-reason">Reason</Label>
+          <Label htmlFor="cafe-edit-reason">
+            Reason{" "}
+            <span className="font-normal text-gray-400">
+              (required for qty/amount changes)
+            </span>
+          </Label>
           <Input
             id="cafe-edit-reason"
             value={reason}
@@ -185,7 +252,7 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
             Cancel
           </Button>
           <Button type="button" disabled={isPending} onClick={submit}>
-            Save correction
+            Save
           </Button>
         </div>
       </div>

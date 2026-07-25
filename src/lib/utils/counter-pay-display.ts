@@ -3,11 +3,7 @@ import {
   entryAmountRemaining,
   isEntryOnCustomerBalance,
 } from "@/lib/utils/entry-contributors";
-import {
-  contributorTotalPaidAmount,
-  entryTotalPaidAmount,
-  frozenPayFromEntryDto,
-} from "@/lib/utils/freeze-counter-pay-snapshot";
+import { formatCurrency } from "@/lib/utils/format";
 
 export type CounterPayDisplay = {
   paidAmount: number;
@@ -16,77 +12,49 @@ export type CounterPayDisplay = {
   frozen: boolean;
 };
 
-function frozenPayFromContributor(
-  entry: NotebookEntryDTO,
-  contributor: NotebookEntryContributorDTO
-): { paidAmount: number; balanceAmount: number } {
-  if (entry.checkoutDismissedAt) {
-    if (
-      contributor.counterPaidAmount != null &&
-      contributor.counterBalanceAmount != null
-    ) {
-      return {
-        paidAmount: contributor.counterPaidAmount,
-        balanceAmount: contributor.counterBalanceAmount,
-      };
+export type CounterRemainingKind = "due" | "outstanding";
+
+export type CounterPayLineView =
+  | { kind: "dash" }
+  | { kind: "fully_paid_finished" }
+  | { kind: "fully_paid_active"; paidAmount: number }
+  | {
+      kind: "partial";
+      paidAmount: number;
+      remainingAmount: number;
+      remainingKind: CounterRemainingKind;
     }
-
-    if (contributor.status !== "PAID") {
-      const owed = Math.max(
-        0,
-        contributor.amount - contributorTotalPaidAmount(contributor)
-      );
-      return {
-        paidAmount: Math.max(0, contributor.amount - owed),
-        balanceAmount: owed,
-      };
-    }
-
-    const totalPaid = contributorTotalPaidAmount(contributor);
-    return {
-      paidAmount: totalPaid,
-      balanceAmount: Math.max(0, contributor.amount - totalPaid),
+  | {
+      kind: "remaining_only";
+      remainingAmount: number;
+      remainingKind: CounterRemainingKind;
     };
-  }
 
-  if (
-    contributor.counterPaidAmount != null &&
-    contributor.counterBalanceAmount != null
-  ) {
-    const totalPaid = contributorTotalPaidAmount(contributor);
-    const { paid, balance } = {
-      paid: contributor.counterPaidAmount,
-      balance: contributor.counterBalanceAmount,
-    };
-    if (
-      paid + balance === contributor.amount &&
-      !(totalPaid > 0 && paid === 0 && balance === contributor.amount)
-    ) {
-      return { paidAmount: paid, balanceAmount: balance };
-    }
-  }
+function entryTotalPaidAmount(
+  entry: Pick<NotebookEntryDTO, "paidAmount" | "balanceCollectedAmount">
+): number {
+  return (entry.paidAmount ?? 0) + (entry.balanceCollectedAmount ?? 0);
+}
 
-  if (contributor.status !== "PAID") {
-    const owed = Math.max(
-      0,
-      contributor.amount - contributorTotalPaidAmount(contributor)
-    );
-    return {
-      paidAmount: Math.max(0, contributor.amount - owed),
-      balanceAmount: owed,
-    };
-  }
+function contributorTotalPaidAmount(
+  contributor: Pick<
+    NotebookEntryContributorDTO,
+    "paidAmount" | "balanceCollectedAmount"
+  >
+): number {
+  return (
+    (contributor.paidAmount ?? 0) + (contributor.balanceCollectedAmount ?? 0)
+  );
+}
 
-  return {
-    paidAmount: contributor.amount,
-    balanceAmount: 0,
-  };
+function remainingKindForDisplay(
+  display: CounterPayDisplay
+): CounterRemainingKind {
+  return display.onBalance || display.frozen ? "outstanding" : "due";
 }
 
 /**
- * Counter Pay column amounts (FR-CTR-001 / FR-VIS-016).
- * Payment methods never appear on Counter — only paid/remaining amounts.
- * Remaining label (Due vs Outstanding) is resolved in counter-visit-display.ts.
+ * Counter Pay column amounts — paid/remaining from entry fields only.
  */
 export function getCounterPayDisplay(
   entry: NotebookEntryDTO
@@ -96,9 +64,12 @@ export function getCounterPayDisplay(
   }
 
   if (entry.checkoutDismissedAt) {
-    const { paidAmount, balanceAmount } = frozenPayFromEntryDto(entry);
+    const paidAmount = entryTotalPaidAmount(entry);
+    const balanceAmount =
+      entry.counterBalanceAmount ?? entryAmountRemaining(entry);
     return {
-      paidAmount,
+      paidAmount:
+        entry.counterPaidAmount ?? Math.max(0, entry.amount - balanceAmount),
       balanceAmount,
       onBalance: balanceAmount > 0,
       frozen: true,
@@ -149,13 +120,13 @@ export function getContributorCounterPayDisplay(
   contributor: NotebookEntryContributorDTO
 ): CounterPayDisplay {
   if (entry.checkoutDismissedAt) {
-    const { paidAmount, balanceAmount } = frozenPayFromContributor(
-      entry,
-      contributor
-    );
+    const paidAmount = contributorTotalPaidAmount(contributor);
+    const balanceAmount = Math.max(0, contributor.amount - paidAmount);
     return {
-      paidAmount,
-      balanceAmount,
+      paidAmount:
+        contributor.counterPaidAmount ??
+        Math.max(0, contributor.amount - balanceAmount),
+      balanceAmount: contributor.counterBalanceAmount ?? balanceAmount,
       onBalance: balanceAmount > 0,
       frozen: true,
     };
@@ -186,6 +157,80 @@ export function getContributorCounterPayDisplay(
     onBalance: isEntryOnCustomerBalance(entry),
     frozen: false,
   };
+}
+
+export function counterRowHasRemainingBalance(
+  display: CounterPayDisplay | null
+): boolean {
+  return Boolean(display && display.balanceAmount > 0);
+}
+
+export function formatCounterRemainingText(
+  remaining: number,
+  remainingKind: CounterRemainingKind
+): string {
+  const label = remainingKind === "outstanding" ? "Outstanding" : "Due";
+  return `${formatCurrency(remaining)} ${label}`;
+}
+
+export function resolveCounterPayLineViewForEntry(
+  entry: NotebookEntryDTO
+): CounterPayLineView {
+  const display = getCounterPayDisplay(entry);
+  if (!display) return { kind: "dash" };
+
+  if (display.paidAmount > 0 && display.balanceAmount <= 0) {
+    return { kind: "fully_paid_finished" };
+  }
+
+  if (display.paidAmount > 0 && display.balanceAmount > 0) {
+    return {
+      kind: "partial",
+      paidAmount: display.paidAmount,
+      remainingAmount: display.balanceAmount,
+      remainingKind: remainingKindForDisplay(display),
+    };
+  }
+
+  if (display.balanceAmount > 0) {
+    return {
+      kind: "remaining_only",
+      remainingAmount: display.balanceAmount,
+      remainingKind: remainingKindForDisplay(display),
+    };
+  }
+
+  return { kind: "dash" };
+}
+
+export function resolveContributorCounterPayLineView(
+  entry: NotebookEntryDTO,
+  contributor: NotebookEntryContributorDTO
+): CounterPayLineView {
+  const display = getContributorCounterPayDisplay(entry, contributor);
+
+  if (display.paidAmount > 0 && display.balanceAmount <= 0) {
+    return { kind: "fully_paid_finished" };
+  }
+
+  if (display.paidAmount > 0 && display.balanceAmount > 0) {
+    return {
+      kind: "partial",
+      paidAmount: display.paidAmount,
+      remainingAmount: display.balanceAmount,
+      remainingKind: remainingKindForDisplay(display),
+    };
+  }
+
+  if (display.balanceAmount > 0) {
+    return {
+      kind: "remaining_only",
+      remainingAmount: display.balanceAmount,
+      remainingKind: remainingKindForDisplay(display),
+    };
+  }
+
+  return { kind: "dash" };
 }
 
 export function counterPayShowsFullAtCheckout(

@@ -18,7 +18,7 @@ export function BillingModeToggle({
   return (
     <div className="space-y-1">
       <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-        Billing
+        Frame ownership
       </p>
       <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
         <button
@@ -32,7 +32,7 @@ export function BillingModeToggle({
               : "text-gray-600 hover:text-gray-900"
           )}
         >
-          One customer
+          Single customer
         </button>
         <button
           type="button"
@@ -45,7 +45,7 @@ export function BillingModeToggle({
               : "text-gray-600 hover:text-gray-900"
           )}
         >
-          Split bill
+          Split
         </button>
       </div>
     </div>

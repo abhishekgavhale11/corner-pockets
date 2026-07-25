@@ -32,9 +32,25 @@ export function MembershipRegistrationForm({
 
   return (
     <form action={formAction} className="space-y-3">
-      <div>
-        <Label htmlFor="member-name">Name</Label>
-        <Input id="member-name" name="name" required />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor="member-first-name">Name</Label>
+          <Input
+            id="member-first-name"
+            name="firstName"
+            required
+            placeholder="Name"
+          />
+        </div>
+        <div>
+          <Label htmlFor="member-last-name">Surname</Label>
+          <Input
+            id="member-last-name"
+            name="lastName"
+            required
+            placeholder="Surname"
+          />
+        </div>
       </div>
       <div>
         <Label htmlFor="member-phone">Phone</Label>

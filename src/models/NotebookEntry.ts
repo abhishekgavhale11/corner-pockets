@@ -36,6 +36,8 @@ export interface INotebookEntryContributor {
   counterBalanceAmount?: number;
   status: "PENDING" | "PAID";
   paymentMethod?: NotebookPaymentMethod;
+  /** Auto-computed wallet portion of paidAmount. */
+  walletAmount?: number;
   settlementId?: mongoose.Types.ObjectId;
   paidAt?: Date;
   visitId?: mongoose.Types.ObjectId;
@@ -59,6 +61,8 @@ export interface INotebookEntry extends Document {
   paidByName?: string;
   paidByCustomerId?: mongoose.Types.ObjectId;
   walletTransactionId?: mongoose.Types.ObjectId;
+  /** Portion of Received taken from wallet (full paid when paymentMethod is WALLET). */
+  walletAmount?: number;
   reversedAt?: Date;
   reversedBy?: string;
   reversalReason?: string;
@@ -68,6 +72,10 @@ export interface INotebookEntry extends Document {
   quantity?: number;
   unitPrice?: number;
   itemNote?: string;
+  /** Pool & Mini: play window (manual; not timer-driven). */
+  playStartedAt?: Date;
+  playEndedAt?: Date;
+  notes?: string;
   playerCount?: number;
   snookerGame?: SnookerGame;
   rateType?: CounterRateType;
@@ -80,6 +88,8 @@ export interface INotebookEntry extends Document {
   counterBalanceAmount?: number;
   visitId?: mongoose.Types.ObjectId;
   billId?: mongoose.Types.ObjectId;
+  businessDayId?: mongoose.Types.ObjectId;
+  businessDate?: Date;
   contributors: INotebookEntryContributor[];
   createdBy: string;
   createdByStaffId: mongoose.Types.ObjectId;
@@ -136,6 +146,7 @@ const notebookEntryContributorSchema = new Schema<INotebookEntryContributor>(
       type: String,
       enum: ["CASH", "GPAY", "WALLET"],
     },
+    walletAmount: { type: Number, min: 0 },
     settlementId: {
       type: Schema.Types.ObjectId,
       ref: "NotebookSettlement",
@@ -237,6 +248,7 @@ const notebookEntrySchema = new Schema<INotebookEntry>(
     paidByName: { type: String, trim: true },
     paidByCustomerId: { type: Schema.Types.ObjectId, ref: "Customer" },
     walletTransactionId: { type: Schema.Types.ObjectId, ref: "Transaction" },
+    walletAmount: { type: Number, min: 0 },
     reversedAt: { type: Date },
     reversedBy: { type: String, trim: true },
     reversalReason: { type: String, trim: true },
@@ -246,6 +258,9 @@ const notebookEntrySchema = new Schema<INotebookEntry>(
     quantity: { type: Number, default: 1, min: 1 },
     unitPrice: { type: Number, min: 1 },
     itemNote: { type: String, default: "", trim: true },
+    playStartedAt: { type: Date },
+    playEndedAt: { type: Date },
+    notes: { type: String, default: "", trim: true },
     playerCount: { type: Number, min: 2, max: 20 },
     snookerGame: {
       type: String,
@@ -272,6 +287,15 @@ const notebookEntrySchema = new Schema<INotebookEntry>(
       ref: "Bill",
       index: true,
     },
+    businessDayId: {
+      type: Schema.Types.ObjectId,
+      ref: "BusinessDay",
+      index: true,
+    },
+    businessDate: {
+      type: Date,
+      index: true,
+    },
     contributors: { type: [notebookEntryContributorSchema], default: [] },
     createdBy: { type: String, required: true, trim: true },
     createdByStaffId: {
@@ -286,6 +310,26 @@ const notebookEntrySchema = new Schema<INotebookEntry>(
 notebookEntrySchema.index({ status: 1, createdAt: -1 });
 notebookEntrySchema.index({ customerId: 1, status: 1 });
 notebookEntrySchema.index({ section: 1, status: 1, createdAt: -1 });
+notebookEntrySchema.index({ businessDayId: 1, status: 1 });
+
+notebookEntrySchema.pre("validate", async function () {
+  if (!this.isNew) {
+    return;
+  }
+  if (this.businessDayId && this.businessDate) {
+    return;
+  }
+  const { requireOpenBusinessDayContext } = await import(
+    "@/lib/business-day/require-open-business-day"
+  );
+  const ctx = await requireOpenBusinessDayContext();
+  if (!this.businessDayId) {
+    this.businessDayId = ctx.businessDayId;
+  }
+  if (!this.businessDate) {
+    this.businessDate = ctx.businessDate;
+  }
+});
 
 const NotebookEntry: Model<INotebookEntry> =
   mongoose.models.NotebookEntry ??

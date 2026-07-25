@@ -50,7 +50,7 @@ export function CustomerInfo({
             size="sm"
             onClick={() => setIsEditing(true)}
           >
-            Edit name, phone & card
+            Edit name, surname, phone & card
           </Button>
         )}
       </div>
@@ -59,15 +59,29 @@ export function CustomerInfo({
         <form action={formAction} className="space-y-5">
           <input type="hidden" name="customerId" value={customer.id} />
 
-          <div>
-            <Label htmlFor="edit-name">Full Name</Label>
-            <Input
-              id="edit-name"
-              name="name"
-              defaultValue={customer.name}
-              required
-              autoComplete="name"
-            />
+          <div className="grid grid-cols-2 gap-5">
+            <div>
+              <Label htmlFor="edit-first-name">Name</Label>
+              <Input
+                id="edit-first-name"
+                name="firstName"
+                defaultValue={customer.firstName}
+                required
+                autoComplete="given-name"
+                placeholder="Name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-last-name">Surname</Label>
+              <Input
+                id="edit-last-name"
+                name="lastName"
+                defaultValue={customer.lastName}
+                required
+                autoComplete="family-name"
+                placeholder="Surname"
+              />
+            </div>
           </div>
 
           <div>
@@ -124,7 +138,8 @@ export function CustomerInfo({
       ) : (
         <>
           <dl className="grid gap-4 sm:grid-cols-2">
-            <InfoItem label="Name" value={customer.name} />
+            <InfoItem label="Name" value={customer.firstName || "—"} />
+            <InfoItem label="Surname" value={customer.lastName || "—"} />
             <InfoItem label="Card ID" value={customer.cardId} />
             <InfoItem label="Phone Number" value={customer.phone} />
             <InfoItem

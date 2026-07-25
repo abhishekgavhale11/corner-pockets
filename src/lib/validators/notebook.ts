@@ -5,7 +5,7 @@ import {
   NOTEBOOK_REVERSAL_REASON_KEYS,
 } from "@/lib/constants/notebook-payments";
 import { NOTEBOOK_SECTIONS } from "@/lib/constants/notebook-sections";
-import { SNOOKER_TABLE_SECTIONS } from "@/lib/constants/counter-sections";
+import { SNOOKER_TABLE_SECTIONS, POOL_MINI_SECTIONS } from "@/lib/constants/counter-sections";
 import { CAFE_TABLE_IDS } from "@/lib/constants/counter-sections";
 import {
   COUNTER_RATE_TYPES,
@@ -29,10 +29,18 @@ const optionalPhoneSchema = z
   );
 
 export const createQuickNotebookCustomerSchema = z.object({
-  name: z
+  firstName: z
     .string()
-    .min(2, "Name must be at least 2 characters")
-    .max(100, "Name is too long"),
+    .min(1, "First name is required")
+    .max(50, "First name is too long")
+    .transform((val) => val.trim())
+    .refine((val) => val.length >= 1, "First name is required"),
+  lastName: z
+    .string()
+    .min(1, "Last name is required")
+    .max(50, "Last name is too long")
+    .transform((val) => val.trim())
+    .refine((val) => val.length >= 1, "Last name is required"),
   phone: optionalPhoneSchema,
 });
 
@@ -153,6 +161,20 @@ export const updateSnookerFrameEntrySchema = z
       .int("Amount must be a whole number")
       .positive("Amount must be greater than zero")
       .max(100000, "Amount is too large"),
+    paidAmount: z.coerce
+      .number()
+      .int("Received amount must be a whole number")
+      .min(0, "Received amount cannot be negative")
+      .max(100000, "Received amount is too large")
+      .default(0),
+    paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
+    useWallet: z.boolean().optional().default(false),
+    walletAmount: z.coerce
+      .number()
+      .int("Wallet amount must be a whole number")
+      .min(0, "Wallet amount cannot be negative")
+      .max(100000, "Wallet amount is too large")
+      .optional(),
     playerCount: z.coerce
       .number()
       .int("Players must be a whole number")
@@ -163,8 +185,36 @@ export const updateSnookerFrameEntrySchema = z
       .string()
       .regex(/^\d{2}:\d{2}$/, "Enter a valid time"),
     customerId: z.string().min(1).optional(),
+    /** Split frames store payment per contributor — skip entry-level payment rules. */
+    splitBilling: z.literal("true").optional(),
   })
   .superRefine((data, ctx) => {
+    if (!data.splitBilling) {
+      if (data.paidAmount > data.amount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Received amount cannot exceed frame amount",
+          path: ["paidAmount"],
+        });
+      }
+      if (data.paidAmount > 0 && !data.paymentMethod) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Select Cash, GPay, or Wallet when received amount is greater than zero",
+          path: ["paymentMethod"],
+        });
+      }
+      if (
+        data.walletAmount !== undefined &&
+        data.walletAmount > data.paidAmount
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Wallet amount cannot exceed received amount",
+          path: ["walletAmount"],
+        });
+      }
+    }
     if (data.frameType === "RUMMY" && data.playerCount === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -178,6 +228,95 @@ export const updateSnookerFrameEntrySchema = z
         message: "Player count is only valid for Rummy",
         path: ["playerCount"],
       });
+    }
+  });
+
+export const createPoolMiniEntrySchema = z.object({
+  section: z.enum(POOL_MINI_SECTIONS),
+  amount: z.coerce
+    .number()
+    .int("Amount must be a whole number")
+    .positive("Amount must be greater than zero")
+    .max(100000, "Amount is too large"),
+  rateType: z.enum(COUNTER_RATE_TYPES).default("REGULAR"),
+});
+
+export const updatePoolMiniEntrySchema = z
+  .object({
+    entryId: z.string().min(1, "Entry is required"),
+    amount: z.coerce
+      .number()
+      .int("Amount must be a whole number")
+      .positive("Amount must be greater than zero")
+      .max(100000, "Amount is too large"),
+    paidAmount: z.coerce
+      .number()
+      .int("Received amount must be a whole number")
+      .min(0, "Received amount cannot be negative")
+      .max(100000, "Received amount is too large")
+      .default(0),
+    paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
+    useWallet: z.boolean().optional().default(false),
+    walletAmount: z.coerce
+      .number()
+      .int("Wallet amount must be a whole number")
+      .min(0, "Wallet amount cannot be negative")
+      .max(100000, "Wallet amount is too large")
+      .optional(),
+    startTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid start time"),
+    endTime: z
+      .string()
+      .trim()
+      .optional()
+      .transform((value) => (value && value.length > 0 ? value : undefined))
+      .pipe(
+        z
+          .string()
+          .regex(/^\d{2}:\d{2}$/, "Enter a valid end time")
+          .optional()
+      ),
+    notes: z
+      .string()
+      .max(500, "Notes are too long")
+      .optional()
+      .transform((value) => value?.trim() ?? ""),
+    customerId: z.string().min(1).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.paidAmount > data.amount) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Received amount cannot exceed amount",
+        path: ["paidAmount"],
+      });
+    }
+    if (data.paidAmount > 0 && !data.paymentMethod) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Select Cash, GPay, or Wallet when received amount is greater than zero",
+        path: ["paymentMethod"],
+      });
+    }
+    if (
+      data.walletAmount !== undefined &&
+      data.walletAmount > data.paidAmount
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Wallet amount cannot exceed received amount",
+        path: ["walletAmount"],
+      });
+    }
+    if (data.endTime) {
+      const [sh, sm] = data.startTime.split(":").map(Number);
+      const [eh, em] = data.endTime.split(":").map(Number);
+      if (eh * 60 + em < sh * 60 + sm) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "End time cannot be before start time",
+          path: ["endTime"],
+        });
+      }
     }
   });
 
@@ -205,42 +344,58 @@ export const correctCounterEntrySchema = z.object({
 export const setEntryContributorsSchema = z.object({
   entryId: z.string().min(1, "Entry is required"),
   contributors: z.array(
-    z.object({
-      customerId: z.string().min(1),
-      amount: z.coerce.number().int().positive().max(100000),
-    })
+    z
+      .object({
+        customerId: z.string().min(1),
+        amount: z.coerce.number().int().positive().max(100000),
+        paidAmount: z.coerce
+          .number()
+          .int()
+          .min(0)
+          .max(100000)
+          .optional()
+          .default(0),
+        paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
+        useWallet: z.boolean().optional().default(false),
+        walletAmount: z.coerce
+          .number()
+          .int()
+          .min(0)
+          .max(100000)
+          .optional(),
+      })
+      .superRefine((row, ctx) => {
+        if ((row.paidAmount ?? 0) > row.amount) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Received amount cannot exceed contributor amount",
+            path: ["paidAmount"],
+          });
+        }
+        if ((row.paidAmount ?? 0) > 0 && !row.paymentMethod) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Please select Cash or GPay.",
+            path: ["paymentMethod"],
+          });
+        }
+        if (
+          row.walletAmount !== undefined &&
+          row.walletAmount > (row.paidAmount ?? 0)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Wallet amount cannot exceed received amount",
+            path: ["walletAmount"],
+          });
+        }
+      })
   ),
 });
 
 export const assignCounterEntryCustomerSchema = z.object({
   entryId: z.string().min(1, "Entry is required"),
   customerId: z.string().min(1, "Customer is required"),
-});
-
-export const assignCheckoutBillToCustomerSchema = z
-  .object({
-    customerId: z.string().min(1, "Customer is required"),
-    entryIds: z.array(z.string().min(1)).optional(),
-    sessionId: z.string().optional(),
-    tableId: z.string().optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (
-      (!data.entryIds || data.entryIds.length === 0) &&
-      !data.sessionId &&
-      !data.tableId
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Bill has no payable lines",
-        path: ["entryIds"],
-      });
-    }
-  });
-
-export const dismissCheckoutBillSchema = z.object({
-  customerId: z.string().min(1, "Customer is required"),
-  entryIds: z.array(z.string().min(1)).optional(),
 });
 
 export const notebookCustomerSearchSchema = z.object({
@@ -364,32 +519,77 @@ export const cancelCounterEntrySchema = z
     }
   });
 
-export const correctCafeEntrySchema = z.object({
+/** Soft-delete a frame while the Business Day is still OPEN. */
+export const deleteFrameSchema = z.object({
   entryId: z.string().min(1, "Entry is required"),
-  correctionReason: z
-    .string()
-    .min(3, "Please provide a correction reason")
-    .max(500, "Reason is too long"),
-  quantity: z.coerce
-    .number()
-    .int("Quantity must be a whole number")
-    .min(1, "Quantity must be at least 1")
-    .max(99, "Quantity is too large")
-    .optional(),
-  amount: z.coerce
-    .number()
-    .int("Amount must be a whole number")
-    .positive("Amount must be greater than zero")
-    .max(100000, "Amount is too large")
-    .optional(),
-  itemNote: z.string().max(200, "Note is too long").optional(),
 });
+
+export const correctCafeEntrySchema = z
+  .object({
+    entryId: z.string().min(1, "Entry is required"),
+    correctionReason: z
+      .string()
+      .max(500, "Reason is too long")
+      .optional()
+      .transform((value) => value?.trim() ?? ""),
+    quantity: z.coerce
+      .number()
+      .int("Quantity must be a whole number")
+      .min(1, "Quantity must be at least 1")
+      .max(99, "Quantity is too large")
+      .optional(),
+    amount: z.coerce
+      .number()
+      .int("Amount must be a whole number")
+      .positive("Amount must be greater than zero")
+      .max(100000, "Amount is too large")
+      .optional(),
+    itemNote: z.string().max(200, "Note is too long").optional(),
+    paidAmount: z.coerce
+      .number()
+      .int("Received amount must be a whole number")
+      .min(0, "Received amount cannot be negative")
+      .max(100000, "Received amount is too large")
+      .optional(),
+    paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
+    useWallet: z.boolean().optional().default(false),
+  })
+  .superRefine((data, ctx) => {
+    if (data.paidAmount !== undefined && data.amount !== undefined) {
+      if (data.paidAmount > data.amount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Received amount cannot exceed item amount",
+          path: ["paidAmount"],
+        });
+      }
+    }
+    if (
+      data.paidAmount !== undefined &&
+      data.paidAmount > 0 &&
+      !data.paymentMethod
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Select Cash, GPay, or Wallet when received amount is greater than zero",
+        path: ["paymentMethod"],
+      });
+    }
+  });
 
 export const addCafeItemsSchema = z
   .object({
     customerId: z.string().optional(),
     tableId: z.enum(CAFE_TABLE_IDS).optional(),
     sessionId: z.string().optional(),
+    paidAmount: z.coerce
+      .number()
+      .int("Received amount must be a whole number")
+      .min(0, "Received amount cannot be negative")
+      .max(100000, "Received amount is too large")
+      .default(0),
+    paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
+    useWallet: z.boolean().optional().default(false),
     items: z
       .array(
         z.object({
@@ -408,6 +608,35 @@ export const addCafeItemsSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Assign to either a customer or a table",
+        path: ["customerId"],
+      });
+    }
+
+    const orderAmount = data.items.reduce(
+      (sum, item) => sum + item.unitPrice * item.quantity,
+      0
+    );
+
+    if (data.paidAmount > orderAmount) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Received amount cannot exceed item amount",
+        path: ["paidAmount"],
+      });
+    }
+
+    if (data.paidAmount > 0 && !data.paymentMethod) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Select Cash, GPay, or Wallet when received amount is greater than zero",
+        path: ["paymentMethod"],
+      });
+    }
+
+    if (data.paidAmount > 0 && !hasCustomer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Assign a customer before recording payment",
         path: ["customerId"],
       });
     }

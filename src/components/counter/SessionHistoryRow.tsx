@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
 import { formatCurrency } from "@/lib/utils/format";
-import { checkoutHrefForSession } from "@/lib/utils/checkout-navigation";
 import {
   formatClockTime,
   formatDurationMinutes,
@@ -100,15 +98,6 @@ export function SessionHistoryRow({ row }: SessionHistoryRowProps) {
       ) : row.paymentStatus === "PENDING" ? (
         <p className="mt-2 text-gray-700">Pending</p>
       ) : null}
-
-      {row.paymentStatus === "PENDING" && (
-        <Link
-          href={checkoutHrefForSession(row.sessionId)}
-          className="mt-2 inline-block font-semibold text-blue-800 hover:underline"
-        >
-          Pay in Checkout →
-        </Link>
-      )}
     </div>
   );
 }

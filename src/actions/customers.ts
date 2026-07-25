@@ -26,12 +26,141 @@ import {
   phoneVerificationSchema,
 } from "@/lib/validators/transaction";
 import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
+import { formatCustomerFullName } from "@/lib/utils/customer-name";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
-import type { CustomerDTO, PaginatedResult } from "@/types";
+import type {
+  CustomerDTO,
+  CustomerListResult,
+  CustomerListRowDTO,
+} from "@/types";
+import Outstanding from "@/models/Outstanding";
+import NotebookEntry from "@/models/NotebookEntry";
+import mongoose from "mongoose";
+
+async function loadOutstandingCustomerIds(): Promise<mongoose.Types.ObjectId[]> {
+  const withOutstanding = await Outstanding.aggregate<{
+    _id: mongoose.Types.ObjectId;
+  }>([
+    {
+      $match: {
+        status: "PENDING",
+        remainingAmount: { $gt: 0 },
+      },
+    },
+    {
+      $group: {
+        _id: "$customerId",
+        outstandingAmount: { $sum: "$remainingAmount" },
+      },
+    },
+    { $match: { outstandingAmount: { $gt: 0 } } },
+  ]);
+
+  return withOutstanding.map((row) => row._id);
+}
+
+async function loadOutstandingTotalsByCustomer(
+  customerIds: mongoose.Types.ObjectId[]
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (customerIds.length === 0) return map;
+
+  const rows = await Outstanding.aggregate<{
+    _id: mongoose.Types.ObjectId;
+    total: number;
+  }>([
+    {
+      $match: {
+        customerId: { $in: customerIds },
+        status: "PENDING",
+        remainingAmount: { $gt: 0 },
+      },
+    },
+    {
+      $group: {
+        _id: "$customerId",
+        total: { $sum: "$remainingAmount" },
+      },
+    },
+  ]);
+
+  for (const row of rows) {
+    map.set(row._id.toString(), row.total);
+  }
+  return map;
+}
+
+async function loadLastVisitByCustomer(
+  customerIds: mongoose.Types.ObjectId[]
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (customerIds.length === 0) return map;
+
+  const idSet = new Set(customerIds.map((id) => id.toString()));
+  const entries = await NotebookEntry.find({
+    status: { $ne: "CANCELLED" },
+    $or: [
+      { customerId: { $in: customerIds } },
+      { "contributors.customerId": { $in: customerIds } },
+    ],
+  })
+    .sort({ createdAt: -1 })
+    .select("customerId contributors.customerId createdAt")
+    .lean();
+
+  for (const entry of entries) {
+    const owners = new Set<string>();
+    if (entry.customerId) {
+      owners.add(entry.customerId.toString());
+    }
+    for (const contributor of entry.contributors ?? []) {
+      if (contributor.customerId) {
+        owners.add(contributor.customerId.toString());
+      }
+    }
+
+    for (const ownerId of owners) {
+      if (idSet.has(ownerId) && !map.has(ownerId)) {
+        map.set(ownerId, entry.createdAt.toISOString());
+      }
+    }
+
+    if (map.size === idSet.size) {
+      break;
+    }
+  }
+
+  return map;
+}
+
+async function enrichCustomerListRows(
+  customers: Array<{
+    _id: mongoose.Types.ObjectId;
+    name: string;
+    phone: string;
+  }>
+): Promise<CustomerListRowDTO[]> {
+  const ids = customers.map((c) => c._id);
+  const [outstandingById, lastVisitById] = await Promise.all([
+    loadOutstandingTotalsByCustomer(ids),
+    loadLastVisitByCustomer(ids),
+  ]);
+
+  return customers.map((customer) => {
+    const id = customer._id.toString();
+    return {
+      id,
+      name: customer.name,
+      phone: customer.phone,
+      outstandingAmount: outstandingById.get(id) ?? 0,
+      lastVisitAt: lastVisitById.get(id) ?? null,
+    };
+  });
+}
 
 export async function getCustomers(
   searchParams: Record<string, string | string[] | undefined>
-): Promise<PaginatedResult<CustomerDTO>> {
+): Promise<CustomerListResult> {
   const authResult = await authorizePermission("CUSTOMER_SEARCH");
   if (!("session" in authResult)) {
     throw new Error(
@@ -43,49 +172,60 @@ export async function getCustomers(
 
   const parsed = customerSearchSchema.safeParse({
     query: typeof searchParams.q === "string" ? searchParams.q : undefined,
-    filter: typeof searchParams.filter === "string" ? searchParams.filter : undefined,
+    filter:
+      typeof searchParams.filter === "string" ? searchParams.filter : undefined,
     page: searchParams.page,
     limit: searchParams.limit,
   });
 
   const { query, page, limit, filter: filterType } = parsed.success
     ? parsed.data
-    : { query: undefined, filter: "all" as const, page: 1, limit: 25 };
+    : { query: undefined, filter: "all" as const, page: 1, limit: 10 };
 
-  const filter: Record<string, unknown> = { isActive: true };
-
-  if (filterType === "regular") {
-    filter.walletEnabled = false;
-  } else if (filterType === "wallet") {
-    filter.walletEnabled = true;
-  } else if (filterType === "members") {
-    filter.walletEnabled = true;
-    filter.cardId = { $nin: ["", null] };
-  } else if (filterType === "students") {
-    filter.isStudent = true;
-  }
+  const baseFilter: Record<string, unknown> = { isActive: true };
 
   if (query?.trim()) {
     const term = query.trim();
-    filter.$or = [
+    baseFilter.$or = [
       { name: { $regex: term, $options: "i" } },
+      { firstName: { $regex: term, $options: "i" } },
+      { lastName: { $regex: term, $options: "i" } },
       { phone: { $regex: term, $options: "i" } },
-      { cardId: { $regex: term, $options: "i" } },
     ];
+  }
+
+  const outstandingIds = await loadOutstandingCustomerIds();
+  const listFilter: Record<string, unknown> = { ...baseFilter };
+
+  if (filterType === "outstanding") {
+    listFilter._id = { $in: outstandingIds };
   }
 
   const skip = (page - 1) * limit;
 
-  const [customers, total] = await Promise.all([
-    Customer.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
-    Customer.countDocuments(filter),
+  const [customers, total, allCount, outstandingCount] = await Promise.all([
+    Customer.find(listFilter)
+      .sort({ name: 1 })
+      .skip(skip)
+      .limit(limit)
+      .select("name phone")
+      .lean(),
+    Customer.countDocuments(listFilter),
+    Customer.countDocuments(baseFilter),
+    Customer.countDocuments({
+      ...baseFilter,
+      _id: { $in: outstandingIds },
+    }),
   ]);
 
   return {
-    items: customers.map((c) => toCustomerDTO(c)),
+    items: await enrichCustomerListRows(customers),
     total,
     page,
     totalPages: Math.ceil(total / limit) || 1,
+    limit,
+    allCount,
+    outstandingCount,
   };
 }
 
@@ -105,6 +245,30 @@ export async function getCustomerById(
   return toCustomerDTO(customer);
 }
 
+/** Lightweight wallet balance for Counter payment dialogs. */
+export async function getCustomerWalletInfo(
+  customerId: string
+): Promise<{ balance: number; walletEnabled: boolean } | null> {
+  const authResult = await authorizePermission("NOTEBOOK_VIEW");
+  if (!("session" in authResult)) {
+    return null;
+  }
+
+  if (!customerId) return null;
+
+  await connectDB();
+
+  const customer = await Customer.findById(customerId)
+    .select("balance walletEnabled")
+    .lean();
+  if (!customer) return null;
+
+  return {
+    balance: customer.balance ?? 0,
+    walletEnabled: customer.walletEnabled ?? false,
+  };
+}
+
 export async function createCustomer(
   formData: FormData
 ): Promise<ActionResult<CustomerDTO>> {
@@ -114,7 +278,8 @@ export async function createCustomer(
   }
 
   const raw = {
-    name: formData.get("name"),
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
     phone: formData.get("phone"),
     isStudent: formData.get("isStudent"),
   };
@@ -127,6 +292,9 @@ export async function createCustomer(
   await connectDB();
 
   const phone = parsed.data.phone.trim();
+  const firstName = parsed.data.firstName;
+  const lastName = parsed.data.lastName;
+  const name = formatCustomerFullName(firstName, lastName);
 
   const existing = await Customer.findOne({ phone });
   if (existing) {
@@ -138,7 +306,9 @@ export async function createCustomer(
 
     const customer = await Customer.create({
       cardId,
-      name: parsed.data.name.trim(),
+      firstName,
+      lastName,
+      name,
       phone,
       isStudent: parsed.data.isStudent ?? false,
       balance: 0,
@@ -203,7 +373,8 @@ export async function updateCustomerDetails(
 
   const parsed = updateCustomerDetailsSchema.safeParse({
     customerId: formData.get("customerId"),
-    name: formData.get("name"),
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
     phone: formData.get("phone"),
     cardId: formData.get("cardId"),
   });
@@ -214,7 +385,9 @@ export async function updateCustomerDetails(
 
   await connectDB();
 
-  const name = parsed.data.name.trim();
+  const firstName = parsed.data.firstName;
+  const lastName = parsed.data.lastName;
+  const name = formatCustomerFullName(firstName, lastName);
   const phone = parsed.data.phone.trim();
   const nextCardId = parsed.data.cardId
     ? normalizeCardId(parsed.data.cardId)
@@ -226,6 +399,8 @@ export async function updateCustomerDetails(
   }
 
   const currentCardId = customer.cardId?.trim() ?? "";
+  const currentFirstName = (customer.firstName ?? "").trim();
+  const currentLastName = (customer.lastName ?? "").trim();
 
   if (customer.walletEnabled && !nextCardId) {
     return failure("Card ID is required for wallet members");
@@ -233,6 +408,8 @@ export async function updateCustomerDetails(
 
   if (
     customer.name === name &&
+    currentFirstName === firstName &&
+    currentLastName === lastName &&
     customer.phone === phone &&
     currentCardId === nextCardId
   ) {
@@ -274,16 +451,20 @@ export async function updateCustomerDetails(
     changes.push({ field: "cardId", from: currentCardId, to: nextCardId });
   }
 
+  customer.firstName = firstName;
+  customer.lastName = lastName;
   customer.name = name;
   customer.phone = phone;
   if (customer.walletEnabled) {
     customer.cardId = nextCardId;
   }
-  customer.detailChanges.push({
-    changedAt: new Date(),
-    changedBy: authResult.session.user.username,
-    changes,
-  });
+  if (changes.length > 0) {
+    customer.detailChanges.push({
+      changedAt: new Date(),
+      changedBy: authResult.session.user.username,
+      changes,
+    });
+  }
   await customer.save();
 
   revalidatePath(`/customers/${parsed.data.customerId}`);
@@ -369,7 +550,8 @@ export async function createQuickCustomer(
   }
 
   const parsed = createQuickCustomerSchema.safeParse({
-    name: formData.get("name"),
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
     phone: formData.get("phone") || undefined,
   });
 
@@ -380,6 +562,9 @@ export async function createQuickCustomer(
   await connectDB();
 
   const phone = parsed.data.phone.trim();
+  const firstName = parsed.data.firstName;
+  const lastName = parsed.data.lastName;
+  const name = formatCustomerFullName(firstName, lastName);
 
   if (phone) {
     const existing = await Customer.findOne({ phone });
@@ -391,7 +576,9 @@ export async function createQuickCustomer(
   let customer;
   try {
     customer = await Customer.create({
-      name: parsed.data.name.trim(),
+      firstName,
+      lastName,
+      name,
       ...(phone ? { phone } : {}),
       isStudent: false,
       balance: 0,

@@ -1,0 +1,175 @@
+﻿## operating-system-v2
+ D ARCHITECTURE.md
+ M README.md
+ D archive/docs-legacy/DEPLOYMENT.md
+ D archive/docs-legacy/E2E-TESTING.md
+ D archive/docs-legacy/NOTEBOOK-V2-TESTING.md
+ D archive/docs-legacy/README.md
+ D archive/docs-legacy/archive/PROJECT-CONTEXT.md
+ D archive/docs-legacy/archive/README.md
+ D archive/docs-legacy/archive/business-architecture-v1.0.md
+ D archive/docs-legacy/archive/business-architecture.md
+ D archive/docs-legacy/archive/business-rules-v1.1.md
+ D archive/docs-legacy/archive/financial-invariants.md
+ D archive/docs-legacy/archive/product-specification.md
+ D archive/docs-legacy/changelog.md
+ D archive/docs-legacy/current-status.md
+ D archive/docs-legacy/known-bugs.md
+ D archive/docs-legacy/screenshots/01-counter-big-snooker.png
+ D archive/docs-legacy/screenshots/02-counter-pool-mini.png
+ D archive/docs-legacy/screenshots/03-counter-cafe.png
+ D archive/docs-legacy/screenshots/04-checkout.png
+ D archive/docs-legacy/screenshots/05-customers.png
+ D archive/docs-legacy/screenshots/06-admin.png
+ D archive/docs-legacy/screenshots/06-customer-detail.png
+ D archive/docs-legacy/screenshots/07-admin.png
+ D archive/docs-legacy/technical-architecture.md
+ D archive/docs-legacy/testing-checklist.md
+ D docs/01-financial-engine.md
+ D docs/archive/01-financial-engine-v0.md
+ D docs/archive/README.md
+ D docs/business-scenarios.md
+ D docs/business-vision.md
+ D scripts/inspect-bill-mismatch.ts
+ D scripts/inspect-counters.ts
+ D scripts/inspect-entry-linkage.ts
+ D scripts/inspect-vishal-bills.ts
+ D scripts/repair-bill-totals.ts
+ M scripts/reset-dev-db.ts
+ D scripts/verify-module-1-visit-bill.ts
+ M src/actions/customer-activity.ts
+ M src/actions/customer-balance-payments.ts
+ M src/actions/customer-ledger.ts
+ M src/actions/customers.ts
+ M src/actions/notebook-closing.ts
+ M src/actions/notebook-entries.ts
+ M src/actions/notebook-ledger.ts
+ D src/actions/notebook-settlements.ts
+ M src/actions/table-sessions.ts
+ D src/actions/visit-bill.ts
+ D src/app/(dashboard)/checkout/page.tsx
+ M src/app/(dashboard)/counter/big-snooker/page.tsx
+ M src/app/(dashboard)/counter/cafe/page.tsx
+ M src/app/(dashboard)/customers/[id]/page.tsx
+ D src/app/(dashboard)/notebook/checkout/page.tsx
+ D src/app/(dashboard)/notebook/tabs/[customerId]/page.tsx
+ D src/app/(dashboard)/notebook/tabs/[customerId]/settle/page.tsx
+ D src/app/(dashboard)/notebook/tabs/page.tsx
+ D src/components/checkout/CheckoutDrawer.tsx
+ D src/components/checkout/CheckoutList.tsx
+ D src/components/checkout/SessionCheckoutPanel.tsx
+ D src/components/checkout/checkout-bill-lines.tsx
+ D src/components/checkout/checkout-payment.tsx
+ M src/components/counter/BillingModeToggle.tsx
+ M src/components/counter/CafeAddItemDialog.tsx
+ M src/components/counter/CafeCustomerGlanceHover.tsx
+ M src/components/counter/CafeCustomerTabs.tsx
+ M src/components/counter/CafeEditPickerDialog.tsx
+ M src/components/counter/CafeEntryEditDialog.tsx
+ M src/components/counter/CompactLedgerRow.tsx
+ M src/components/counter/ContributorsSplitDialog.tsx
+ M src/components/counter/ContributorsSplitFields.tsx
+ M src/components/counter/CounterLedgerTable.tsx
+ M src/components/counter/CounterSectionColumn.tsx
+ M src/components/counter/CustomerPreviewContext.tsx
+ M src/components/counter/EntryCorrectionDialog.tsx
+ D src/components/counter/EntryLockIndicator.tsx
+ M src/components/counter/MiniSessionBoard.tsx
+ M src/components/counter/PoolMiniSessionBoard.tsx
+ M src/components/counter/SessionHistoryRow.tsx
+ D src/components/counter/SettlementBadge.tsx
+ M src/components/counter/SnookerFrameEditDialog.tsx
+ M src/components/counter/UnassignedEntryDialog.tsx
+ D src/components/customers/ActiveVisitCheckoutDialog.tsx
+ M src/components/customers/BalanceCollectionList.tsx
+ M src/components/customers/CollectPaymentTrigger.tsx
+ M src/components/customers/CustomerActivityTimeline.tsx
+ M src/components/customers/CustomerDetailView.tsx
+ M src/components/customers/CustomerForm.tsx
+ M src/components/customers/CustomerSummaryCard.tsx
+ M src/components/customers/OutstandingPage.tsx
+ M src/components/layout/Sidebar.tsx
+ M src/components/layout/TopBar.tsx
+ M src/components/notebook/NotebookBottomNav.tsx
+ D src/components/notebook/OpenTabsList.tsx
+ D src/components/notebook/SettlementForm.tsx
+ D src/lib/constants/visit-bill.ts
+ D src/lib/ledger/checkout-finalization.ts
+ M src/lib/mappers/notebook.ts
+ D src/lib/mappers/visit-bill.ts
+ M src/lib/utils/business-date.ts
+ D src/lib/utils/checkout-navigation.ts
+ D src/lib/utils/checkout-tabs.ts
+ M src/lib/utils/counter-pay-display.ts
+ D src/lib/utils/counter-visit-display.ts
+ D src/lib/utils/customer-visit-glance.ts
+ D src/lib/utils/freeze-counter-pay-snapshot.ts
+ M src/lib/utils/ledger-charge-bundles.ts
+ M src/lib/utils/revalidate-counter.ts
+ D src/lib/utils/session-checkout-timeline.ts
+ M src/lib/validators/customer.ts
+ M src/lib/validators/notebook.ts
+ D src/lib/validators/visit-bill.ts
+ D src/lib/visit-bill/active-visit-checkout-due.ts
+ D src/lib/visit-bill/active-visit.ts
+ D src/lib/visit-bill/attach-entry.ts
+ D src/lib/visit-bill/backfill.ts
+ D src/lib/visit-bill/customer-bill-slice.ts
+ D src/lib/visit-bill/ensure-visit-bill.ts
+ D src/lib/visit-bill/entry-edit-lock-constants.ts
+ D src/lib/visit-bill/entry-edit-lock-utils.ts
+ D src/lib/visit-bill/entry-edit-lock.ts
+ D src/lib/visit-bill/finalize-visit.ts
+ D src/lib/visit-bill/finished-visit-lock.ts
+ D src/lib/visit-bill/link-split-entry.ts
+ D src/lib/visit-bill/public-id.ts
+ D src/lib/visit-bill/recalculate-active-visit.ts
+ D src/lib/visit-bill/sync-bill-totals.ts
+ D src/lib/wallet/reconcile-entry-payments.ts
+ M src/middleware.ts
+ D src/models/Bill.ts
+ M src/models/NotebookEntry.ts
+ D src/models/NotebookSettlement.ts
+ D src/models/NotebookSettlementReversal.ts
+ M src/models/TableSession.ts
+ D src/models/Visit.ts
+ M src/types/index.ts
+?? .cursor/
+?? docs/00-business-rules.md
+?? docs/02-customer.md
+?? docs/04-cafe.md
+?? git-status-out.txt
+?? src/actions/business-day-history.ts
+?? src/actions/business-day.ts
+?? src/actions/cafe-orders.ts
+?? src/actions/customer-drawer.ts
+?? src/actions/outstanding.ts
+?? src/app/(dashboard)/admin/business-day/
+?? src/app/(dashboard)/business-day/
+?? src/app/(dashboard)/counter/layout.tsx
+?? src/components/business-day/
+?? src/components/counter/CafeOrdersWorkspace.tsx
+?? src/components/counter/CloseBusinessDayControl.tsx
+?? src/components/counter/CounterWorkspaceTabs.tsx
+?? src/components/counter/CustomerCounterDrawerPanel.tsx
+?? src/components/counter/EntryPayStatus.tsx
+?? src/components/counter/EntryPaymentFields.tsx
+?? src/components/counter/StartBusinessDayScreen.tsx
+?? src/lib/business-day/
+?? src/lib/constants/business-day.ts
+?? src/lib/constants/cafe.ts
+?? src/lib/constants/outstanding.ts
+?? src/lib/counter/
+?? src/lib/mappers/business-day.ts
+?? src/lib/mappers/cafe-order.ts
+?? src/lib/mappers/outstanding.ts
+?? src/lib/outstanding/
+?? src/lib/utils/frame-payment.ts
+?? src/lib/validators/business-day.ts
+?? src/lib/validators/cafe.ts
+?? src/lib/validators/outstanding.ts
+?? src/models/BusinessDay.ts
+?? src/models/CafeOrder.ts
+?? src/models/CafePurchase.ts
+?? src/models/Outstanding.ts
+?? src/models/OutstandingCollection.ts

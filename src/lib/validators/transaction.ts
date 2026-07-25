@@ -22,6 +22,19 @@ export const rechargeSchema = z.object({
   ...walletVerificationFields,
 });
 
+/** Customer-page recharge: amount presets / custom + Cash/GPay. */
+export const customerRechargeSchema = z.object({
+  customerId: z.string().min(1, "Customer is required"),
+  paidAmount: z.coerce
+    .number()
+    .int("Amount must be a whole number")
+    .positive("Amount must be greater than zero")
+    .max(100000, "Amount cannot exceed ₹1,00,000"),
+  paymentMethod: z.enum(["CASH", "GPAY"], {
+    message: "Payment method is required",
+  }),
+});
+
 export const rechargeAmountsSchema = z
   .object({
     paidAmount: z.number().positive("Paid amount must be greater than zero"),
@@ -49,6 +62,7 @@ export const deductSchema = z.object({
 });
 
 export type RechargeInput = z.infer<typeof rechargeSchema>;
+export type CustomerRechargeInput = z.infer<typeof customerRechargeSchema>;
 export type RechargeAmountsInput = z.infer<typeof rechargeAmountsSchema>;
 export type DeductInput = z.infer<typeof deductSchema>;
 

@@ -1,39 +1,39 @@
 "use server";
 
 import mongoose from "mongoose";
-import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/db/connect";
 import { authorizePermission } from "@/lib/auth/session";
+import { getOpenBusinessDayContext } from "@/lib/business-day/require-open-business-day";
 import { getNotebookReversalReasonLabel } from "@/lib/constants/notebook-payments";
 import type { NotebookReversalReasonKey } from "@/lib/constants/notebook-payments";
 import { CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/constants/notebook-payments";
-import { CAFE_SECTION, isBigSnookerSection } from "@/lib/constants/counter-sections";
+import { CAFE_SECTION, isBigSnookerSection, isPoolMiniSection, poolMiniEntryTypeForSection } from "@/lib/constants/counter-sections";
 import {
   ACTIVE_TABLE_SESSION_STATUSES,
   OPEN_TABLE_SESSION_STATUSES,
-  UNPAID_TABLE_SESSION_STATUSES,
   isPoolMiniTableId,
 } from "@/lib/constants/table-sessions";
 import {
   assignCounterEntryCustomerSchema,
-  assignCheckoutBillToCustomerSchema,
-  dismissCheckoutBillSchema,
   addCafeItemsSchema,
   cancelCounterEntrySchema,
+  deleteFrameSchema,
   createNotebookEntrySchema,
   createQuickCounterEntrySchema,
   createRummyCounterEntrySchema,
   createSnookerFrameEntrySchema,
   updateSnookerFrameEntrySchema,
+  createPoolMiniEntrySchema,
+  updatePoolMiniEntrySchema,
   correctCounterEntrySchema,
   correctCafeEntrySchema,
   setEntryContributorsSchema,
-  openTabSearchSchema,
   reverseNotebookEntrySchema,
 } from "@/lib/validators/notebook";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import { formatCurrency } from "@/lib/utils/format";
 import { applyTimeToDate } from "@/lib/utils/format-time";
+import { framePaymentStatus } from "@/lib/utils/frame-payment";
 import { getEntryDisplayLabel } from "@/lib/utils/notebook-entry-label";
 import { buildSnookerAmountCorrectionChanges } from "@/lib/utils/entry-corrections";
 import { buildCustomerTodayGlance } from "@/lib/utils/customer-today-glance";
@@ -46,74 +46,33 @@ import {
 import type { NotebookEntryCorrectionChangeDTO } from "@/types";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import { revalidateCounterPaths, revalidateCustomerFinancials } from "@/lib/utils/revalidate-counter";
-import { parseCheckoutCustomerId } from "@/lib/utils/checkout-navigation";
+import {
+  debitWalletForOperationalPayment,
+  parseUseWalletFlag,
+  remainingPaymentMethodForDebit,
+  resolveWalletDebitAmount,
+} from "@/lib/wallet/operational-payment";
+import { buildWalletPaymentContext } from "@/lib/wallet/wallet-payment-context";
+import { CAFE_ITEM_TYPE_LABELS } from "@/lib/constants/cafe";
+import type { CafeItemType } from "@/lib/constants/cafe";
 import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
 import TableSession from "@/models/TableSession";
-import Visit from "@/models/Visit";
-import Bill from "@/models/Bill";
-import { syncBillTotals } from "@/lib/visit-bill/sync-bill-totals";
-import { closeTableSessionAfterSettlement, ensureSessionGameEntryForCheckout } from "@/actions/table-sessions";
+import { ensureSessionGameEntryForCheckout } from "@/actions/table-sessions";
 import type { ICustomer } from "@/models/Customer";
-import type { NotebookEntryDTO, OpenTabSummaryDTO, CustomerPendingItemDTO, CustomerOpenTabSummaryDTO, CustomerTodayGlanceDTO } from "@/types";
+import type {
+  NotebookEntryDTO,
+  OpenTabSummaryDTO,
+  CustomerPendingItemDTO,
+  CustomerTodayGlanceDTO,
+} from "@/types";
 import type { CafeTableId } from "@/lib/constants/counter-sections";
-import {
-  buildTableOpenTabSummaries,
-  buildSessionOpenTabSummaries,
-  isTableCheckoutEntry,
-  toCustomerOpenTabSummary,
-} from "@/lib/utils/checkout-tabs";
 import {
   entryAmountRemaining,
   entryHasContributors,
-  getCheckoutQueueObligations,
-  isEntryCheckoutEligible,
   isSessionPayableEntry,
   sessionEntryAmountRemaining,
 } from "@/lib/utils/entry-contributors";
-import { reconcileEntryPaymentFields } from "@/lib/wallet/reconcile-entry-payments";
-import { linkEntryToActiveVisitBill, linkEntriesToActiveVisitBill } from "@/lib/visit-bill/attach-entry";
-import {
-  collectEntryBillIds,
-  recalculateActiveVisitForEntryOwnership,
-} from "@/lib/visit-bill/recalculate-active-visit";
-import { getCustomerBillSlice } from "@/lib/visit-bill/customer-bill-slice";
-import {
-  collectBillIdsFromEntries,
-  getCustomerReassignmentFailureForEntry,
-  getEntryEditLockFailure,
-  frameHasPartialPaymentLock,
-  isContributorAssignmentLocked,
-  isContributorEditLocked,
-  isFrameStructureLocked,
-} from "@/lib/visit-bill/entry-edit-lock";
-import {
-  ENTRY_LOCKED_MESSAGE,
-  FRAME_STRUCTURE_LOCKED_MESSAGE,
-  SPLIT_CONTRIBUTOR_LOCKED_MESSAGE,
-} from "@/lib/visit-bill/entry-edit-lock-utils";
-import {
-  getCustomerActiveVisitCheckoutFailure,
-  getFinishedBillIdSet,
-  getFinishedVisitLockFailureForEntries,
-} from "@/lib/visit-bill/finished-visit-lock";
-
-function entryTouchesActiveBill(
-  entry: NotebookEntryDTO,
-  activeBillIds: Set<string>
-): boolean {
-  if (!entry.customerId && !(entry.contributors?.length ?? 0)) {
-    return true;
-  }
-  if (entry.billId && activeBillIds.has(entry.billId)) {
-    return true;
-  }
-  return (
-    entry.contributors?.some(
-      (row) => Boolean(row.billId) && activeBillIds.has(row.billId!)
-    ) ?? false
-  );
-}
 
 export async function createQuickCounterEntry(
   formData: FormData
@@ -253,6 +212,7 @@ export async function createSnookerFrameEntry(
       type: "RUMMY",
       amount,
       playerCount,
+      paidAmount: 0,
       customerName: "",
       phoneNumber: "",
       status: "PENDING",
@@ -276,6 +236,7 @@ export async function createSnookerFrameEntry(
     amount,
     snookerGame: frameType,
     rateType,
+    paidAmount: 0,
     customerName: "",
     phoneNumber: "",
     status: "PENDING",
@@ -295,13 +256,27 @@ export async function updateSnookerFrameEntry(
     return authResult;
   }
 
+  const splitBilling = formData.get("splitBilling") === "true";
+  const walletAmountRaw = formData.get("walletAmount");
   const parsed = updateSnookerFrameEntrySchema.safeParse({
     entryId: formData.get("entryId"),
     frameType: formData.get("frameType"),
     amount: formData.get("amount"),
+    paidAmount: splitBilling ? 0 : formData.get("paidAmount") || 0,
+    paymentMethod: formData.get("paymentMethod") || undefined,
+    useWallet: splitBilling
+      ? false
+      : parseUseWalletFlag(formData.get("useWallet")),
+    walletAmount:
+      !splitBilling &&
+      walletAmountRaw !== null &&
+      String(walletAmountRaw).trim() !== ""
+        ? walletAmountRaw
+        : undefined,
     playerCount: formData.get("playerCount") || undefined,
     entryTime: formData.get("entryTime"),
     customerId: formData.get("customerId") || undefined,
+    splitBilling: splitBilling ? "true" : undefined,
   });
 
   if (!parsed.success) {
@@ -319,53 +294,27 @@ export async function updateSnookerFrameEntry(
     return failure("Only Big Snooker frame entries can be edited here");
   }
 
-  const lockFailure = await getEntryEditLockFailure(entry);
-  if (lockFailure) {
-    return failure(lockFailure);
-  }
-
-  const finishedBillIdsForLock = entry.contributors?.length
-    ? await getFinishedBillIdSet(collectBillIdsFromEntries([entry]))
-    : new Set<string>();
-
-  if (
-    isFrameStructureLocked({
-      status: entry.status,
-      paidAmount: entry.paidAmount,
-      balanceCollectedAmount: entry.balanceCollectedAmount,
-      contributors: entry.contributors?.map((contributor) => ({
-        status: contributor.status,
-        visitStatus:
-          contributor.billId &&
-          finishedBillIdsForLock.has(contributor.billId.toString())
-            ? ("FINISHED" as const)
-            : ("ACTIVE" as const),
-        paidAmount: contributor.paidAmount,
-        balanceCollectedAmount: contributor.balanceCollectedAmount,
-      })),
-    })
-  ) {
-    return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
-  }
-
-  if (entry.status !== "PENDING") {
-    return failure("Only pending entries can be edited");
+  if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
+    return failure("Cancelled or reversed frames cannot be edited");
   }
 
   if (entry.type !== "SNOOKER" && entry.type !== "RUMMY") {
     return failure("Only frame entries can be edited");
   }
 
-  const hasContributors = Boolean(entry.contributors && entry.contributors.length > 0);
-
-  const priorBillIds = collectEntryBillIds(entry);
   const priorCustomerId = entry.customerId?.toString();
-  const visitBillStaff = {
-    username: authResult.session.user.username,
-    staffId: authResult.session.user.id,
-  };
 
-  const { frameType, amount, playerCount, entryTime, customerId } = parsed.data;
+  const {
+    frameType,
+    amount,
+    paidAmount,
+    paymentMethod,
+    playerCount,
+    entryTime,
+    customerId,
+    walletAmount,
+    useWallet,
+  } = parsed.data;
 
   if (frameType === "RUMMY") {
     entry.type = "RUMMY";
@@ -382,10 +331,20 @@ export async function updateSnookerFrameEntry(
     entry.playerCount = undefined;
   }
 
+  if (!parsed.data.splitBilling) {
+    entry.paidAmount = paidAmount;
+    entry.status = framePaymentStatus(amount, paidAmount);
+    if (paidAmount > 0 && paymentMethod) {
+      entry.paymentMethod = paymentMethod;
+    } else {
+      entry.paymentMethod = undefined;
+    }
+  }
+
   entry.createdAt = applyTimeToDate(entry.createdAt, entryTime);
   entry.markModified("createdAt");
 
-  if (!hasContributors && customerId) {
+  if (customerId) {
     const customer = await Customer.findById(customerId);
     if (!customer || !customer.isActive) {
       return failure("Customer not found");
@@ -393,11 +352,6 @@ export async function updateSnookerFrameEntry(
 
     const currentCustomerId = entry.customerId?.toString();
     if (currentCustomerId !== customerId) {
-      const reassignmentFailure = await getCustomerReassignmentFailureForEntry(entry);
-      if (reassignmentFailure) {
-        return failure(reassignmentFailure);
-      }
-
       entry.customerId = customer._id;
       entry.customerName = customer.name;
       entry.phoneNumber = customer.phone;
@@ -408,11 +362,94 @@ export async function updateSnookerFrameEntry(
     }
   }
 
-  await entry.save();
+  let walletDebit = 0;
+  if (!parsed.data.splitBilling) {
+    try {
+      const priorWallet = Math.round(entry.walletAmount ?? 0);
+      let availableBalance = priorWallet;
+      const walletCustomerId =
+        customerId ?? entry.customerId?.toString() ?? undefined;
+      if (walletCustomerId) {
+        const walletCustomer = await Customer.findById(walletCustomerId)
+          .select("balance")
+          .lean();
+        if (walletCustomer) {
+          availableBalance =
+            Math.round(walletCustomer.balance ?? 0) + priorWallet;
+        }
+      }
+      walletDebit = resolveWalletDebitAmount({
+        paidAmount,
+        paymentMethod,
+        useWallet,
+        availableBalance,
+        walletAmount,
+      });
+    } catch (error) {
+      return failure(
+        error instanceof Error ? error.message : "Invalid wallet amount"
+      );
+    }
+  }
 
-  await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
-    priorBillIds,
-  });
+  const previousWalletDebit = Math.round(entry.walletAmount ?? 0);
+  const walletDebitDelta = Math.max(0, walletDebit - previousWalletDebit);
+
+  if (walletDebitDelta > 0) {
+    const walletCustomerId = entry.customerId?.toString();
+    if (!walletCustomerId) {
+      return failure("Assign a customer before using wallet");
+    }
+
+    const dbSession = await mongoose.startSession();
+    try {
+      await dbSession.withTransaction(async () => {
+        const frameLabel = getEntryDisplayLabel(entry);
+        const remainderMethod = remainingPaymentMethodForDebit(
+          walletDebit,
+          paidAmount,
+          paymentMethod
+        );
+        const txnId = await debitWalletForOperationalPayment({
+          customerId: walletCustomerId,
+          amount: walletDebitDelta,
+          description: `Frame payment — ${frameLabel}`,
+          staffId: authResult.session.user.id,
+          staffUsername: authResult.session.user.username,
+          dbSession,
+          remainingPaymentMethod: remainderMethod,
+          businessDayId: entry.businessDayId?.toString(),
+          paymentContext: buildWalletPaymentContext({
+            purpose: "FRAME_PAYMENT",
+            billAmount: paidAmount,
+            walletUsed: walletDebitDelta,
+            totalWalletApplied: walletDebit,
+            remainderMethod,
+            lines: [{ label: frameLabel, quantity: 1 }],
+            businessDayId: entry.businessDayId?.toString(),
+          }),
+        });
+        entry.walletAmount = walletDebit;
+        entry.walletTransactionId = txnId;
+        await entry.save({ session: dbSession });
+      });
+    } catch (error) {
+      return failure(
+        error instanceof Error ? error.message : "Wallet payment failed"
+      );
+    } finally {
+      await dbSession.endSession();
+    }
+  } else if (walletDebit > 0) {
+    entry.walletAmount = walletDebit;
+    await entry.save();
+  } else {
+    if (!parsed.data.splitBilling) {
+      entry.walletAmount = undefined;
+      entry.walletTransactionId = undefined;
+    }
+    await entry.save();
+  }
 
   revalidateCounterPaths(entry.customerId?.toString());
   if (priorCustomerId && priorCustomerId !== entry.customerId?.toString()) {
@@ -422,7 +459,252 @@ export async function updateSnookerFrameEntry(
   if (entry.customerId) {
     revalidateCustomerFinancials(entry.customerId.toString());
   }
-  revalidatePath("/checkout");
+
+  return success(toNotebookEntryDTO(entry));
+}
+
+export async function createPoolMiniEntry(
+  formData: FormData
+): Promise<ActionResult<NotebookEntryDTO>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = createPoolMiniEntrySchema.safeParse({
+    section: formData.get("section"),
+    amount: formData.get("amount"),
+    rateType: formData.get("rateType") || "REGULAR",
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const { section, amount, rateType } = parsed.data;
+  const now = new Date();
+
+  const entry = await NotebookEntry.create({
+    section,
+    type: poolMiniEntryTypeForSection(section),
+    amount,
+    rateType,
+    paidAmount: 0,
+    customerName: "",
+    phoneNumber: "",
+    status: "PENDING",
+    playStartedAt: now,
+    notes: "",
+    createdBy: authResult.session.user.username,
+    createdByStaffId: authResult.session.user.id,
+  });
+
+  revalidateCounterPaths();
+  return success(toNotebookEntryDTO(entry));
+}
+
+export async function updatePoolMiniEntry(
+  formData: FormData
+): Promise<ActionResult<NotebookEntryDTO>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const walletAmountRaw = formData.get("walletAmount");
+  const parsed = updatePoolMiniEntrySchema.safeParse({
+    entryId: formData.get("entryId"),
+    amount: formData.get("amount"),
+    paidAmount: formData.get("paidAmount") || 0,
+    paymentMethod: formData.get("paymentMethod") || undefined,
+    useWallet: parseUseWalletFlag(formData.get("useWallet")),
+    walletAmount:
+      walletAmountRaw !== null && String(walletAmountRaw).trim() !== ""
+        ? walletAmountRaw
+        : undefined,
+    startTime: formData.get("startTime"),
+    endTime: formData.get("endTime") || undefined,
+    notes: formData.get("notes") ?? "",
+    customerId: formData.get("customerId") || undefined,
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const entry = await NotebookEntry.findById(parsed.data.entryId);
+  if (!entry) {
+    return failure("Entry not found");
+  }
+
+  if (!isPoolMiniSection(entry.section)) {
+    return failure("Only Pool & Mini entries can be edited here");
+  }
+
+  if (entry.type !== "MINI" && entry.type !== "POOL") {
+    return failure("Only Pool & Mini entries can be edited");
+  }
+
+  if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
+    return failure("Cancelled or reversed entries cannot be edited");
+  }
+
+  if (entryHasContributors(entry)) {
+    return failure("Pool & Mini entries do not support Split");
+  }
+
+  const priorCustomerId = entry.customerId?.toString();
+  const {
+    amount,
+    paidAmount,
+    paymentMethod,
+    startTime,
+    endTime,
+    notes,
+    customerId,
+    walletAmount,
+    useWallet,
+  } = parsed.data;
+
+  entry.amount = amount;
+  entry.rateType =
+    inferRateTypeFromStoredAmount(
+      entry.type === "MINI" ? "MINI" : "POOL",
+      amount
+    ) ?? entry.rateType;
+  entry.paidAmount = paidAmount;
+  entry.status = framePaymentStatus(amount, paidAmount);
+  if (paidAmount > 0 && paymentMethod) {
+    entry.paymentMethod = paymentMethod;
+  } else {
+    entry.paymentMethod = undefined;
+  }
+
+  const baseDate = entry.playStartedAt ?? entry.createdAt;
+  entry.playStartedAt = applyTimeToDate(baseDate, startTime);
+  if (endTime) {
+    entry.playEndedAt = applyTimeToDate(baseDate, endTime);
+  } else {
+    entry.playEndedAt = undefined;
+  }
+  entry.notes = notes;
+  entry.markModified("playStartedAt");
+  entry.markModified("playEndedAt");
+
+  if (customerId) {
+    const customer = await Customer.findById(customerId);
+    if (!customer || !customer.isActive) {
+      return failure("Customer not found");
+    }
+
+    const currentCustomerId = entry.customerId?.toString();
+    if (currentCustomerId !== customerId) {
+      entry.customerId = customer._id;
+      entry.customerName = customer.name;
+      entry.phoneNumber = customer.phone;
+      if (!entry.assignedAt) {
+        entry.assignedAt = new Date();
+        entry.assignedBy = authResult.session.user.username;
+      }
+    }
+  }
+
+  let walletDebit = 0;
+  try {
+    const previousWalletDebit = Math.round(entry.walletAmount ?? 0);
+    let availableBalance = previousWalletDebit;
+    const walletCustomerId = entry.customerId?.toString();
+    if (walletCustomerId) {
+      const walletCustomer = await Customer.findById(walletCustomerId)
+        .select("balance")
+        .lean();
+      if (walletCustomer) {
+        availableBalance =
+          Math.round(walletCustomer.balance ?? 0) + previousWalletDebit;
+      }
+    }
+    walletDebit = resolveWalletDebitAmount({
+      paidAmount,
+      paymentMethod,
+      useWallet,
+      availableBalance,
+      walletAmount,
+    });
+  } catch (error) {
+    return failure(
+      error instanceof Error ? error.message : "Invalid wallet amount"
+    );
+  }
+
+  const previousWalletDebit = Math.round(entry.walletAmount ?? 0);
+  const walletDebitDelta = Math.max(0, walletDebit - previousWalletDebit);
+
+  if (walletDebitDelta > 0) {
+    const walletCustomerId = entry.customerId?.toString();
+    if (!walletCustomerId) {
+      return failure("Assign a customer before using wallet");
+    }
+
+    const dbSession = await mongoose.startSession();
+    try {
+      await dbSession.withTransaction(async () => {
+        const frameLabel = getEntryDisplayLabel(entry);
+        const remainderMethod = remainingPaymentMethodForDebit(
+          walletDebit,
+          paidAmount,
+          paymentMethod
+        );
+        const txnId = await debitWalletForOperationalPayment({
+          customerId: walletCustomerId,
+          amount: walletDebitDelta,
+          description: `Pool/Mini payment — ${frameLabel}`,
+          staffId: authResult.session.user.id,
+          staffUsername: authResult.session.user.username,
+          dbSession,
+          remainingPaymentMethod: remainderMethod,
+          businessDayId: entry.businessDayId?.toString(),
+          paymentContext: buildWalletPaymentContext({
+            purpose: "FRAME_PAYMENT",
+            billAmount: paidAmount,
+            walletUsed: walletDebitDelta,
+            totalWalletApplied: walletDebit,
+            remainderMethod,
+            lines: [{ label: frameLabel, quantity: 1 }],
+            businessDayId: entry.businessDayId?.toString(),
+          }),
+        });
+        entry.walletAmount = walletDebit;
+        entry.walletTransactionId = txnId;
+        await entry.save({ session: dbSession });
+      });
+    } catch (error) {
+      return failure(
+        error instanceof Error ? error.message : "Wallet payment failed"
+      );
+    } finally {
+      await dbSession.endSession();
+    }
+  } else if (walletDebit > 0) {
+    entry.walletAmount = walletDebit;
+    await entry.save();
+  } else {
+    entry.walletAmount = undefined;
+    entry.walletTransactionId = undefined;
+    await entry.save();
+  }
+
+  revalidateCounterPaths(entry.customerId?.toString());
+  if (priorCustomerId && priorCustomerId !== entry.customerId?.toString()) {
+    revalidateCounterPaths(priorCustomerId);
+    revalidateCustomerFinancials(priorCustomerId);
+  }
+  if (entry.customerId) {
+    revalidateCustomerFinancials(entry.customerId.toString());
+  }
 
   return success(toNotebookEntryDTO(entry));
 }
@@ -458,58 +740,11 @@ export async function correctCounterEntry(
     return failure("Use reversal for cafe entry corrections");
   }
 
-  const lockFailure = await getEntryEditLockFailure(entry);
-  if (lockFailure) {
-    return failure(lockFailure);
-  }
-
-  const finishedBillIdsForLock = entry.contributors?.length
-    ? await getFinishedBillIdSet(collectBillIdsFromEntries([entry]))
-    : new Set<string>();
-
-  const structureLocked = isFrameStructureLocked({
-    status: entry.status,
-    paidAmount: entry.paidAmount,
-    balanceCollectedAmount: entry.balanceCollectedAmount,
-    contributors: entry.contributors?.map((contributor) => ({
-      status: contributor.status,
-      visitStatus:
-        contributor.billId &&
-        finishedBillIdsForLock.has(contributor.billId.toString())
-          ? ("FINISHED" as const)
-          : ("ACTIVE" as const),
-      paidAmount: contributor.paidAmount,
-      balanceCollectedAmount: contributor.balanceCollectedAmount,
-    })),
-  });
-
-  if (
-    structureLocked &&
-    parsed.data.amount !== undefined &&
-    parsed.data.amount !== entry.amount
-  ) {
-    return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
-  }
-
-  if (
-    structureLocked &&
-    entry.type === "RUMMY" &&
-    parsed.data.playerCount !== undefined &&
-    parsed.data.playerCount !== entry.playerCount
-  ) {
-    return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
-  }
 
   if (entry.status !== "PENDING") {
     return failure("Only pending entries can be corrected");
   }
-
-  const priorBillIds = collectEntryBillIds(entry);
   const priorCustomerId = entry.customerId?.toString();
-  const visitBillStaff = {
-    username: authResult.session.user.username,
-    staffId: authResult.session.user.id,
-  };
 
   const changes: NotebookEntryCorrectionChangeDTO[] = [];
 
@@ -522,11 +757,6 @@ export async function correctCounterEntry(
         return failure(
           "Use Assign Customer for first assignment. Corrections apply only to already assigned entries."
         );
-      }
-
-      const reassignmentFailure = await getCustomerReassignmentFailureForEntry(entry);
-      if (reassignmentFailure) {
-        return failure(reassignmentFailure);
       }
 
       const customer = await Customer.findById(nextCustomerId);
@@ -633,10 +863,6 @@ export async function correctCounterEntry(
 
   await entry.save();
 
-  await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
-    priorBillIds,
-  });
-
   revalidateCounterPaths(entry.customerId?.toString());
   if (priorCustomerId && priorCustomerId !== entry.customerId?.toString()) {
     revalidateCounterPaths(priorCustomerId);
@@ -645,7 +871,6 @@ export async function correctCounterEntry(
   if (entry.customerId) {
     revalidateCustomerFinancials(entry.customerId.toString());
   }
-  revalidatePath("/checkout");
 
   return success(toNotebookEntryDTO(entry));
 }
@@ -660,10 +885,18 @@ export async function correctCafeEntry(
 
   const parsed = correctCafeEntrySchema.safeParse({
     entryId: formData.get("entryId"),
-    correctionReason: formData.get("correctionReason"),
+    correctionReason: formData.get("correctionReason") || undefined,
     quantity: formData.get("quantity") || undefined,
     amount: formData.get("amount") || undefined,
     itemNote: formData.get("itemNote") ?? undefined,
+    paidAmount:
+      formData.get("paidAmount") !== null &&
+      formData.get("paidAmount") !== undefined &&
+      String(formData.get("paidAmount")).trim() !== ""
+        ? formData.get("paidAmount")
+        : undefined,
+    paymentMethod: formData.get("paymentMethod") || undefined,
+    useWallet: parseUseWalletFlag(formData.get("useWallet")),
   });
 
   if (!parsed.success) {
@@ -681,20 +914,9 @@ export async function correctCafeEntry(
     return failure("Only cafe entries can be corrected here");
   }
 
-  const lockFailure = await getEntryEditLockFailure(entry);
-  if (lockFailure) {
-    return failure(lockFailure);
+  if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
+    return failure("Cancelled or reversed cafe items cannot be edited");
   }
-
-  if (entry.status !== "PENDING") {
-    return failure("Only pending entries can be corrected");
-  }
-
-  const priorBillIds = collectEntryBillIds(entry);
-  const visitBillStaff = {
-    username: authResult.session.user.username,
-    staffId: authResult.session.user.id,
-  };
 
   const changes: NotebookEntryCorrectionChangeDTO[] = [];
 
@@ -747,31 +969,70 @@ export async function correctCafeEntry(
     }
   }
 
-  if (changes.length === 0) {
+  const nextPaidAmount =
+    parsed.data.paidAmount !== undefined
+      ? parsed.data.paidAmount
+      : (entry.paidAmount ?? 0);
+
+  if (nextPaidAmount > entry.amount) {
+    return failure("Received amount cannot exceed item amount");
+  }
+
+  if (
+    nextPaidAmount > 0 &&
+    !entry.customerId &&
+    !(parsed.data.paidAmount === undefined && (entry.paidAmount ?? 0) > 0)
+  ) {
+    if (parsed.data.paidAmount !== undefined && parsed.data.paidAmount > 0) {
+      return failure("Assign a customer before recording payment");
+    }
+  }
+
+  if (parsed.data.paidAmount !== undefined) {
+    if (parsed.data.paidAmount > 0 && !parsed.data.paymentMethod) {
+      return failure(
+        "Select Cash or GPay when received amount is greater than zero"
+      );
+    }
+    entry.paidAmount = parsed.data.paidAmount;
+    if (parsed.data.paidAmount > 0 && parsed.data.paymentMethod) {
+      entry.paymentMethod = parsed.data.paymentMethod;
+    } else {
+      entry.paymentMethod = undefined;
+    }
+  }
+
+  entry.status = framePaymentStatus(entry.amount, entry.paidAmount ?? 0);
+
+  const hasContentChanges = changes.length > 0;
+  const paymentOnly =
+    !hasContentChanges && parsed.data.paidAmount !== undefined;
+
+  if (!hasContentChanges && !paymentOnly) {
     return failure("No changes to save");
   }
 
-  entry.corrections.push({
-    changes,
-    correctedBy: authResult.session.user.username,
-    correctedByStaffId: new mongoose.Types.ObjectId(
-      authResult.session.user.id
-    ),
-    correctedAt: new Date(),
-    correctionReason: parsed.data.correctionReason.trim(),
-  });
+  if (hasContentChanges) {
+    if (!parsed.data.correctionReason || parsed.data.correctionReason.length < 3) {
+      return failure("Please provide a correction reason");
+    }
+    entry.corrections.push({
+      changes,
+      correctedBy: authResult.session.user.username,
+      correctedByStaffId: new mongoose.Types.ObjectId(
+        authResult.session.user.id
+      ),
+      correctedAt: new Date(),
+      correctionReason: parsed.data.correctionReason,
+    });
+  }
 
   await entry.save();
-
-  await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
-    priorBillIds,
-  });
 
   revalidateCounterPaths(entry.customerId?.toString());
   if (entry.customerId) {
     revalidateCustomerFinancials(entry.customerId.toString());
   }
-  revalidatePath("/checkout");
 
   return success(toNotebookEntryDTO(entry));
 }
@@ -840,11 +1101,6 @@ export async function createNotebookEntry(
     createdByStaffId: authResult.session.user.id,
   });
 
-  await linkEntryToActiveVisitBill(entry, {
-    username: authResult.session.user.username,
-    staffId: authResult.session.user.id,
-  });
-
   revalidateCounterPaths(customer._id.toString());
 
   return success(toNotebookEntryDTO(entry));
@@ -882,11 +1138,6 @@ export async function assignCounterEntryCustomer(
     return failure("Entry already has a customer");
   }
 
-  const lockFailure = await getEntryEditLockFailure(entry);
-  if (lockFailure) {
-    return failure(lockFailure);
-  }
-
   const customer = await Customer.findById(parsed.data.customerId);
   if (!customer || !customer.isActive) {
     return failure("Customer not found");
@@ -897,266 +1148,11 @@ export async function assignCounterEntryCustomer(
   entry.phoneNumber = customer.phone;
   entry.assignedAt = new Date();
   entry.assignedBy = authResult.session.user.username;
-  await linkEntryToActiveVisitBill(entry, {
-    username: authResult.session.user.username,
-    staffId: authResult.session.user.id,
-  });
+  await entry.save();
 
   revalidateCounterPaths(customer._id.toString());
 
   return success(toNotebookEntryDTO(entry));
-}
-
-export async function assignCheckoutBillToCustomer(
-  formData: FormData
-): Promise<ActionResult<{ assignedCount: number }>> {
-  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
-  if (!("session" in authResult)) {
-    return authResult;
-  }
-
-  let entryIds: string[] = [];
-  try {
-    entryIds = JSON.parse(String(formData.get("entryIds") ?? "[]"));
-  } catch {
-    return failure("Invalid bill lines");
-  }
-
-  const parsed = assignCheckoutBillToCustomerSchema.safeParse({
-    customerId: formData.get("customerId"),
-    entryIds: entryIds.length > 0 ? entryIds : undefined,
-    sessionId: formData.get("sessionId") || undefined,
-    tableId: formData.get("tableId") || undefined,
-  });
-
-  if (!parsed.success) {
-    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
-  }
-
-  await connectDB();
-
-  const customer = await Customer.findById(parsed.data.customerId);
-  if (!customer || !customer.isActive) {
-    return failure("Customer not found");
-  }
-
-  const checkoutFailure = await getCustomerActiveVisitCheckoutFailure(
-    parsed.data.customerId
-  );
-  if (checkoutFailure) {
-    return failure(checkoutFailure);
-  }
-
-  let resolvedEntryIds = parsed.data.entryIds ?? [];
-
-  if (resolvedEntryIds.length === 0 && parsed.data.sessionId) {
-    await ensureSessionGameEntryForCheckout(parsed.data.sessionId, {
-      id: authResult.session.user.id,
-      username: authResult.session.user.username,
-    });
-    const sessionEntries = await NotebookEntry.find({
-      sessionId: parsed.data.sessionId,
-      status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
-    }).lean();
-    resolvedEntryIds = sessionEntries
-      .map((entry) => toNotebookEntryDTO(entry))
-      .filter((dto) => isSessionPayableEntry(dto, parsed.data.sessionId!))
-      .map((dto) => dto.id);
-  }
-
-  if (resolvedEntryIds.length === 0 && parsed.data.tableId) {
-    const tableId = parsed.data.tableId as CafeTableId;
-    const tableEntries = await NotebookEntry.find({
-      status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
-    })
-      .sort({ createdAt: 1 })
-      .lean();
-    resolvedEntryIds = tableEntries
-      .map((entry) => toNotebookEntryDTO(entry))
-      .filter((dto) => isTableCheckoutEntry(dto, tableId))
-      .map((dto) => dto.id);
-  }
-
-  if (resolvedEntryIds.length === 0) {
-    return failure("No payable lines on this bill. Please refresh and try again.");
-  }
-
-  const entries = await NotebookEntry.find({
-    _id: { $in: resolvedEntryIds },
-    status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
-  });
-
-  if (entries.length !== resolvedEntryIds.length) {
-    return failure(
-      "One or more bill lines are no longer open. Please refresh and try again."
-    );
-  }
-
-  const finishedFailure = await getFinishedVisitLockFailureForEntries(entries);
-  if (finishedFailure) {
-    return failure(finishedFailure);
-  }
-
-  const assignedAt = new Date();
-  const assignedBy = authResult.session.user.username;
-  let assignedCount = 0;
-
-  for (const entry of entries) {
-    if (entryHasContributors({ contributors: entry.contributors })) {
-      return failure("Split bills must be settled from the counter first");
-    }
-    if (entry.customerId) {
-      if (entry.customerId.toString() !== parsed.data.customerId) {
-        return failure("One or more bill lines belong to another customer");
-      }
-    } else {
-      entry.customerId = customer._id;
-      entry.customerName = customer.name;
-      entry.phoneNumber = customer.phone;
-      entry.assignedAt = assignedAt;
-      entry.assignedBy = assignedBy;
-      assignedCount += 1;
-    }
-
-    if (!entry.assignedAt) {
-      entry.assignedAt = assignedAt;
-      entry.assignedBy = assignedBy;
-    }
-  }
-
-  await linkEntriesToActiveVisitBill(entries, {
-    username: authResult.session.user.username,
-    staffId: authResult.session.user.id,
-  });
-
-  await Promise.all(entries.map((entry) => entry.save()));
-
-  await reconcileEntryPaymentFields(resolvedEntryIds);
-
-  if (parsed.data.sessionId) {
-    const session = await TableSession.findById(parsed.data.sessionId);
-    if (session) {
-      const alreadyAssigned = session.assignedCustomers.some(
-        (row) => row.customerId.toString() === parsed.data.customerId
-      );
-      if (!alreadyAssigned) {
-        session.assignedCustomers.push({
-          customerId: customer._id,
-          customerName: customer.name,
-        });
-        await session.save();
-      }
-    }
-
-    const allAssignedToCustomer = entries.every(
-      (entry) => entry.customerId?.toString() === parsed.data.customerId
-    );
-    if (assignedCount > 0 || allAssignedToCustomer) {
-      await closeTableSessionAfterSettlement(parsed.data.sessionId);
-    }
-  }
-
-  revalidateCustomerFinancials(customer._id.toString());
-  revalidatePath("/checkout");
-
-  if (assignedCount === 0) {
-    const allAssignedToCustomer = entries.every(
-      (entry) => entry.customerId?.toString() === parsed.data.customerId
-    );
-    if (!allAssignedToCustomer) {
-      return failure(
-        "Could not add to balance. Select a customer and try again."
-      );
-    }
-  }
-
-  return success({ assignedCount: assignedCount || entries.length });
-}
-
-export async function dismissCheckoutBill(
-  formData: FormData
-): Promise<ActionResult<{ dismissedCount: number }>> {
-  const authResult = await authorizePermission("NOTEBOOK_ENTRY_CREATE");
-  if (!("session" in authResult)) {
-    return authResult;
-  }
-
-  let entryIds: string[] = [];
-  try {
-    entryIds = JSON.parse(String(formData.get("entryIds") ?? "[]"));
-  } catch {
-    return failure("Invalid bill lines");
-  }
-
-  const parsed = dismissCheckoutBillSchema.safeParse({
-    customerId: formData.get("customerId"),
-    entryIds: entryIds.length > 0 ? entryIds : undefined,
-  });
-
-  if (!parsed.success) {
-    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
-  }
-
-  await connectDB();
-
-  const customer = await Customer.findById(parsed.data.customerId);
-  if (!customer || !customer.isActive) {
-    return failure("Customer not found");
-  }
-
-  const checkoutFailure = await getCustomerActiveVisitCheckoutFailure(
-    parsed.data.customerId
-  );
-  if (checkoutFailure) {
-    return failure(checkoutFailure);
-  }
-
-  let resolvedEntryIds = parsed.data.entryIds ?? [];
-
-  if (resolvedEntryIds.length === 0) {
-    const pendingItems = await getCustomerPendingItems(parsed.data.customerId);
-    resolvedEntryIds = pendingItems
-      .filter((item) => !item.entry.checkoutDismissedAt)
-      .map((item) => item.entry.id);
-  }
-
-  if (resolvedEntryIds.length === 0) {
-    return failure("No open bill lines to dismiss");
-  }
-
-  const entries = await NotebookEntry.find({
-    _id: { $in: resolvedEntryIds },
-    status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
-  });
-
-  if (entries.length !== resolvedEntryIds.length) {
-    return failure(
-      "One or more bill lines are no longer open. Please refresh and try again."
-    );
-  }
-
-  const finishedFailure = await getFinishedVisitLockFailureForEntries(entries);
-  if (finishedFailure) {
-    return failure(finishedFailure);
-  }
-
-  for (const entry of entries) {
-    const dto = toNotebookEntryDTO(entry);
-    const owesCustomer = getCheckoutQueueObligations(dto).some(
-      (obligation) => obligation.customerId === parsed.data.customerId
-    );
-    if (!owesCustomer) {
-      return failure("One or more bill lines belong to another customer");
-    }
-
-    await entry.save();
-  }
-
-  await reconcileEntryPaymentFields(resolvedEntryIds);
-  revalidateCustomerFinancials(customer._id.toString());
-  revalidatePath("/checkout");
-
-  return success({ dismissedCount: resolvedEntryIds.length });
 }
 
 export async function setEntryContributors(
@@ -1167,7 +1163,14 @@ export async function setEntryContributors(
     return authResult;
   }
 
-  let contributorsInput: { customerId: string; amount: number }[] = [];
+  let contributorsInput: {
+    customerId: string;
+    amount: number;
+    paidAmount?: number;
+    paymentMethod?: "CASH" | "GPAY" | "WALLET";
+    useWallet?: boolean;
+    walletAmount?: number;
+  }[] = [];
   try {
     contributorsInput = JSON.parse(String(formData.get("contributors") ?? "[]"));
   } catch {
@@ -1190,47 +1193,13 @@ export async function setEntryContributors(
     return failure("Entry not found");
   }
 
-  if (entry.status !== "PENDING") {
-    return failure("Only pending entries can have contributors assigned");
+  if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
+    return failure("Cancelled or reversed frames cannot be updated");
   }
 
-  const lockFailure = await getEntryEditLockFailure(entry);
-  if (lockFailure && !entry.contributors?.length) {
-    return failure(lockFailure);
+  if (isPoolMiniSection(entry.section)) {
+    return failure("Pool & Mini entries do not support Split");
   }
-
-  if (entry.contributors?.length) {
-    const finishedBillIds = await getFinishedBillIdSet(
-      collectBillIdsFromEntries([entry])
-    );
-    const contributorsWithStatus =
-      entry.contributors?.map((contributor) => ({
-        status: contributor.status,
-        visitStatus:
-          contributor.billId &&
-          finishedBillIds.has(contributor.billId.toString())
-            ? ("FINISHED" as const)
-            : ("ACTIVE" as const),
-        paidAmount: contributor.paidAmount,
-        balanceCollectedAmount: contributor.balanceCollectedAmount,
-      })) ?? [];
-
-    if (
-      contributorsWithStatus.every((contributor) =>
-        isContributorEditLocked(contributor)
-      )
-    ) {
-      return failure(ENTRY_LOCKED_MESSAGE);
-    }
-  } else if (lockFailure) {
-    return failure(lockFailure);
-  }
-
-  const priorBillIds = collectEntryBillIds(entry);
-  const visitBillStaff = {
-    username: authResult.session.user.username,
-    staffId: authResult.session.user.id,
-  };
 
   if (parsed.data.contributors.length === 0) {
     entry.contributors = [];
@@ -1239,136 +1208,99 @@ export async function setEntryContributors(
     entry.phoneNumber = "";
     entry.assignedAt = undefined;
     entry.assignedBy = undefined;
-    entry.visitId = undefined;
-    entry.billId = undefined;
+    entry.paidAmount = 0;
+    entry.status = "PENDING";
     await entry.save();
 
-    await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
-      priorBillIds,
-    });
-
     revalidateCounterPaths();
-    revalidatePath("/checkout");
     return success(toNotebookEntryDTO(entry));
   }
 
   const total = parsed.data.contributors.reduce((sum, row) => sum + row.amount, 0);
   if (total !== entry.amount) {
     return failure(
-      `Contributor total must equal entry total (${entry.amount}). Remaining: ${entry.amount - total}`
+      `Contributor amounts must equal frame amount (${entry.amount}). Remaining: ${entry.amount - total}`
     );
   }
 
-  const finishedBillIds = await getFinishedBillIdSet(
-    collectBillIdsFromEntries([entry])
-  );
-
-  const contributorIsLocked = (contributor: (typeof entry.contributors)[number]) => {
-    const visitStatus =
-      contributor.billId &&
-      finishedBillIds.has(contributor.billId.toString())
-        ? ("FINISHED" as const)
-        : ("ACTIVE" as const);
-    return isContributorAssignmentLocked({
-      status: contributor.status,
-      visitStatus,
-      paidAmount: contributor.paidAmount,
-      balanceCollectedAmount: contributor.balanceCollectedAmount,
-    });
-  };
-
-  const existingContributors = entry.contributors ?? [];
-  const partiallyLocked = frameHasPartialPaymentLock({
-    status: entry.status,
-    paidAmount: entry.paidAmount,
-    balanceCollectedAmount: entry.balanceCollectedAmount,
-    contributors: existingContributors.map((contributor) => ({
-      status: contributor.status,
-      visitStatus:
-        contributor.billId &&
-        finishedBillIds.has(contributor.billId.toString())
-          ? ("FINISHED" as const)
-          : ("ACTIVE" as const),
-      paidAmount: contributor.paidAmount,
-      balanceCollectedAmount: contributor.balanceCollectedAmount,
-    })),
-  });
-
-  if (partiallyLocked) {
-    if (parsed.data.contributors.length !== existingContributors.length) {
-      return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
-    }
-
-    for (let index = 0; index < existingContributors.length; index += 1) {
-      const existing = existingContributors[index]!;
-      const submitted = parsed.data.contributors[index];
-      if (!submitted) {
-        return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
-      }
-      if (submitted.amount !== existing.amount) {
-        return failure(FRAME_STRUCTURE_LOCKED_MESSAGE);
-      }
-      if (
-        contributorIsLocked(existing) &&
-        submitted.customerId !== existing.customerId.toString()
-      ) {
-        return failure(SPLIT_CONTRIBUTOR_LOCKED_MESSAGE);
-      }
-    }
-  } else {
-    for (const existing of existingContributors) {
-      if (!contributorIsLocked(existing)) {
-        continue;
-      }
-      const unchanged = parsed.data.contributors.some(
-        (row) =>
-          row.customerId === existing.customerId.toString() &&
-          row.amount === existing.amount
-      );
-      if (!unchanged) {
-        return failure(SPLIT_CONTRIBUTOR_LOCKED_MESSAGE);
-      }
-    }
+  const priorWalletByCustomer = new Map<string, number>();
+  for (const existing of entry.contributors ?? []) {
+    priorWalletByCustomer.set(
+      existing.customerId.toString(),
+      Math.round(
+        (existing as { walletAmount?: number }).walletAmount ?? 0
+      )
+    );
   }
 
-  const contributorDocs = [];
-  for (let index = 0; index < parsed.data.contributors.length; index += 1) {
-    const row = parsed.data.contributors[index]!;
+  const contributorDocs: {
+    customerId: mongoose.Types.ObjectId;
+    customerName: string;
+    amount: number;
+    paidAmount: number;
+    status: "PENDING" | "PAID";
+    paymentMethod?: "CASH" | "GPAY" | "WALLET";
+    walletAmount?: number;
+  }[] = [];
+  let totalPaid = 0;
+  const walletDebits: {
+    customerId: string;
+    amount: number;
+    name: string;
+    paidAmount: number;
+    paymentMethod?: "CASH" | "GPAY" | "WALLET";
+    targetWallet: number;
+  }[] = [];
+
+  for (const row of parsed.data.contributors) {
     const customer = await Customer.findById(row.customerId);
     if (!customer || !customer.isActive) {
       return failure("Customer not found");
     }
 
-    const existing = partiallyLocked
-      ? existingContributors[index]
-      : existingContributors.find(
-          (contributor) => contributor.customerId.toString() === row.customerId
-        );
+    const paidAmount = row.paidAmount ?? 0;
+    totalPaid += paidAmount;
 
-    if (existing && contributorIsLocked(existing)) {
-      contributorDocs.push({
-        customerId: existing.customerId,
-        customerName: existing.customerName,
-        amount: existing.amount,
-        status: existing.status,
-        paidAmount: existing.paidAmount,
-        balanceCollectedAmount: existing.balanceCollectedAmount,
-        paymentMethod: existing.paymentMethod,
-        settlementId: existing.settlementId,
-        paidAt: existing.paidAt,
-        visitId: existing.visitId,
-        billId: existing.billId,
-        counterPaidAmount: existing.counterPaidAmount,
-        counterBalanceAmount: existing.counterBalanceAmount,
+    const priorWallet =
+      priorWalletByCustomer.get(customer._id.toString()) ?? 0;
+    const availableBalance =
+      Math.round(customer.balance ?? 0) + priorWallet;
+
+    let targetWallet = 0;
+    try {
+      targetWallet = resolveWalletDebitAmount({
+        paidAmount,
+        paymentMethod: row.paymentMethod,
+        useWallet: row.useWallet,
+        availableBalance,
       });
-      continue;
+    } catch (error) {
+      return failure(
+        error instanceof Error ? error.message : "Invalid wallet amount"
+      );
+    }
+
+    const walletDebitDelta = Math.max(0, targetWallet - priorWallet);
+    if (walletDebitDelta > 0) {
+      walletDebits.push({
+        customerId: customer._id.toString(),
+        amount: walletDebitDelta,
+        name: customer.name,
+        paidAmount,
+        paymentMethod: row.paymentMethod,
+        targetWallet,
+      });
     }
 
     contributorDocs.push({
       customerId: customer._id,
       customerName: customer.name,
       amount: row.amount,
-      status: "PENDING" as const,
+      paidAmount,
+      status: framePaymentStatus(row.amount, paidAmount),
+      paymentMethod:
+        paidAmount > 0 && row.paymentMethod ? row.paymentMethod : undefined,
+      ...(targetWallet > 0 ? { walletAmount: targetWallet } : {}),
     });
   }
 
@@ -1378,16 +1310,56 @@ export async function setEntryContributors(
   entry.phoneNumber = "";
   entry.assignedAt = undefined;
   entry.assignedBy = undefined;
-  entry.visitId = undefined;
-  entry.billId = undefined;
-  await entry.save();
+  // Payment mode lives per contributor for splits.
+  entry.paymentMethod = undefined;
+  entry.paidAmount = totalPaid;
+  entry.status = framePaymentStatus(entry.amount, totalPaid);
 
-  await recalculateActiveVisitForEntryOwnership(entry, visitBillStaff, {
-    priorBillIds,
-  });
+  if (walletDebits.length > 0) {
+    const dbSession = await mongoose.startSession();
+    try {
+      await dbSession.withTransaction(async () => {
+        for (const debit of walletDebits) {
+          const remainderMethod = remainingPaymentMethodForDebit(
+            debit.targetWallet,
+            debit.paidAmount,
+            debit.paymentMethod
+          );
+          const frameLabel = getEntryDisplayLabel(entry);
+          await debitWalletForOperationalPayment({
+            customerId: debit.customerId,
+            amount: debit.amount,
+            description: `Split frame payment — ${debit.name}`,
+            staffId: authResult.session.user.id,
+            staffUsername: authResult.session.user.username,
+            dbSession,
+            remainingPaymentMethod: remainderMethod,
+            businessDayId: entry.businessDayId?.toString(),
+            paymentContext: buildWalletPaymentContext({
+              purpose: "FRAME_PAYMENT",
+              billAmount: debit.paidAmount,
+              walletUsed: debit.amount,
+              totalWalletApplied: debit.targetWallet,
+              remainderMethod,
+              lines: [{ label: frameLabel, quantity: 1 }],
+              businessDayId: entry.businessDayId?.toString(),
+            }),
+          });
+        }
+        await entry.save({ session: dbSession });
+      });
+    } catch (error) {
+      return failure(
+        error instanceof Error ? error.message : "Wallet payment failed"
+      );
+    } finally {
+      await dbSession.endSession();
+    }
+  } else {
+    await entry.save();
+  }
 
   revalidateCounterPaths();
-  revalidatePath("/checkout");
   for (const row of contributorDocs) {
     revalidateCounterPaths(row.customerId.toString());
     revalidateCustomerFinancials(row.customerId.toString());
@@ -1397,200 +1369,14 @@ export async function setEntryContributors(
 }
 
 export async function getOpenTabs(
-  searchParams: Record<string, string | string[] | undefined> = {}
+  _searchParams: Record<string, string | string[] | undefined> = {}
 ): Promise<OpenTabSummaryDTO[]> {
   const authResult = await authorizePermission("NOTEBOOK_VIEW");
   if (!("session" in authResult)) {
     return [];
   }
-
-  const parsed = openTabSearchSchema.safeParse({
-    query: typeof searchParams.q === "string" ? searchParams.q : undefined,
-  });
-
-  const query = parsed.success ? parsed.data.query?.trim() : undefined;
-  const forceCustomerId = parseCheckoutCustomerId(searchParams);
-
-  await connectDB();
-
-  const activeVisits = await Visit.find({ status: "ACTIVE" })
-    .select("customerId billId")
-    .lean();
-  const activeBillIds = new Set(
-    activeVisits.map((visit) => visit.billId.toString())
-  );
-
-  const entries = await NotebookEntry.find({
-    status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
-  }).lean();
-
-  const allEntryDtos = entries
-    .map((entry) => toNotebookEntryDTO(entry))
-    .filter((entry) => entryTouchesActiveBill(entry, activeBillIds));
-
-  const tabMap = new Map<
-    string,
-    { pendingAmount: number; pendingCount: number }
-  >();
-
-  for (const dto of allEntryDtos) {
-    for (const obligation of getCheckoutQueueObligations(dto)) {
-      if (obligation.amount <= 0) continue;
-      const existing = tabMap.get(obligation.customerId) ?? {
-        pendingAmount: 0,
-        pendingCount: 0,
-      };
-      existing.pendingAmount += obligation.amount;
-      existing.pendingCount += 1;
-      tabMap.set(obligation.customerId, existing);
-    }
-  }
-
-  const tableTabs = buildTableOpenTabSummaries(allEntryDtos);
-
-  for (const visit of activeVisits) {
-    const customerId = visit.customerId.toString();
-    const bill = await Bill.findById(visit.billId).lean();
-    if (!bill) continue;
-
-    const synced = await syncBillTotals(bill._id);
-    if (!synced) continue;
-
-    const billEntryCount = allEntryDtos.filter(
-      (dto) =>
-        dto.billId === synced._id.toString() ||
-        dto.contributors?.some(
-          (row) => row.billId === synced._id.toString()
-        )
-    ).length;
-
-    const existing = tabMap.get(customerId);
-    tabMap.set(customerId, {
-      pendingAmount: synced.dueAmount,
-      pendingCount: Math.max(existing?.pendingCount ?? 0, billEntryCount, 1),
-    });
-  }
-
-  const checkoutSessions = await TableSession.find({
-    status: { $in: ["STOPPED", "ENDED", "CHECKOUT_PENDING"] },
-  }).lean();
-
-  const payableSessions = checkoutSessions.filter((session) =>
-    isPoolMiniTableId(session.tableId)
-  );
-
-  const sessionTabs = buildSessionOpenTabSummaries({
-    sessions: payableSessions.map((session) => ({
-      id: session._id.toString(),
-      sessionNumber: session.sessionNumber,
-      tableSessionNumber:
-        session.tableSessionNumber ?? session.sessionNumber,
-      tableId: session.tableId,
-      gameChargeAmount: session.gameChargeAmount,
-      startedAt: session.startedAt.toISOString(),
-    })),
-    entries: allEntryDtos,
-  });
-
-  if (tabMap.size === 0 && tableTabs.length === 0 && sessionTabs.length === 0) {
-    return [];
-  }
-
-  let customerTabs: CustomerOpenTabSummaryDTO[] = [];
-
-  if (tabMap.size > 0) {
-    const customers = await Customer.find({
-      _id: { $in: [...tabMap.keys()] },
-      isActive: true,
-    }).lean();
-
-    customerTabs = customers
-      .map((customer) => {
-        const totals = tabMap.get(customer._id.toString());
-        if (!totals) return null;
-        return toCustomerOpenTabSummary({
-          customerId: customer._id.toString(),
-          customerName: customer.name,
-          phoneNumber: customer.phone,
-          cardId: customer.cardId,
-          walletEnabled: customer.walletEnabled ?? true,
-          pendingAmount: totals.pendingAmount,
-          pendingCount: totals.pendingCount,
-        });
-      })
-      .filter((row): row is CustomerOpenTabSummaryDTO => row !== null);
-  }
-
-  if (forceCustomerId && !customerTabs.some((tab) => tab.customerId === forceCustomerId)) {
-    const forcedCustomer = await Customer.findOne({
-      _id: forceCustomerId,
-      isActive: true,
-    }).lean();
-
-    if (forcedCustomer) {
-      const forcedVisit = activeVisits.find(
-        (visit) => visit.customerId.toString() === forceCustomerId
-      );
-      const forcedTotals = tabMap.get(forceCustomerId) ?? {
-        pendingAmount: 0,
-        pendingCount: 0,
-      };
-
-      if (!forcedVisit) {
-        for (const dto of allEntryDtos) {
-          for (const obligation of getCheckoutQueueObligations(dto)) {
-            if (obligation.customerId !== forceCustomerId) continue;
-            if (obligation.amount <= 0) continue;
-            forcedTotals.pendingAmount += obligation.amount;
-            forcedTotals.pendingCount += 1;
-          }
-        }
-      }
-
-      if (forcedVisit || forcedTotals.pendingAmount > 0 || forcedTotals.pendingCount > 0) {
-        customerTabs.push(
-          toCustomerOpenTabSummary({
-            customerId: forcedCustomer._id.toString(),
-            customerName: forcedCustomer.name,
-            phoneNumber: forcedCustomer.phone,
-            cardId: forcedCustomer.cardId,
-            walletEnabled: forcedCustomer.walletEnabled ?? true,
-            pendingAmount: forcedTotals.pendingAmount,
-            pendingCount: Math.max(forcedTotals.pendingCount, 1),
-          })
-        );
-      }
-    }
-  }
-
-  let results: OpenTabSummaryDTO[] = [
-    ...sessionTabs,
-    ...tableTabs,
-    ...customerTabs,
-  ].sort((a, b) => b.pendingAmount - a.pendingAmount);
-
-  if (query) {
-    const q = query.toLowerCase();
-    results = results.filter((row) => {
-      if (row.kind === "session") {
-        return (
-          row.displayLabel.toLowerCase().includes(q) ||
-          row.tableName.toLowerCase().includes(q) ||
-          String(row.tableSessionNumber).includes(q)
-        );
-      }
-      if (row.kind === "table") {
-        return row.tableName.toLowerCase().includes(q);
-      }
-      return (
-        row.customerName.toLowerCase().includes(q) ||
-        row.phoneNumber.includes(q) ||
-        row.cardId.toLowerCase().includes(q)
-      );
-    });
-  }
-
-  return results;
+  // Checkout queue removed with Financial Engine V1.
+  return [];
 }
 
 export async function getCustomerPendingItems(
@@ -1603,34 +1389,9 @@ export async function getCustomerPendingItems(
 
   await connectDB();
 
-  const activeVisit = await Visit.findOne({
-    customerId: new mongoose.Types.ObjectId(customerId),
-    status: "ACTIVE",
-  })
-    .select("billId")
-    .lean();
-
-  if (!activeVisit?.billId) {
-    return [];
-  }
-
   const entries = await NotebookEntry.find({
-    status: { $ne: "CANCELLED" },
-    $or: [
-      {
-        customerId,
-        billId: activeVisit.billId,
-        $or: [{ contributors: { $size: 0 } }, { contributors: { $exists: false } }],
-      },
-      {
-        contributors: {
-          $elemMatch: {
-            customerId: new mongoose.Types.ObjectId(customerId),
-            billId: activeVisit.billId,
-          },
-        },
-      },
-    ],
+    status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
+    $or: [{ customerId }, { "contributors.customerId": customerId }],
   })
     .sort({ createdAt: 1 })
     .lean();
@@ -1639,17 +1400,40 @@ export async function getCustomerPendingItems(
 
   for (const entry of entries) {
     const dto = toNotebookEntryDTO(entry);
-    const slice = getCustomerBillSlice(dto, customerId);
-    if (!slice) {
+    if (entryHasContributors(dto)) {
+      const contributor = dto.contributors!.find(
+        (row) => row.customerId === customerId
+      );
+      if (!contributor || contributor.status === "PAID") continue;
+      const remaining = Math.max(
+        0,
+        contributor.amount -
+          (contributor.paidAmount ?? 0) -
+          (contributor.balanceCollectedAmount ?? 0)
+      );
+      if (remaining <= 0) continue;
+      items.push({
+        entry: dto,
+        contributionAmount: remaining,
+        contributorCustomerId: customerId,
+        lineAmount: contributor.amount,
+        linePaidAmount:
+          (contributor.paidAmount ?? 0) +
+          (contributor.balanceCollectedAmount ?? 0),
+      });
       continue;
     }
 
+    if (dto.customerId !== customerId) continue;
+    const remaining = entryAmountRemaining(dto);
+    if (remaining <= 0) continue;
     items.push({
       entry: dto,
-      contributionAmount: slice.due,
+      contributionAmount: remaining,
       contributorCustomerId: customerId,
-      lineAmount: slice.lineTotal,
-      linePaidAmount: slice.paid,
+      lineAmount: dto.amount,
+      linePaidAmount:
+        (dto.paidAmount ?? 0) + (dto.balanceCollectedAmount ?? 0),
     });
   }
 
@@ -1705,7 +1489,9 @@ export async function getTablePendingItems(
   await connectDB();
 
   const entries = await NotebookEntry.find({
+    tableId,
     status: { $in: [...CHECKOUT_ELIGIBLE_STATUSES] },
+    customerId: { $exists: false },
   })
     .sort({ createdAt: 1 })
     .lean();
@@ -1714,11 +1500,13 @@ export async function getTablePendingItems(
 
   for (const entry of entries) {
     const dto = toNotebookEntryDTO(entry);
-    if (!isTableCheckoutEntry(dto, tableId)) continue;
+    if (entryHasContributors(dto)) continue;
+    const remaining = entryAmountRemaining(dto);
+    if (remaining <= 0) continue;
 
     items.push({
       entry: dto,
-      contributionAmount: entryAmountRemaining(dto),
+      contributionAmount: remaining,
       contributorCustomerId: "",
     });
   }
@@ -1756,10 +1544,20 @@ export async function getCustomerTodayGlance(
 
   await connectDB();
 
-  const { start, end } = getDayBounds();
+  const openDay = await getOpenBusinessDayContext();
+  if (!openDay) {
+    return {
+      frameCount: 0,
+      frameTotal: 0,
+      cafeTotal: 0,
+      grandTotal: 0,
+      frames: [],
+      cafe: [],
+    };
+  }
 
   const entries = await NotebookEntry.find({
-    createdAt: { $gte: start, $lte: end },
+    businessDayId: openDay.businessDayId,
     status: { $ne: "CANCELLED" },
     $or: [{ customerId }, { "contributors.customerId": customerId }],
   })
@@ -1799,11 +1597,6 @@ export async function reverseNotebookEntry(
 
   if (entry.section !== CAFE_SECTION) {
     return failure("Use cancel for counter entries. Cafe entries use reversal.");
-  }
-
-  const lockFailure = await getEntryEditLockFailure(entry);
-  if (lockFailure) {
-    return failure(lockFailure);
   }
 
   if (entry.status !== "PENDING") {
@@ -1846,6 +1639,13 @@ export async function cancelCounterEntry(
 
   await connectDB();
 
+  const openDay = await getOpenBusinessDayContext();
+  if (!openDay) {
+    return failure(
+      "Frames can only be deleted while the Business Day is OPEN."
+    );
+  }
+
   const entry = await NotebookEntry.findById(parsed.data.entryId);
   if (!entry) {
     return failure("Entry not found");
@@ -1855,13 +1655,21 @@ export async function cancelCounterEntry(
     return failure("Cafe entries cannot be cancelled. Use reversal instead.");
   }
 
-  const lockFailure = await getEntryEditLockFailure(entry);
-  if (lockFailure) {
-    return failure(lockFailure);
+  if (
+    !entry.businessDayId ||
+    entry.businessDayId.toString() !== openDay.businessDayId.toString()
+  ) {
+    return failure(
+      "Frames can only be deleted while the Business Day is OPEN."
+    );
   }
 
-  if (entry.status !== "PENDING") {
-    return failure("Only pending entries can be cancelled");
+  if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
+    return failure("This frame is already removed.");
+  }
+
+  if (entry.status !== "PENDING" && entry.status !== "PAID") {
+    return failure("This frame cannot be deleted.");
   }
 
   const reasonLabel = getNotebookReversalReasonLabel(
@@ -1875,17 +1683,98 @@ export async function cancelCounterEntry(
   entry.cancellationReason = reasonLabel;
   await entry.save();
 
-  revalidateCounterPaths(entry.customerId?.toString());
+  revalidateFrameCustomers(entry);
 
   return success(toNotebookEntryDTO(entry));
 }
 
-function getDayBounds() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
+/**
+ * Delete Frame (notebook correction while Business Day is OPEN).
+ * Soft-cancels the entry so Close / Outstanding / History ignore it.
+ * Closed Business Days cannot delete frames.
+ */
+export async function deleteFrame(
+  formData: FormData
+): Promise<ActionResult<NotebookEntryDTO>> {
+  const authResult = await authorizePermission("NOTEBOOK_ENTRY_REVERSE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = deleteFrameSchema.safeParse({
+    entryId: formData.get("entryId"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const openDay = await getOpenBusinessDayContext();
+  if (!openDay) {
+    return failure(
+      "Frames can only be deleted while the Business Day is OPEN."
+    );
+  }
+
+  const entry = await NotebookEntry.findById(parsed.data.entryId);
+  if (!entry) {
+    return failure("Entry not found");
+  }
+
+  if (entry.section === CAFE_SECTION) {
+    return failure("Cafe items cannot be deleted from Frames.");
+  }
+
+  if (
+    !entry.businessDayId ||
+    entry.businessDayId.toString() !== openDay.businessDayId.toString()
+  ) {
+    return failure(
+      "Frames can only be deleted while the Business Day is OPEN."
+    );
+  }
+
+  if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
+    return failure("This frame is already deleted.");
+  }
+
+  if (entry.status !== "PENDING" && entry.status !== "PAID") {
+    return failure("This frame cannot be deleted.");
+  }
+
+  entry.status = "CANCELLED";
+  entry.cancelledAt = new Date();
+  entry.cancelledBy = authResult.session.user.username;
+  entry.cancellationReason = "Deleted while Business Day open";
+  await entry.save();
+
+  revalidateFrameCustomers(entry);
+
+  return success(toNotebookEntryDTO(entry));
+}
+
+function revalidateFrameCustomers(entry: {
+  customerId?: { toString(): string } | null;
+  contributors?: Array<{ customerId?: { toString(): string } | null }>;
+}) {
+  const ids = new Set<string>();
+  if (entry.customerId) {
+    ids.add(entry.customerId.toString());
+  }
+  for (const row of entry.contributors ?? []) {
+    if (row.customerId) {
+      ids.add(row.customerId.toString());
+    }
+  }
+  if (ids.size === 0) {
+    revalidateCounterPaths();
+    return;
+  }
+  for (const id of ids) {
+    revalidateCounterPaths(id);
+  }
 }
 
 export async function addCafeItems(
@@ -1915,6 +1804,9 @@ export async function addCafeItems(
     customerId: formData.get("customerId") || undefined,
     tableId: tableIdRaw ? String(tableIdRaw) : undefined,
     sessionId: sessionIdRaw ? String(sessionIdRaw) : undefined,
+    paidAmount: formData.get("paidAmount") || 0,
+    paymentMethod: formData.get("paymentMethod") || undefined,
+    useWallet: parseUseWalletFlag(formData.get("useWallet")),
     items,
   });
 
@@ -1934,120 +1826,234 @@ export async function addCafeItems(
     }
   }
 
-  const { start, end } = getDayBounds();
-  const results: NotebookEntryDTO[] = [];
-  const visitBillStaff = {
-    username: authResult.session.user.username,
-    staffId: authResult.session.user.id,
-  };
-
-  let tableSessionId: import("mongoose").Types.ObjectId | undefined;
-  if (isTable && parsed.data.tableId && isPoolMiniTableId(parsed.data.tableId)) {
-    if (parsed.data.sessionId) {
-      const manualSession = await TableSession.findById(parsed.data.sessionId);
-      if (
-        !manualSession ||
-        manualSession.tableId !== parsed.data.tableId ||
-        !(OPEN_TABLE_SESSION_STATUSES as readonly string[]).includes(
-          manualSession.status
-        )
-      ) {
-        return failure("Session not found for this table");
-      }
-      tableSessionId = manualSession._id;
-    } else {
-      const openSession = await TableSession.findOne({
-        tableId: parsed.data.tableId,
-        status: { $in: [...ACTIVE_TABLE_SESSION_STATUSES] },
-      }).sort({ startedAt: -1 });
-      if (
-        openSession &&
-        (openSession.status === "ACTIVE" || openSession.status === "PAUSED")
-      ) {
-        tableSessionId = openSession._id;
-      }
-    }
+  const openDay = await getOpenBusinessDayContext();
+  if (!openDay) {
+    return failure(
+      "No OPEN Business Day. Start the Business Day before creating Cafe items."
+    );
   }
 
-  for (const item of parsed.data.items) {
-    if (item.type === "FOOD" && !item.note?.trim()) {
-      return failure("Food items require a note");
+  const paidAmount = parsed.data.paidAmount;
+  const paymentMethod =
+    paidAmount > 0 ? parsed.data.paymentMethod : undefined;
+
+  let walletDebit = 0;
+  try {
+    walletDebit = resolveWalletDebitAmount({
+      paidAmount,
+      paymentMethod,
+      useWallet: parsed.data.useWallet,
+      availableBalance: customer ? Math.round(customer.balance ?? 0) : 0,
+    });
+  } catch (error) {
+    return failure(
+      error instanceof Error ? error.message : "Invalid wallet amount"
+    );
+  }
+
+  if (walletDebit > 0 && !customer) {
+    return failure("Assign a customer before using wallet");
+  }
+
+  const results: NotebookEntryDTO[] = [];
+
+  const createCafeItemEntries = async (
+    dbSession?: import("mongoose").ClientSession
+  ) => {
+    let tableSessionId: import("mongoose").Types.ObjectId | undefined;
+    if (
+      isTable &&
+      parsed.data.tableId &&
+      isPoolMiniTableId(parsed.data.tableId)
+    ) {
+      if (parsed.data.sessionId) {
+        const manualSession = await TableSession.findById(
+          parsed.data.sessionId
+        ).session(dbSession ?? null);
+        if (
+          !manualSession ||
+          manualSession.tableId !== parsed.data.tableId ||
+          !(OPEN_TABLE_SESSION_STATUSES as readonly string[]).includes(
+            manualSession.status
+          )
+        ) {
+          throw new Error("Session not found for this table");
+        }
+        tableSessionId = manualSession._id;
+      } else {
+        const openSession = await TableSession.findOne({
+          tableId: parsed.data.tableId,
+          status: { $in: [...ACTIVE_TABLE_SESSION_STATUSES] },
+          businessDayId: openDay.businessDayId,
+        })
+          .sort({ startedAt: -1 })
+          .session(dbSession ?? null);
+        if (
+          openSession &&
+          (openSession.status === "ACTIVE" || openSession.status === "PAUSED")
+        ) {
+          tableSessionId = openSession._id;
+        }
+      }
     }
 
-    const mergeQuery: Record<string, unknown> = {
-      section: CAFE_SECTION,
-      type: item.type,
-      status: "PENDING",
-      createdAt: { $gte: start, $lte: end },
-    };
-
-    if (isTable) {
-      mergeQuery.tableId = parsed.data.tableId;
-      mergeQuery.customerId = { $exists: false };
-      if (tableSessionId) {
-        mergeQuery.sessionId = tableSessionId;
-      }
-    } else {
-      mergeQuery.customerId = customer!._id;
-      mergeQuery.tableId = { $exists: false };
-    }
-
-    if (item.type === "FOOD") {
-      mergeQuery.itemNote = item.note?.trim() ?? "";
-      mergeQuery.unitPrice = item.unitPrice;
-    }
-
-    const existing = await NotebookEntry.findOne(mergeQuery);
-
-    if (existing) {
-      const lockFailure = await getEntryEditLockFailure(existing);
-      if (lockFailure) {
-        return failure(lockFailure);
+    for (const item of parsed.data.items) {
+      if (item.type === "FOOD" && !item.note?.trim()) {
+        throw new Error("Food items require a note");
       }
 
-      existing.quantity = (existing.quantity ?? 1) + item.quantity;
-      existing.unitPrice = item.unitPrice;
-      existing.amount = existing.unitPrice * existing.quantity;
-      if (item.type === "FOOD" && item.note?.trim()) {
-        existing.itemNote = item.note.trim();
-      }
-      await existing.save();
-      if (!isTable && customer) {
-        await linkEntryToActiveVisitBill(existing, visitBillStaff);
-      }
-      results.push(toNotebookEntryDTO(existing));
-    } else {
-      const entry = await NotebookEntry.create({
+      const lineAmount = item.unitPrice * item.quantity;
+      const linePaid = Math.min(paidAmount, lineAmount);
+      const lineStatus = framePaymentStatus(lineAmount, linePaid);
+      const linePaymentMethod =
+        linePaid > 0 && paymentMethod ? paymentMethod : undefined;
+      const lineWalletAmount =
+        walletDebit > 0 && linePaid > 0
+          ? Math.min(linePaid, walletDebit)
+          : undefined;
+
+      // Only merge unpaid identical lines — paid lines stay independent like Frames.
+      const canMerge = linePaid === 0;
+
+      const mergeQuery: Record<string, unknown> = {
         section: CAFE_SECTION,
         type: item.type,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        amount: item.unitPrice * item.quantity,
-        itemNote: item.type === "FOOD" ? item.note?.trim() ?? "" : "",
-        ...(isTable
-          ? {
-              tableId: parsed.data.tableId,
-              ...(tableSessionId ? { sessionId: tableSessionId } : {}),
-              customerName: "",
-              phoneNumber: "",
-            }
-          : {
-              customerId: customer!._id,
-              customerName: customer!.name,
-              phoneNumber: customer!.phone,
-            }),
         status: "PENDING",
-        createdBy: authResult.session.user.username,
-        createdByStaffId: authResult.session.user.id,
-      });
-      if (!isTable && customer) {
-        await linkEntryToActiveVisitBill(entry, visitBillStaff);
+        businessDayId: openDay.businessDayId,
+        $or: [{ paidAmount: { $exists: false } }, { paidAmount: 0 }],
+      };
+
+      if (isTable) {
+        mergeQuery.tableId = parsed.data.tableId;
+        mergeQuery.customerId = { $exists: false };
+        if (tableSessionId) {
+          mergeQuery.sessionId = tableSessionId;
+        }
+      } else {
+        mergeQuery.customerId = customer!._id;
+        mergeQuery.tableId = { $exists: false };
       }
-      results.push(toNotebookEntryDTO(entry));
+
+      if (item.type === "FOOD") {
+        mergeQuery.itemNote = item.note?.trim() ?? "";
+        mergeQuery.unitPrice = item.unitPrice;
+      }
+
+      const existing = canMerge
+        ? await NotebookEntry.findOne(mergeQuery).session(dbSession ?? null)
+        : null;
+
+      if (existing) {
+        existing.quantity = (existing.quantity ?? 1) + item.quantity;
+        existing.unitPrice = item.unitPrice;
+        existing.amount = existing.unitPrice * existing.quantity;
+        if (item.type === "FOOD" && item.note?.trim()) {
+          existing.itemNote = item.note.trim();
+        }
+        existing.paidAmount = 0;
+        existing.paymentMethod = undefined;
+        existing.status = "PENDING";
+        await existing.save({ session: dbSession ?? undefined });
+        results.push(toNotebookEntryDTO(existing));
+      } else {
+        const [entry] = await NotebookEntry.create(
+          [
+            {
+              section: CAFE_SECTION,
+              type: item.type,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              amount: lineAmount,
+              paidAmount: linePaid,
+              ...(linePaymentMethod
+                ? { paymentMethod: linePaymentMethod }
+                : {}),
+              ...(lineWalletAmount !== undefined
+                ? { walletAmount: lineWalletAmount }
+                : {}),
+              itemNote: item.type === "FOOD" ? item.note?.trim() ?? "" : "",
+              ...(isTable
+                ? {
+                    tableId: parsed.data.tableId,
+                    ...(tableSessionId ? { sessionId: tableSessionId } : {}),
+                    customerName: "",
+                    phoneNumber: "",
+                  }
+                : {
+                    customerId: customer!._id,
+                    customerName: customer!.name,
+                    phoneNumber: customer!.phone,
+                  }),
+              status: lineStatus,
+              createdBy: authResult.session.user.username,
+              createdByStaffId: authResult.session.user.id,
+            },
+          ],
+          { session: dbSession ?? undefined }
+        );
+        results.push(toNotebookEntryDTO(entry));
+      }
+    }
+  };
+
+  if (walletDebit > 0 && customer) {
+    const dbSession = await mongoose.startSession();
+    try {
+      await dbSession.withTransaction(async () => {
+        const remainderMethod = remainingPaymentMethodForDebit(
+          walletDebit,
+          paidAmount,
+          paymentMethod
+        );
+        const cafeLines = parsed.data.items.map((item) => ({
+          label:
+            item.type === "FOOD" && item.note?.trim()
+              ? item.note.trim()
+              : CAFE_ITEM_TYPE_LABELS[item.type as CafeItemType] ?? item.type,
+          quantity: item.quantity,
+        }));
+        await debitWalletForOperationalPayment({
+          customerId: customer._id.toString(),
+          amount: walletDebit,
+          description: `Cafe items — ₹${walletDebit.toLocaleString("en-IN")}`,
+          staffId: authResult.session.user.id,
+          staffUsername: authResult.session.user.username,
+          dbSession,
+          remainingPaymentMethod: remainderMethod,
+          businessDayId: openDay.businessDayId.toString(),
+          paymentContext: buildWalletPaymentContext({
+            purpose: "CAFE_PAYMENT",
+            billAmount: paidAmount,
+            walletUsed: walletDebit,
+            totalWalletApplied: walletDebit,
+            remainderMethod,
+            lines: cafeLines,
+            businessDayId: openDay.businessDayId.toString(),
+          }),
+        });
+        await createCafeItemEntries(dbSession);
+      });
+    } catch (error) {
+      return failure(
+        error instanceof Error ? error.message : "Wallet payment failed"
+      );
+    } finally {
+      await dbSession.endSession();
+    }
+  } else {
+    try {
+      await createCafeItemEntries();
+    } catch (error) {
+      return failure(
+        error instanceof Error ? error.message : "Failed to add cafe items"
+      );
     }
   }
 
   revalidateCounterPaths(customer?._id?.toString());
+  if (customer) {
+    revalidateCustomerFinancials(customer._id.toString());
+  }
   return success(results);
 }
 

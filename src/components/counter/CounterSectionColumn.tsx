@@ -13,21 +13,26 @@ import { CompactLedgerRow } from "@/components/counter/CompactLedgerRow";
 import { CounterLedgerTable } from "@/components/counter/CounterLedgerTable";
 import { SnookerFrameAddRow } from "@/components/counter/SnookerFrameAddRow";
 import { SnookerFrameEditDialog } from "@/components/counter/SnookerFrameEditDialog";
+import { PoolMiniAddRow } from "@/components/counter/PoolMiniAddRow";
+import { PoolMiniEditDialog } from "@/components/counter/PoolMiniEditDialog";
 import { RummyEntryDialog } from "@/components/counter/RummyEntryDialog";
 import { EntryCorrectionDialog } from "@/components/counter/EntryCorrectionDialog";
 import { CorrectionHistoryDialog } from "@/components/counter/CorrectionHistoryDialog";
 import { ContributorsSplitDialog } from "@/components/counter/ContributorsSplitDialog";
+import { DeleteFrameDialog } from "@/components/counter/DeleteFrameDialog";
 import { UnassignedEntryDialog } from "@/components/counter/UnassignedEntryDialog";
 import {
   RateTypeEntryDialog,
   type RatedEntryPreset,
 } from "@/components/counter/RateTypeEntryDialog";
+import { isPoolMiniEntry } from "@/lib/utils/pool-mini-entry";
 import { cn } from "@/lib/utils/cn";
 
 interface CounterSectionColumnProps {
   section: NotebookSection;
   entries: NotebookEntryDTO[];
   snookerQuick?: boolean;
+  poolMiniQuick?: boolean;
   activeMobile?: boolean;
 }
 
@@ -35,6 +40,7 @@ export function CounterSectionColumn({
   section,
   entries,
   snookerQuick = false,
+  poolMiniQuick = false,
   activeMobile = true,
 }: CounterSectionColumnProps) {
   const [unassignedEntry, setUnassignedEntry] = useState<NotebookEntryDTO | null>(null);
@@ -46,8 +52,14 @@ export function CounterSectionColumn({
   const [editFrameEntry, setEditFrameEntry] = useState<NotebookEntryDTO | null>(
     null
   );
+  const [deleteFrameEntry, setDeleteFrameEntry] =
+    useState<NotebookEntryDTO | null>(null);
+  const [editPoolMiniEntry, setEditPoolMiniEntry] =
+    useState<NotebookEntryDTO | null>(null);
 
-  const quickButtons = snookerQuick ? [] : getPresetsForSection(section);
+  const ledgerEditable = snookerQuick || poolMiniQuick;
+  const quickButtons =
+    snookerQuick || poolMiniQuick ? [] : getPresetsForSection(section);
 
   const toRatedPreset = (
     btn: SnookerQuickPreset | NotebookPreset
@@ -83,6 +95,14 @@ export function CounterSectionColumn({
     }
   };
 
+  const handleEditEntry = (entry: NotebookEntryDTO) => {
+    if (poolMiniQuick || isPoolMiniEntry(entry)) {
+      setEditPoolMiniEntry(entry);
+      return;
+    }
+    setEditFrameEntry(entry);
+  };
+
   const column = (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-gray-200 bg-white">
       <div className="border-b border-gray-200 bg-gray-50 px-2 py-2">
@@ -106,16 +126,22 @@ export function CounterSectionColumn({
       )}
       <CounterLedgerTable
         toolbar={
-          snookerQuick ? <SnookerFrameAddRow section={section} /> : undefined
+          snookerQuick ? (
+            <SnookerFrameAddRow section={section} />
+          ) : poolMiniQuick ? (
+            <PoolMiniAddRow section={section} />
+          ) : undefined
         }
       >
         {entries.map((entry) => (
           <CompactLedgerRow
             key={entry.id}
             entry={entry}
-            frameEditable={snookerQuick}
-            onEditFrame={setEditFrameEntry}
-            onEditSplit={(entry) => setSplitEntry(entry)}
+            frameEditable={ledgerEditable}
+            allowSplit={!poolMiniQuick}
+            onEditFrame={handleEditEntry}
+            onDeleteFrame={setDeleteFrameEntry}
+            onEditSplit={(row) => setSplitEntry(row)}
             onUnassignedAction={setUnassignedEntry}
             onCorrect={setCorrectEntry}
             onShowCorrectionHistory={setHistoryEntry}
@@ -133,11 +159,23 @@ export function CounterSectionColumn({
       <UnassignedEntryDialog
         entry={unassignedEntry}
         onClose={() => setUnassignedEntry(null)}
-        onSplit={(entry) => setSplitEntry(entry)}
+        onSplit={(row) => setSplitEntry(row)}
+        allowSplit={
+          !poolMiniQuick &&
+          !(unassignedEntry ? isPoolMiniEntry(unassignedEntry) : false)
+        }
       />
       <SnookerFrameEditDialog
         entry={editFrameEntry}
         onClose={() => setEditFrameEntry(null)}
+      />
+      <PoolMiniEditDialog
+        entry={editPoolMiniEntry}
+        onClose={() => setEditPoolMiniEntry(null)}
+      />
+      <DeleteFrameDialog
+        entry={deleteFrameEntry}
+        onClose={() => setDeleteFrameEntry(null)}
       />
       <RummyEntryDialog
         createSection={rummySection}

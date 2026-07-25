@@ -13,7 +13,10 @@ export interface CustomerDetailChangeDTO {
 export interface CustomerDTO {
   id: string;
   cardId: string;
+  /** Full display name (firstName + lastName). */
   name: string;
+  firstName: string;
+  lastName: string;
   phone: string;
   notes?: string;
   isStudent: boolean;
@@ -24,6 +27,39 @@ export interface CustomerDTO {
   walletEnabled: boolean;
   isActive: boolean;
   createdAt: string;
+}
+
+/** Customers list row — identification only; collection stays on Customer Details. */
+export interface CustomerListRowDTO {
+  id: string;
+  name: string;
+  phone: string;
+  outstandingAmount: number;
+  lastVisitAt: string | null;
+}
+
+/** Expense register row — independent of Business Day. */
+export interface ExpenseDTO {
+  id: string;
+  category: import("@/lib/constants/expenses").ExpenseCategory;
+  amount: number;
+  /** YYYY-MM-DD calendar date. */
+  expenseDate: string;
+  description: string;
+  paidTo: string;
+  paymentMethod: import("@/lib/constants/expenses").ExpensePaymentMethod;
+  createdBy: string;
+  updatedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExpenseListResult {
+  items: ExpenseDTO[];
+  totalAmount: number;
+  from: string;
+  to: string;
+  category: "all" | import("@/lib/constants/expenses").ExpenseCategory;
 }
 
 export interface RechargeAmounts {
@@ -50,6 +86,7 @@ export interface TransactionDTO {
   reversalReason?: string;
   reversalTransactionId?: string;
   verificationMethod?: "CARD" | "PHONE";
+  paymentMethod?: "CASH" | "GPAY";
   createdAt: string;
 }
 
@@ -90,6 +127,13 @@ export interface PaginatedResult<T> {
   totalPages: number;
 }
 
+/** Customers list page result with All / Outstanding filter counts. */
+export interface CustomerListResult extends PaginatedResult<CustomerListRowDTO> {
+  limit: number;
+  allCount: number;
+  outstandingCount: number;
+}
+
 export interface DashboardStats {
   todayRecharges: number;
   todayDeductions: number;
@@ -121,11 +165,11 @@ export interface NotebookEntryContributorDTO {
   counterBalanceAmount?: number;
   status: "PENDING" | "PAID";
   paymentMethod?: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
+  walletAmount?: number;
   settlementId?: string;
   paidAt?: string;
   visitId?: string;
   billId?: string;
-  visitStatus?: import("@/lib/constants/visit-bill").VisitStatus;
 }
 
 export interface FrameGlanceLineDTO {
@@ -143,16 +187,31 @@ export interface CustomerTodayGlanceDTO {
   cafe: import("@/lib/utils/cafe-tabs").CafeTabLine[];
 }
 
+export interface CustomerCounterDrawerDTO {
+  customerId: string;
+  customerName: string;
+  todaysBill: number;
+  /** Sum of received amounts for this customer today. */
+  totalReceived: number;
+  totalDue: number;
+  // TODO(Module 7): previousOutstanding when Outstanding module exists
+  todaysFrames: NotebookEntryDTO[];
+  /** Open Business Day cafe for this customer (CafeOrder module). */
+  todaysCafeOrders: import("@/lib/mappers/cafe-order").CafeOrderDTO[];
+}
+
+/** @deprecated Use CustomerCounterDrawerDTO — visit glance removed with settlement. */
 export interface CustomerVisitGlanceDTO {
   customerId: string;
   customerName: string;
   hasActiveVisit: boolean;
-  visitStatus?: import("@/lib/constants/visit-bill").VisitStatus;
+  visitStatus?: "ACTIVE" | "FINISHED" | "CLOSED";
   visitStartedAt?: string;
   visitFinishedAt?: string;
   billTotal: number;
   paidAmount: number;
   dueAmount: number;
+  totalOutstanding: number;
   games: FrameGlanceLineDTO[];
   cafe: import("@/lib/utils/cafe-tabs").CafeTabLine[];
 }
@@ -199,6 +258,7 @@ export interface NotebookEntryDTO {
   paidByName?: string;
   paidByCustomerId?: string;
   walletTransactionId?: string;
+  walletAmount?: number;
   reversedAt?: string;
   reversedBy?: string;
   reversalReason?: string;
@@ -211,6 +271,9 @@ export interface NotebookEntryDTO {
   quantity?: number;
   unitPrice?: number;
   itemNote?: string;
+  playStartedAt?: string;
+  playEndedAt?: string;
+  notes?: string;
   corrections?: NotebookEntryCorrectionDTO[];
   assignedAt?: string;
   assignedBy?: string;
@@ -220,48 +283,8 @@ export interface NotebookEntryDTO {
   counterBalanceAmount?: number;
   visitId?: string;
   billId?: string;
-  visitStatus?: import("@/lib/constants/visit-bill").VisitStatus;
   isLocked?: boolean;
   contributors?: NotebookEntryContributorDTO[];
-  createdBy: string;
-  createdAt: string;
-}
-
-export interface ActiveVisitBillDTO {
-  visit: VisitDTO;
-  bill: BillDTO;
-}
-
-export interface BillDTO {
-  id: string;
-  publicId: string;
-  visitId?: string;
-  customerId: string;
-  businessDate: string;
-  status: import("@/lib/constants/visit-bill").BillStatus;
-  totalAmount: number;
-  paidAmount: number;
-  dueAmount: number;
-  lastPaymentAt?: string;
-  convertedToOutstandingAt?: string;
-  convertedToOutstandingBy?: string;
-  createdBy: string;
-  createdAt: string;
-}
-
-export interface VisitDTO {
-  id: string;
-  publicId: string;
-  customerId: string;
-  billId: string;
-  businessDate: string;
-  status: import("@/lib/constants/visit-bill").VisitStatus;
-  startedAt: string;
-  finishedAt?: string;
-  finishedBy?: string;
-  ledgerCommittedAt?: string;
-  closedAt?: string;
-  notes?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -519,15 +542,101 @@ export interface CustomerOutstandingRowDTO {
   customerId: string;
   customerName: string;
   phoneNumber: string;
+  /** Current Outstanding balance (Pending remaining). */
   outstandingAmount: number;
-  activeVisitDueAmount: number;
-  hasActiveVisitWithDue: boolean;
-  openBillsCount: number;
-  lastVisitAt: string | null;
-  lastPaymentAt: string | null;
-  lastPaymentAmount: number | null;
-  walletEnabled: boolean;
-  cardId: string;
+  /** Distinct Business Days with remaining Outstanding > 0. */
+  unpaidBusinessDayCount: number;
+  /** Earliest businessDate among pending Outstanding for this customer. */
+  oldestOutstandingDate: string;
+}
+
+export interface CustomerOutstandingItemDTO {
+  id: string;
+  publicId: string;
+  customerId: string;
+  businessDayId: string;
+  businessDayPublicId: string;
+  businessDate: string;
+  sourceType: import("@/lib/constants/outstanding").OutstandingSourceType;
+  sourceRecordId: string;
+  originalAmount: number;
+  remainingAmount: number;
+  status: import("@/lib/constants/outstanding").OutstandingStatus;
+  createdAt: string;
+  collectedAt: string | null;
+  paymentMethod: import("@/lib/constants/outstanding").OutstandingPaymentMethod | null;
+}
+
+export type CustomerActivityEventKind =
+  | "BUSINESS_DAY_SUMMARY"
+  | "OUTSTANDING_COLLECTED"
+  | "OUTSTANDING_PARTIALLY_COLLECTED"
+  | "WALLET_RECHARGE"
+  | "WALLET_PAYMENT"
+  | "LEDGER";
+
+export interface CustomerActivityCountLineDTO {
+  label: string;
+  quantity: number;
+  amount: number;
+}
+
+export interface CustomerActivityBusinessDaySummaryDTO {
+  games: CustomerActivityCountLineDTO[];
+  cafe: CustomerActivityCountLineDTO[];
+  todaysBill: number;
+  /** Today's Payment (Received). */
+  todaysPayment: number;
+  /** Today's Due = Bill − Payment. */
+  todaysDue: number;
+  /** Outstanding before this Business Day closed. */
+  previousOutstanding: number;
+  /** Outstanding after this Business Day = Previous + Today's Due. */
+  currentOutstanding: number;
+}
+
+export interface CustomerActivityItemDTO {
+  id: string;
+  /** Sort / event time (Business Day closedAt, or collection createdAt). */
+  timestamp: string;
+  /** Business Date for display on Business Day Closed cards. */
+  businessDate?: string;
+  kind: CustomerActivityEventKind;
+  label: string;
+  /** Present on collection / wallet events */
+  amount?: number;
+  bonusAmount?: number;
+  creditedAmount?: number;
+  paymentMethod?: string;
+  paymentMethodLabel?: string;
+  /** Wallet balance after this wallet event. */
+  walletBalanceAfter?: number;
+  /** Cash/GPay used for remainder when Wallet did not cover the full bill. */
+  remainingPaymentMethod?: "CASH" | "GPAY";
+  remainingPaymentMethodLabel?: string;
+  /** Wallet Payment story — purpose + bill breakdown. */
+  walletPayment?: {
+    purpose: string;
+    purposeLabel: string;
+    billAmount: number;
+    walletUsed: number;
+    remainderAmount: number;
+    remainderMethod?: "CASH" | "GPAY";
+    remainderMethodLabel?: string;
+    totalPaid: number;
+    lines?: { label: string; quantity?: number }[];
+    billAmountLabel: string;
+  };
+  /** Who collected / recharged. */
+  createdBy?: string;
+  /** Outstanding before this event (Balance History story). */
+  previousOutstanding?: number;
+  /** Outstanding after this event (Balance History story). */
+  outstandingBalance?: number;
+  /** Present on Business Day Closed / Wallet events */
+  businessDayId?: string;
+  businessDayPublicId?: string;
+  businessDaySummary?: CustomerActivityBusinessDaySummaryDTO;
 }
 
 export interface CustomerBalancePaymentDTO {
@@ -539,4 +648,378 @@ export interface CustomerBalancePaymentDTO {
   walletTransactionId?: string;
   createdBy: string;
   createdAt: string;
+}
+
+export interface BusinessDayDTO {
+  id: string;
+  businessDayNumber: number;
+  status: import("@/lib/constants/business-day").BusinessDayStatus;
+  businessDate: string;
+  openedAt: string;
+  openedBy: string;
+  closedAt?: string;
+  closedBy?: string;
+  openingCash: number;
+  reopenedAt?: string;
+  reopenedBy?: string;
+  reopenReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Per-category totals shown on the Close Business Day confirmation modal. */
+export interface BusinessDayCloseCategoryPreviewDTO {
+  revenue: number;
+  cashCollection: number;
+  gpayCollection: number;
+  walletCollection: number;
+  outstandingCreated: number;
+}
+
+export interface BusinessDayClosePreviewDTO {
+  todaysBill: number;
+  totalPaid: number;
+  cashCollection: number;
+  gpayCollection: number;
+  walletCollection: number;
+  outstandingAmount: number;
+  snooker: BusinessDayCloseCategoryPreviewDTO;
+  cafe: BusinessDayCloseCategoryPreviewDTO;
+  unassignedFrames: number;
+  unassignedCafeItems: number;
+}
+
+export type BusinessDayClosePreflightValidationName =
+  | "BUSINESS_DAY_SCOPE"
+  | "OWNERSHIP"
+  | "SPLIT_INTEGRITY"
+  | "RECEIVED"
+  | "PAYMENT_MODE"
+  | "CAFE_SOURCE"
+  | "DUPLICATE_OWNERSHIP";
+
+export type BusinessDayClosePreflightAffectedRecord = {
+  recordType: "NOTEBOOK_ENTRY" | "CAFE_ORDER";
+  recordId: string;
+  section?: string;
+  customerName?: string;
+  detail?: string;
+};
+
+export type BusinessDayClosePreflightIssue = {
+  validation: BusinessDayClosePreflightValidationName;
+  reason: string;
+  affectedRecords: BusinessDayClosePreflightAffectedRecord[];
+};
+
+export type BusinessDayClosePreflightResult =
+  | {
+      status: "PASS";
+      businessDayId: string;
+      checkedRecords: number;
+    }
+  | {
+      status: "FAIL";
+      businessDayId?: string;
+      checkedRecords?: number;
+      issues: BusinessDayClosePreflightIssue[];
+    };
+
+export type BusinessDayCloseFinancialProofInvariant =
+  | "BUSINESS_DAY_BILL_IDENTITY"
+  | "CUSTOMER_DUE_EQUALS_BUSINESS_DAY_DUE"
+  | "CUSTOMER_BILL_IDENTITY"
+  | "NO_NEGATIVE_DUE";
+
+export type BusinessDayCloseFinancialProofIssue = {
+  invariant: BusinessDayCloseFinancialProofInvariant;
+  expected: number;
+  actual: number;
+  affectedCustomers: string[];
+  reason: string;
+};
+
+export type BusinessDayCloseFinancialProofResult =
+  | {
+      status: "PASS";
+      businessDayId: string;
+      businessDayBill: number;
+      businessDayReceived: number;
+      businessDayDue: number;
+      customerCount: number;
+    }
+  | {
+      status: "FAIL";
+      businessDayId?: string;
+      businessDayBill?: number;
+      businessDayReceived?: number;
+      businessDayDue?: number;
+      customerCount?: number;
+      issues: BusinessDayCloseFinancialProofIssue[];
+    };
+
+export type FinancialProofOwnershipLine = {
+  customerId?: string;
+  customerName: string;
+  bill: number;
+  received: number;
+  due: number;
+  sourceType: "FRAME" | "CAFE";
+  sourceRecordId: string;
+  recordType: "NOTEBOOK_ENTRY" | "CAFE_ORDER";
+};
+
+export type FinancialProofCustomerTotals = {
+  customerId: string;
+  customerName: string;
+  bill: number;
+  received: number;
+  due: number;
+};
+
+export type FinancialProofSnapshot = {
+  businessDayId: string;
+  businessDayBill: number;
+  businessDayReceived: number;
+  businessDayDue: number;
+  customerCount: number;
+  customers: FinancialProofCustomerTotals[];
+  ownershipLines: FinancialProofOwnershipLine[];
+  unassignedBill: number;
+  unassignedReceived: number;
+  unassignedDue: number;
+};
+
+export type BusinessDayCloseOutstandingProofValidation =
+  | "FINANCIAL_PROOF_PREREQUISITE"
+  | "CUSTOMER_DUE_EQUALS_CANDIDATE_SUM"
+  | "BUSINESS_DAY_DUE_EQUALS_CANDIDATE_SUM"
+  | "OWNERSHIP_LINE_DUE_MATCH"
+  | "NO_SKIPPED_OWNERSHIP_LINES"
+  | "NO_EXTRA_CANDIDATES"
+  | "NO_DUPLICATE_CANDIDATES";
+
+export type BusinessDayCloseOutstandingProofIssue = {
+  validation: BusinessDayCloseOutstandingProofValidation;
+  expected: number;
+  actual: number;
+  affectedCustomers: string[];
+  affectedRecords: string[];
+  rootCause: string;
+};
+
+export type BusinessDayCloseOutstandingProofResult =
+  | {
+      status: "PASS";
+      businessDayId: string;
+      businessDayDue: number;
+      totalOutstandingToCreate: number;
+      customerCount: number;
+      outstandingRecordCount: number;
+    }
+  | {
+      status: "FAIL";
+      businessDayId?: string;
+      businessDayDue?: number;
+      totalOutstandingToCreate?: number;
+      customerCount?: number;
+      outstandingRecordCount?: number;
+      issues: BusinessDayCloseOutstandingProofIssue[];
+    };
+
+export type BusinessDayCloseStage =
+  | "IDEMPOTENCY"
+  | "PREFLIGHT"
+  | "FINANCIAL_PROOF"
+  | "OUTSTANDING_PROOF"
+  | "TRANSACTION"
+  | "POST_COMMIT_VALIDATION";
+
+export type BusinessDayCloseExecutionFailure = {
+  status: "FAIL";
+  stage: BusinessDayCloseStage;
+  reason: string;
+  validation?: string;
+  affectedRecords?: string[];
+  /** Optional structured detail from Phase 1A / 1B / 2. */
+  details?: unknown;
+};
+
+export type BusinessDayCloseExecutionCritical = {
+  status: "CRITICAL";
+  stage: "POST_COMMIT_VALIDATION";
+  reason: string;
+  businessDayId?: string;
+};
+
+export type BusinessDayCloseExecutionResult =
+  | {
+      status: "SUCCESS";
+      day: BusinessDayDTO;
+      outstandingCreated: number;
+    }
+  | {
+      status: "ALREADY_CLOSED";
+      day: BusinessDayDTO;
+      reason: string;
+    }
+  | BusinessDayCloseExecutionFailure
+  | BusinessDayCloseExecutionCritical;
+
+export interface BusinessDayHistoryListItemDTO {
+  id: string;
+  businessDayNumber: number;
+  publicId: string;
+  businessDate: string;
+  openedAt: string;
+  closedAt: string;
+  todaysBill: number;
+  totalReceived: number;
+  outstandingCreated: number;
+}
+
+/** Section rollup for History insight cards (Big Snooker / Pool & Mini / Cafe). */
+export interface BusinessDayHistorySectionSummaryDTO {
+  bill: number;
+  received: number;
+  cashCollection: number;
+  gpayCollection: number;
+  walletCollection: number;
+  outstandingCreated: number;
+  /** Frames / games / cafe orders played in this section. */
+  gamesPlayed: number;
+}
+
+/** Presentation insights shared by single-day and range History views. */
+export interface BusinessDayHistoryInsightsDTO {
+  overall: {
+    totalRevenue: number;
+    totalReceived: number;
+    cashCollection: number;
+    gpayCollection: number;
+    walletCollection: number;
+    outstandingCreated: number;
+  };
+  bigSnooker: BusinessDayHistorySectionSummaryDTO;
+  poolMini: BusinessDayHistorySectionSummaryDTO;
+  totalSnooker: BusinessDayHistorySectionSummaryDTO;
+  cafe: BusinessDayHistorySectionSummaryDTO;
+}
+
+/** One Wallet Recharge row for Business Day History (informational, not revenue). */
+export interface BusinessDayHistoryWalletRechargeLineDTO {
+  id: string;
+  customerId: string;
+  customerName: string;
+  /** Real money received for the recharge. */
+  paidAmount: number;
+  /** Promotional credit — kept separate from paidAmount. */
+  bonusAmount: number;
+  /** Amount added to the customer's Wallet (paid + bonus). */
+  walletCredit: number;
+  paymentMethod: "CASH" | "GPAY" | null;
+  createdAt: string;
+  createdBy: string;
+}
+
+/**
+ * Wallet Activity audit block for History.
+ * Wallet Recharge is NOT Business Revenue — do not fold into summary cards.
+ */
+export interface BusinessDayHistoryWalletActivityDTO {
+  totalRecharges: number;
+  /** Sum of Paid Amount (real money). */
+  rechargeReceived: number;
+  /** Sum of Bonus. */
+  bonusIssued: number;
+  /** Sum of Wallet Credit. */
+  walletCreditIssued: number;
+  recharges: BusinessDayHistoryWalletRechargeLineDTO[];
+}
+
+export interface BusinessDayHistorySummaryDTO {
+  totalBusinessDays: number;
+  totalBill: number;
+  totalReceived: number;
+  outstandingCreated: number;
+  /** Richer cards for the History list / range view. */
+  insights: BusinessDayHistoryInsightsDTO;
+  /** Informational Wallet Recharge audit for the selected range. */
+  walletActivity: BusinessDayHistoryWalletActivityDTO;
+}
+
+export interface BusinessDayHistoryListResultDTO {
+  from: string;
+  to: string;
+  items: BusinessDayHistoryListItemDTO[];
+  summary: BusinessDayHistorySummaryDTO;
+}
+
+export interface BusinessDayHistoryChargeLineDTO {
+  entryId: string;
+  customerId?: string;
+  customerName: string;
+  amount: number;
+  paidAmount: number;
+  paymentMethod?: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
+  /** Wallet portion of paidAmount when mixed with Cash/GPay. */
+  walletAmount?: number;
+  createdAt: string;
+}
+
+export interface BusinessDayHistoryFrameLineDTO
+  extends BusinessDayHistoryChargeLineDTO {
+  section: import("@/lib/constants/notebook-sections").NotebookSection;
+  table: string;
+  gameType: string;
+}
+
+export interface BusinessDayHistoryCafeLineDTO
+  extends BusinessDayHistoryChargeLineDTO {
+  item: string;
+}
+
+export interface BusinessDayHistorySettlementRowDTO {
+  customerId: string;
+  customerName: string;
+  bigSnooker: number;
+  poolMini: number;
+  cafe: number;
+  bill: number;
+  received: number;
+  cashCollection: number;
+  gpayCollection: number;
+  walletCollection: number;
+  due: number;
+}
+
+/** Category rollup for Games or Cafe on Business Day History. */
+export interface BusinessDayHistoryCategorySummaryDTO {
+  bill: number;
+  received: number;
+  cashCollection: number;
+  gpayCollection: number;
+  walletCollection: number;
+  outstandingCreated: number;
+}
+
+export interface BusinessDayHistoryDetailDTO {
+  day: BusinessDayDTO;
+  publicId: string;
+  businessDate: string;
+  summary: {
+    todaysBill: number;
+    totalReceived: number;
+    cashCollection: number;
+    gpayCollection: number;
+    walletCollection: number;
+    outstandingCreated: number;
+  };
+  gamesSummary: BusinessDayHistoryCategorySummaryDTO;
+  cafeSummary: BusinessDayHistoryCategorySummaryDTO;
+  /** Informational Wallet Recharge audit — not part of Business Revenue. */
+  walletActivity: BusinessDayHistoryWalletActivityDTO;
+  settlements: BusinessDayHistorySettlementRowDTO[];
+  frames: BusinessDayHistoryFrameLineDTO[];
+  cafe: BusinessDayHistoryCafeLineDTO[];
 }

@@ -4,17 +4,18 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/db/connect";
 import {
-  canChangeRole,
-  canResetPassword,
-  canSetActiveStatus,
   canViewStaffAccount,
+  fromProductRole,
+  isAdminRole,
+  toProductRole,
   type StaffRole,
 } from "@/lib/auth/roles";
 import { authorizePermission, requirePermission } from "@/lib/auth/session";
 import {
-  resetStaffPasswordSchema,
-  setStaffActiveSchema,
-  updateStaffRoleSchema,
+  createUserSchema,
+  deleteUserSchema,
+  resetUserPasswordSchema,
+  updateUserSchema,
 } from "@/lib/validators/staff";
 import Staff from "@/models/Staff";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
@@ -40,55 +41,107 @@ function toStaffAccountDTO(staff: LeanStaff): StaffAccountDTO {
   };
 }
 
+function revalidateUsersPaths() {
+  revalidatePath("/admin/settings/users");
+  revalidatePath("/admin/settings");
+  revalidatePath("/staff");
+  revalidatePath("/admin");
+}
+
+/** Resolve product Admin/Staff to stored role; keep existing Admin tier if still Admin. */
+function resolveStoredRole(
+  currentRole: StaffRole,
+  productRole: ReturnType<typeof toProductRole>
+): StaffRole {
+  if (productRole === "STAFF") {
+    return "STAFF";
+  }
+  // Keep legacy SUPER_MASTER as Admin; new Admins are stored as MASTER.
+  return currentRole === "SUPER_MASTER" ? "SUPER_MASTER" : "MASTER";
+}
+
+async function countActiveAdminsAfterChange(
+  targetId: string,
+  nextRole: StaffRole,
+  nextIsActive: boolean
+): Promise<number> {
+  const activeAdmins = await Staff.find({
+    role: { $in: ["SUPER_MASTER", "MASTER"] },
+    isActive: true,
+  })
+    .select("_id")
+    .lean();
+
+  let count = 0;
+  for (const admin of activeAdmins) {
+    if (admin._id.toString() === targetId) {
+      if (isAdminRole(nextRole) && nextIsActive) {
+        count += 1;
+      }
+      continue;
+    }
+    count += 1;
+  }
+
+  // Target was not an active admin but becomes one.
+  const wasActiveAdmin = activeAdmins.some(
+    (admin) => admin._id.toString() === targetId
+  );
+  if (!wasActiveAdmin && isAdminRole(nextRole) && nextIsActive) {
+    count += 1;
+  }
+
+  return count;
+}
+
 export async function getManageableStaff(): Promise<StaffAccountDTO[]> {
   const session = await requirePermission("STAFF_VIEW");
   await connectDB();
 
   const actorRole = session.user.role as StaffRole;
-  const staffAccounts = await Staff.find().sort({ role: 1, name: 1 }).lean();
+  if (!canViewStaffAccount(actorRole)) {
+    return [];
+  }
 
-  return staffAccounts
-    .filter((staff) => canViewStaffAccount(actorRole, staff.role))
-    .map((staff) => toStaffAccountDTO(staff));
+  const staffAccounts = await Staff.find().sort({ name: 1 }).lean();
+  return staffAccounts.map((staff) => toStaffAccountDTO(staff));
 }
 
 async function getTargetStaff(
   staffId: string,
   actorId: string,
   actorRole: StaffRole
-): Promise<
-  | { target: InstanceType<typeof Staff> }
-  | { error: string }
-> {
+): Promise<{ target: InstanceType<typeof Staff> } | { error: string }> {
   if (staffId === actorId) {
-    return { error: "You cannot modify your own account" as const };
+    return { error: "You cannot modify your own account" };
+  }
+
+  if (!canViewStaffAccount(actorRole)) {
+    return { error: "You do not have permission to manage users" };
   }
 
   const target = await Staff.findById(staffId);
   if (!target) {
-    return { error: "Staff member not found" as const };
-  }
-
-  if (!canViewStaffAccount(actorRole, target.role)) {
-    return {
-      error: "You do not have permission to manage this account" as const,
-    };
+    return { error: "User not found" };
   }
 
   return { target };
 }
 
-export async function resetStaffPassword(
+export async function createUserAction(
   formData: FormData
-): Promise<ActionResult<void>> {
-  const authResult = await authorizePermission("STAFF_RESET_PASSWORD");
+): Promise<ActionResult<StaffAccountDTO>> {
+  const authResult = await authorizePermission("STAFF_MANAGE");
   if (!("session" in authResult)) {
     return authResult;
   }
 
-  const parsed = resetStaffPasswordSchema.safeParse({
-    staffId: formData.get("staffId"),
-    newPassword: formData.get("newPassword"),
+  const parsed = createUserSchema.safeParse({
+    name: formData.get("name"),
+    username: formData.get("username"),
+    password: formData.get("password"),
+    role: formData.get("role"),
+    isActive: formData.get("isActive") || "true",
   });
 
   if (!parsed.success) {
@@ -97,41 +150,39 @@ export async function resetStaffPassword(
 
   await connectDB();
 
-  const actorRole = authResult.session.user.role as StaffRole;
-  const targetResult = await getTargetStaff(
-    parsed.data.staffId,
-    authResult.session.user.id,
-    actorRole
-  );
-
-  if ("error" in targetResult) {
-    return failure(targetResult.error);
+  const existing = await Staff.findOne({ username: parsed.data.username });
+  if (existing) {
+    return failure("Username is already taken");
   }
 
-  const { target } = targetResult;
+  const role = fromProductRole(parsed.data.role);
+  const passwordHash = await bcrypt.hash(parsed.data.password, 12);
 
-  if (!canResetPassword(actorRole, target.role)) {
-    return failure("You do not have permission to reset this account password");
-  }
+  const created = await Staff.create({
+    name: parsed.data.name,
+    username: parsed.data.username,
+    passwordHash,
+    role,
+    isActive: parsed.data.isActive,
+  });
 
-  target.passwordHash = await bcrypt.hash(parsed.data.newPassword, 12);
-  await target.save();
-
-  revalidatePath("/staff");
-
-  return success(undefined);
+  revalidateUsersPaths();
+  return success(toStaffAccountDTO(created));
 }
 
-export async function setStaffActiveStatus(
+export async function updateUserAction(
   formData: FormData
 ): Promise<ActionResult<StaffAccountDTO>> {
-  const authResult = await authorizePermission("STAFF_SET_ACTIVE");
+  const authResult = await authorizePermission("STAFF_MANAGE");
   if (!("session" in authResult)) {
     return authResult;
   }
 
-  const parsed = setStaffActiveSchema.safeParse({
-    staffId: formData.get("staffId"),
+  const parsed = updateUserSchema.safeParse({
+    userId: formData.get("userId"),
+    name: formData.get("name"),
+    username: formData.get("username"),
+    role: formData.get("role"),
     isActive: formData.get("isActive"),
   });
 
@@ -143,7 +194,7 @@ export async function setStaffActiveStatus(
 
   const actorRole = authResult.session.user.role as StaffRole;
   const targetResult = await getTargetStaff(
-    parsed.data.staffId,
+    parsed.data.userId,
     authResult.session.user.id,
     actorRole
   );
@@ -153,38 +204,52 @@ export async function setStaffActiveStatus(
   }
 
   const { target } = targetResult;
+  const resolvedRole = resolveStoredRole(
+    target.role,
+    parsed.data.role
+  );
 
-  if (!canSetActiveStatus(actorRole, target.role)) {
-    return failure("You do not have permission to change this account status");
+  const activeAdminCount = await countActiveAdminsAfterChange(
+    target._id.toString(),
+    resolvedRole,
+    parsed.data.isActive
+  );
+
+  if (activeAdminCount < 1) {
+    return failure("There must always be at least one Active Admin");
   }
 
-  if (target.isActive === parsed.data.isActive) {
-    return failure(
-      parsed.data.isActive
-        ? "This account is already active"
-        : "This account is already inactive"
-    );
+  if (parsed.data.username !== target.username) {
+    const clash = await Staff.findOne({
+      username: parsed.data.username,
+      _id: { $ne: target._id },
+    });
+    if (clash) {
+      return failure("Username is already taken");
+    }
+    target.username = parsed.data.username;
   }
 
+  target.name = parsed.data.name;
+  target.role = resolvedRole;
   target.isActive = parsed.data.isActive;
   await target.save();
 
-  revalidatePath("/staff");
-
+  revalidateUsersPaths();
   return success(toStaffAccountDTO(target));
 }
 
-export async function updateStaffRole(
+export async function resetUserPasswordAction(
   formData: FormData
-): Promise<ActionResult<StaffAccountDTO>> {
-  const authResult = await authorizePermission("STAFF_CHANGE_ROLE");
+): Promise<ActionResult<void>> {
+  const authResult = await authorizePermission("STAFF_RESET_PASSWORD");
   if (!("session" in authResult)) {
     return authResult;
   }
 
-  const parsed = updateStaffRoleSchema.safeParse({
-    staffId: formData.get("staffId"),
-    role: formData.get("role"),
+  const parsed = resetUserPasswordSchema.safeParse({
+    userId: formData.get("userId"),
+    password: formData.get("password"),
   });
 
   if (!parsed.success) {
@@ -194,13 +259,8 @@ export async function updateStaffRole(
   await connectDB();
 
   const actorRole = authResult.session.user.role as StaffRole;
-
-  if (!canChangeRole(actorRole)) {
-    return failure("You do not have permission to change roles");
-  }
-
   const targetResult = await getTargetStaff(
-    parsed.data.staffId,
+    parsed.data.userId,
     authResult.session.user.id,
     actorRole
   );
@@ -210,15 +270,61 @@ export async function updateStaffRole(
   }
 
   const { target } = targetResult;
-
-  if (target.role === parsed.data.role) {
-    return failure("This account already has the selected role");
-  }
-
-  target.role = parsed.data.role;
+  target.passwordHash = await bcrypt.hash(parsed.data.password, 12);
   await target.save();
 
-  revalidatePath("/staff");
+  revalidateUsersPaths();
+  return success(undefined);
+}
 
-  return success(toStaffAccountDTO(target));
+export async function deleteUserAction(
+  formData: FormData
+): Promise<ActionResult<void>> {
+  const authResult = await authorizePermission("STAFF_MANAGE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = deleteUserSchema.safeParse({
+    userId: formData.get("userId"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const actorRole = authResult.session.user.role as StaffRole;
+  const targetResult = await getTargetStaff(
+    parsed.data.userId,
+    authResult.session.user.id,
+    actorRole
+  );
+
+  if ("error" in targetResult) {
+    return failure(
+      targetResult.error === "You cannot modify your own account"
+        ? "You cannot delete your own account"
+        : targetResult.error
+    );
+  }
+
+  const { target } = targetResult;
+
+  // Deleting an Active Admin must leave at least one Active Admin.
+  const activeAdminCount = await countActiveAdminsAfterChange(
+    target._id.toString(),
+    "STAFF",
+    false
+  );
+
+  if (activeAdminCount < 1) {
+    return failure("There must always be at least one Active Admin");
+  }
+
+  await Staff.deleteOne({ _id: target._id });
+
+  revalidateUsersPaths();
+  return success(undefined);
 }

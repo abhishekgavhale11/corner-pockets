@@ -1,4 +1,8 @@
 import type { SnookerGame } from "@/lib/constants/counter-rates";
+import {
+  resolveCounterRateAmount,
+  type CounterRateType,
+} from "@/lib/constants/counter-rates";
 
 export const CAFE_SECTION = "CAFE" as const;
 
@@ -90,6 +94,28 @@ export function isCafeSection(section: string): boolean {
 
 export function isBigSnookerSection(section: string): boolean {
   return (SNOOKER_TABLE_SECTIONS as readonly string[]).includes(section);
+}
+
+export function isPoolMiniSection(section: string): boolean {
+  return (POOL_MINI_SECTIONS as readonly string[]).includes(section);
+}
+
+export function poolMiniEntryTypeForSection(
+  section: (typeof POOL_MINI_SECTIONS)[number]
+): "MINI" | "POOL" {
+  return section === "MINI_SNOOKER" ? "MINI" : "POOL";
+}
+
+/** Default hourly amount hint for Pool & Mini (cashier may still edit final amount). */
+export function poolMiniDefaultAmount(
+  section: (typeof POOL_MINI_SECTIONS)[number],
+  rateType: CounterRateType = "REGULAR"
+): number {
+  const type = poolMiniEntryTypeForSection(section);
+  return (
+    resolveCounterRateAmount({ type, rateType }) ??
+    (type === "MINI" ? 260 : 240)
+  );
 }
 
 export function checkoutEntryGroup(

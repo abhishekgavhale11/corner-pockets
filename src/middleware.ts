@@ -32,8 +32,7 @@ export default auth((req) => {
   if (isLoggedIn && role) {
     if (
       (req.nextUrl.pathname.startsWith("/notebook") ||
-        req.nextUrl.pathname.startsWith("/counter") ||
-        req.nextUrl.pathname.startsWith("/checkout")) &&
+        req.nextUrl.pathname.startsWith("/counter")) &&
       !hasPermission(role, "NOTEBOOK_VIEW")
     ) {
       return NextResponse.redirect(new URL("/customers", req.url));

@@ -1,0 +1,5 @@
+﻿c977b5e Add FR-FRM-001 partial frame locking and FR-VIS-016 counter display
+ab4fc50 Document financial engine Phase 1 implementation progress for handoff.
+8b91cf4 Fix ledger and edit-lock rules; add docs-first workflow
+aa751e7 Initial POS
+4f0f042 Add visit bill engine, checkout redesign, and payment display fixes.

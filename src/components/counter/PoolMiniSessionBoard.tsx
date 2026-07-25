@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -345,13 +344,10 @@ export function TableSessionCard({
           </section>
 
           {summary.pendingCount > 0 && (
-            <Link
-              href="/checkout"
-              className="block text-center text-xs font-semibold text-blue-800 hover:underline"
-            >
+            <p className="text-center text-xs font-semibold text-gray-600">
               {summary.pendingCount} pending bill
-              {summary.pendingCount === 1 ? "" : "s"} in Checkout →
-            </Link>
+              {summary.pendingCount === 1 ? "" : "s"}
+            </p>
           )}
         </div>
       )}

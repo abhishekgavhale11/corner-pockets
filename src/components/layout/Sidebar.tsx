@@ -13,38 +13,19 @@ const navItems = [
     permission: "NOTEBOOK_VIEW" as const,
     icon: "🎱",
     match: (path: string) =>
-      path === "/counter" || path === "/counter/big-snooker",
-  },
-  {
-    href: "/counter/pool-mini",
-    label: "Mini",
-    permission: "NOTEBOOK_VIEW" as const,
-    icon: "🎱",
-    match: (path: string) =>
+      path === "/counter" ||
+      path === "/counter/big-snooker" ||
+      path.startsWith("/counter/cafe") ||
       path === "/counter/pool-mini" ||
       path === "/counter/pool" ||
       path === "/counter/mini",
   },
   {
-    href: "/counter/cafe",
-    label: "Cafe",
+    href: "/business-day/history",
+    label: "Business Day History",
     permission: "NOTEBOOK_VIEW" as const,
-    icon: "☕",
-    match: (path: string) => path.startsWith("/counter/cafe"),
-  },
-  {
-    href: "/checkout",
-    label: "Checkout",
-    permission: "NOTEBOOK_VIEW" as const,
-    icon: "💰",
-    match: (path: string) => path.startsWith("/checkout"),
-  },
-  {
-    href: "/notebook/balances",
-    label: "Outstanding",
-    permission: "CUSTOMER_SEARCH" as const,
-    icon: "📋",
-    match: (path: string) => path.startsWith("/notebook/balances"),
+    icon: "📅",
+    match: (path: string) => path.startsWith("/business-day/history"),
   },
   {
     href: "/customers",
@@ -53,6 +34,13 @@ const navItems = [
     icon: "👥",
     match: (path: string) =>
       path === "/customers" || path.startsWith("/customers/"),
+  },
+  {
+    href: "/expenses",
+    label: "Expenses",
+    permission: "EXPENSE_VIEW" as const,
+    icon: "💸",
+    match: (path: string) => path.startsWith("/expenses"),
   },
   {
     href: "/admin",
@@ -66,25 +54,39 @@ const navItems = [
 
 interface SidebarProps {
   role: StaffRole;
+  onHide?: () => void;
 }
 
-export function Sidebar({ role }: SidebarProps) {
+export function Sidebar({ role, onHide }: SidebarProps) {
   const pathname = usePathname();
   const visible = navItems.filter((item) => hasPermission(role, item.permission));
 
   return (
     <aside className="flex w-[272px] shrink-0 flex-col bg-emerald-950 text-white">
       <div className="border-b border-emerald-900/50 px-5 py-4">
-        <div className="flex items-center gap-3">
-          <ClubLogo size={36} />
-          <div className="min-w-0">
-            <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-emerald-400/90">
-              Snooker Club
-            </p>
-            <p className="truncate text-base font-bold leading-snug tracking-tight">
-              Corner Pockets
-            </p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <ClubLogo size={36} />
+            <div className="min-w-0">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-emerald-400/90">
+                Snooker Club
+              </p>
+              <p className="truncate text-base font-bold leading-snug tracking-tight">
+                Corner Pockets
+              </p>
+            </div>
           </div>
+          {onHide && (
+            <button
+              type="button"
+              onClick={onHide}
+              className="mt-0.5 rounded p-1.5 text-emerald-200/80 hover:bg-emerald-900 hover:text-white"
+              aria-label="Hide sidebar"
+              title="Hide sidebar"
+            >
+              <HideIcon />
+            </button>
+          )}
         </div>
       </div>
 
@@ -114,5 +116,24 @@ export function Sidebar({ role }: SidebarProps) {
         })}
       </nav>
     </aside>
+  );
+}
+
+function HideIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M15 18l-6-6 6-6" />
+      <path d="M9 6v12" />
+    </svg>
   );
 }

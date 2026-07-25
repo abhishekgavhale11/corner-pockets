@@ -1,0 +1,28 @@
+---
+description: CPOS V2 — always consult the operating system document before implementing or changing behaviour
+alwaysApply: true
+---
+
+# CPOS Business Rules
+
+Before implementing features, fixing bugs, or answering product questions about CPOS V2, read and follow:
+
+**`docs/00-business-rules.md`**
+
+That file is the single source of truth for CornerPockets Operating System (CPOS). If any implementation conflicts with it, the document takes precedence.
+
+Key constraints to remember:
+
+- The cashier makes every business decision; CPOS records and calculates.
+- Prefer simplicity over cleverness; the cashier should never stop and think.
+- Everything belongs to exactly one Business Day (opened and closed manually).
+- Counter is today's notebook only — Frames, Cafe, payments, assignment, split. No Outstanding collection, reports, or history.
+- Frames support Split (per-contributor Amount / Received / Payment Mode / Due). Cafe does not.
+- Due is always calculated (`Amount − Received`), never stored.
+- No FIFO, allocation, settlement engine, or hidden payment logic.
+- Payment mode: Unassigned when Received = 0; Cash/GPay mandatory when Received > 0.
+- Outstanding is created only on Business Day close; cashier collects total Outstanding, never individual records.
+- Business Day History is read-only and shows exactly what happened that day.
+- Customer page owns Outstanding, Balance History, and customer info — never edits Frames or Cafe Orders.
+
+When in doubt, check `docs/00-business-rules.md` before coding.

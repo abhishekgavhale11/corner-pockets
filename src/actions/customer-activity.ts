@@ -7,14 +7,27 @@ import { getEntryDisplayLabel, getRummyActivityLabel } from "@/lib/utils/noteboo
 import { getAggregatedCorrections } from "@/lib/utils/entry-corrections";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import { formatCurrency } from "@/lib/utils/format";
-import { payLaterBalanceAtDismiss } from "@/lib/utils/freeze-counter-pay-snapshot";
 import { customerActivityFilterSchema } from "@/lib/validators/customer";
-import type { CustomerActivityEventDTO } from "@/types";
+import type { CustomerActivityEventDTO, NotebookEntryDTO } from "@/types";
 import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
-import NotebookSettlement from "@/models/NotebookSettlement";
-import NotebookSettlementReversal from "@/models/NotebookSettlementReversal";
 import Transaction from "@/models/Transaction";
+
+
+function payLaterBalanceAtDismiss(
+  entry: Pick<
+    NotebookEntryDTO,
+    "counterBalanceAmount" | "counterPaidAmount" | "amount"
+  >
+): number {
+  if (entry.counterBalanceAmount != null) {
+    return entry.counterBalanceAmount;
+  }
+  if (entry.counterPaidAmount != null) {
+    return Math.max(0, entry.amount - entry.counterPaidAmount);
+  }
+  return 0;
+}
 
 export async function getCustomerActivity(
   customerId: string,
@@ -46,12 +59,10 @@ export async function getCustomerActivity(
 
   const includeCounter =
     filter === "all" || filter === "counter" || filter === "cafe";
-  const includePayments = filter === "all" || filter === "payments";
   const includeWallet =
     filter === "all" ||
     filter === "transactions" ||
     filter === "reversals";
-  const includeReversals = filter === "all" || filter === "reversals";
 
   if (includeCounter) {
     const entryFilter: Record<string, unknown> = {
@@ -198,77 +209,7 @@ export async function getCustomerActivity(
     }
   }
 
-  if (includePayments || includeReversals) {
-    const customerEntries = await NotebookEntry.find({
-      $or: [{ customerId }, { "contributors.customerId": customerId }],
-    })
-      .select("settlementId contributors")
-      .lean();
-    const settlementIds = [
-      ...new Set(
-        customerEntries.flatMap((entry) => {
-          const ids: string[] = [];
-          if (entry.settlementId) {
-            ids.push(entry.settlementId.toString());
-          }
-          for (const contributor of entry.contributors ?? []) {
-            if (
-              contributor.customerId.toString() === customerId &&
-              contributor.settlementId
-            ) {
-              ids.push(contributor.settlementId.toString());
-            }
-          }
-          return ids;
-        })
-      ),
-    ];
-
-    const settlements = await NotebookSettlement.find({
-      _id: { $in: settlementIds },
-    })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    for (const settlement of settlements) {
-      if (includePayments && settlement.status === "COMPLETED") {
-        const contributorPayment = settlement.contributorPayments?.find(
-          (payment) => payment.customerId.toString() === customerId
-        );
-        events.push({
-          id: `settlement-${settlement._id.toString()}`,
-          kind: "SETTLEMENT",
-          timestamp: settlement.createdAt.toISOString(),
-          title: contributorPayment
-            ? `Contribution paid`
-            : `Settlement ${formatCurrency(settlement.totalAmount)}`,
-          amount: contributorPayment?.amount ?? settlement.totalAmount,
-          staffUsername: settlement.createdBy,
-          paymentMethod: settlement.paymentMethod,
-          settlementId: settlement._id.toString(),
-        });
-      }
-    }
-
-    const reversals = await NotebookSettlementReversal.find({
-      originalSettlementId: { $in: settlements.map((s) => s._id) },
-    })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    for (const reversal of reversals) {
-      if (includeReversals) {
-        events.push({
-          id: `settlement-reversal-${reversal._id.toString()}`,
-          kind: "SETTLEMENT_REVERSAL",
-          timestamp: reversal.createdAt.toISOString(),
-          title: "Settlement Reversal",
-          staffUsername: reversal.reversedBy,
-          reversalReason: reversal.reversalReason,
-        });
-      }
-    }
-  }
+  // Settlement / settlement-reversal feed removed with Financial Engine V1.
 
   if (includeWallet) {
     const transactions = await Transaction.find({ customerId })

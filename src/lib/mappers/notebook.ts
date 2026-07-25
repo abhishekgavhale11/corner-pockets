@@ -2,13 +2,11 @@ import type {
   DailyClosingDTO,
   CustomerOpenTabSummaryDTO,
   NotebookEntryDTO,
-  NotebookSettlementDTO,
 } from "@/types";
 import type { NotebookEntryType } from "@/lib/constants/notebook-entry-types";
 import type {
   NotebookEntryStatus,
   NotebookPaymentMethod,
-  NotebookSettlementStatus,
 } from "@/lib/constants/notebook-payments";
 import type { NotebookSection } from "@/lib/constants/notebook-sections";
 
@@ -30,6 +28,7 @@ type LeanNotebookEntry = {
   paidByName?: string;
   paidByCustomerId?: { toString(): string };
   walletTransactionId?: { toString(): string };
+  walletAmount?: number;
   reversedAt?: Date;
   reversedBy?: string;
   reversalReason?: string;
@@ -39,6 +38,9 @@ type LeanNotebookEntry = {
   quantity?: number;
   unitPrice?: number;
   itemNote?: string;
+  playStartedAt?: Date;
+  playEndedAt?: Date;
+  notes?: string;
   playerCount?: number;
   snookerGame?: import("@/lib/constants/counter-rates").SnookerGame;
   rateType?: import("@/lib/constants/counter-rates").CounterRateType;
@@ -70,33 +72,12 @@ type LeanNotebookEntry = {
     counterBalanceAmount?: number;
     status: "PENDING" | "PAID";
     paymentMethod?: NotebookPaymentMethod;
+    walletAmount?: number;
     settlementId?: { toString(): string };
     paidAt?: Date;
     visitId?: { toString(): string };
     billId?: { toString(): string };
   }[];
-  createdBy: string;
-  createdAt: Date;
-};
-
-type LeanNotebookSettlement = {
-  _id: { toString(): string };
-  entryIds: { toString(): string }[];
-  totalAmount: number;
-  paymentMethod: NotebookPaymentMethod;
-  paidByName: string;
-  paidByCustomerId?: { toString(): string };
-  walletTransactionId?: { toString(): string };
-  contributorPayments?: {
-    entryId: { toString(): string };
-    customerId: { toString(): string };
-    customerName: string;
-    amount: number;
-  }[];
-  status: NotebookSettlementStatus;
-  reversedAt?: Date;
-  reversedBy?: string;
-  reversalReason?: string;
   createdBy: string;
   createdAt: Date;
 };
@@ -122,6 +103,7 @@ export function toNotebookEntryDTO(entry: LeanNotebookEntry): NotebookEntryDTO {
     paidByName: entry.paidByName,
     paidByCustomerId: entry.paidByCustomerId?.toString(),
     walletTransactionId: entry.walletTransactionId?.toString(),
+    walletAmount: entry.walletAmount,
     reversedAt: entry.reversedAt?.toISOString(),
     reversedBy: entry.reversedBy,
     reversalReason: entry.reversalReason,
@@ -131,6 +113,9 @@ export function toNotebookEntryDTO(entry: LeanNotebookEntry): NotebookEntryDTO {
     quantity: entry.quantity,
     unitPrice: entry.unitPrice,
     itemNote: entry.itemNote,
+    playStartedAt: entry.playStartedAt?.toISOString(),
+    playEndedAt: entry.playEndedAt?.toISOString(),
+    notes: entry.notes,
     playerCount: entry.playerCount,
     snookerGame: entry.snookerGame,
     rateType: entry.rateType,
@@ -162,6 +147,7 @@ export function toNotebookEntryDTO(entry: LeanNotebookEntry): NotebookEntryDTO {
       counterBalanceAmount: contributor.counterBalanceAmount,
       status: contributor.status,
       paymentMethod: contributor.paymentMethod,
+      walletAmount: contributor.walletAmount,
       settlementId: contributor.settlementId?.toString(),
       paidAt: contributor.paidAt?.toISOString(),
       visitId: contributor.visitId?.toString(),
@@ -169,32 +155,6 @@ export function toNotebookEntryDTO(entry: LeanNotebookEntry): NotebookEntryDTO {
     })),
     createdBy: entry.createdBy,
     createdAt: entry.createdAt.toISOString(),
-  };
-}
-
-export function toNotebookSettlementDTO(
-  settlement: LeanNotebookSettlement
-): NotebookSettlementDTO {
-  return {
-    id: settlement._id.toString(),
-    entryIds: settlement.entryIds.map((id) => id.toString()),
-    totalAmount: settlement.totalAmount,
-    paymentMethod: settlement.paymentMethod,
-    paidByName: settlement.paidByName,
-    paidByCustomerId: settlement.paidByCustomerId?.toString(),
-    walletTransactionId: settlement.walletTransactionId?.toString(),
-    contributorPayments: settlement.contributorPayments?.map((payment) => ({
-      entryId: payment.entryId.toString(),
-      customerId: payment.customerId.toString(),
-      customerName: payment.customerName,
-      amount: payment.amount,
-    })),
-    status: settlement.status,
-    reversedAt: settlement.reversedAt?.toISOString(),
-    reversedBy: settlement.reversedBy,
-    reversalReason: settlement.reversalReason,
-    createdBy: settlement.createdBy,
-    createdAt: settlement.createdAt.toISOString(),
   };
 }
 

@@ -10,7 +10,7 @@ export type LedgerChargeCandidate = {
   description: string;
   amount: number;
   staffUsername: string;
-  /** Pay-later obligations only — not active visit checkout charges */
+  /** Pay-later obligations only */
   isPayLaterObligation?: boolean;
 };
 
