@@ -24,8 +24,10 @@ export interface ICafeOrder extends Document {
   amount: number;
   received: number;
   paymentMethod?: CafePaymentMethod;
-  walletTransactionId?: mongoose.Types.ObjectId;
-  walletAmount?: number;
+  /** Staff who last saved this order's Cash/GPay payment. */
+  receivedByStaffId?: mongoose.Types.ObjectId;
+  receivedByUsername?: string;
+  receivedAt?: Date;
   createdBy: string;
   updatedBy?: string;
   createdAt: Date;
@@ -75,11 +77,12 @@ const cafeOrderSchema = new Schema<ICafeOrder>(
       type: String,
       enum: [...CAFE_PAYMENT_METHODS],
     },
-    walletTransactionId: {
+    receivedByStaffId: {
       type: Schema.Types.ObjectId,
-      ref: "Transaction",
+      ref: "Staff",
     },
-    walletAmount: { type: Number, min: 0 },
+    receivedByUsername: { type: String, trim: true },
+    receivedAt: { type: Date },
     createdBy: { type: String, required: true, trim: true },
     updatedBy: { type: String, trim: true },
   },
@@ -91,7 +94,7 @@ cafeOrderSchema.index({ customerId: 1, businessDayId: 1 });
 
 /**
  * Next.js can keep a stale compiled Mongoose model across hot reloads.
- * If WALLET (or any new payment method) is missing from the cached enum,
+ * If a payment method is missing from the cached enum,
  * drop and re-register so validation matches the source schema.
  */
 function getCafeOrderModel(): Model<ICafeOrder> {

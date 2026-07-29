@@ -1,12 +1,17 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type KeyboardEvent, type ReactNode } from "react";
 import {
   SNOOKER_FRAME_TYPE_LABELS,
   SNOOKER_FRAME_TYPES,
   type SnookerFrameType,
 } from "@/lib/constants/counter-sections";
-import { getSnookerFrameAmountPresets } from "@/lib/constants/counter-rates";
+import {
+  COUNTER_RATE_TYPES,
+  getRateOptionsForPreset,
+  getSnookerFrameAmountPresets,
+  type CounterRateType,
+} from "@/lib/constants/counter-rates";
 import {
   RUMMY_DEFAULT_AMOUNTS,
   RUMMY_PLAYER_PRESETS,
@@ -15,10 +20,10 @@ import {
 import { cn } from "@/lib/utils/cn";
 
 export const snookerFrameFieldLabelClass =
-  "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-emerald-800/80";
+  "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500";
 
 export const snookerFrameControlClass =
-  "h-9 w-full rounded-lg border border-gray-300 bg-white px-2.5 text-[13px] font-medium text-gray-900 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400";
+  "h-9 w-full rounded-[10px] border border-gray-200 bg-white px-2.5 text-[13px] font-medium text-gray-900 shadow-sm shadow-gray-900/5 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400";
 
 export function SnookerFrameField({
   label,
@@ -38,31 +43,62 @@ export function SnookerFrameField({
 }
 
 interface SnookerFrameFieldsProps {
-  frameType: SnookerFrameType | "";
-  onFrameTypeChange: (type: SnookerFrameType | "") => void;
   amount: string;
   onAmountChange: (amount: string) => void;
-  playerCount: string;
-  onPlayerCountChange: (count: string) => void;
   disabled?: boolean;
-  onKeyDown?: (e: React.KeyboardEvent) => void;
-  submitSlot?: React.ReactNode;
+  onKeyDown?: (e: KeyboardEvent) => void;
+  submitSlot?: ReactNode;
   variant?: "toolbar" | "dialog";
+  /** POS dialog: first cell on row 1 (e.g. Time). */
+  timeSlot?: ReactNode;
+  /** POS dialog: sits beside Quick Amount on row 2. Omitted for Pool/Mini. */
+  ownershipSlot?: ReactNode;
+  /** Default Big Snooker frame fields. */
+  entryKind?: "snooker" | "poolMini";
+  frameType?: SnookerFrameType | "";
+  onFrameTypeChange?: (type: SnookerFrameType | "") => void;
+  playerCount?: string;
+  onPlayerCountChange?: (count: string) => void;
+  /** Pool & Mini: Regular / Happy Hour in the same Type slot. */
+  rateType?: CounterRateType | "";
+  onRateTypeChange?: (type: CounterRateType | "") => void;
+  poolMiniEntryType?: "MINI" | "POOL";
 }
 
 export function SnookerFrameFields({
-  frameType,
+  frameType = "",
   onFrameTypeChange,
   amount,
   onAmountChange,
-  playerCount,
+  playerCount = "4",
   onPlayerCountChange,
   disabled = false,
   onKeyDown,
   submitSlot,
   variant = "toolbar",
+  timeSlot,
+  ownershipSlot,
+  entryKind = "snooker",
+  rateType = "",
+  onRateTypeChange,
+  poolMiniEntryType = "POOL",
 }: SnookerFrameFieldsProps) {
+  const isPoolMini = entryKind === "poolMini";
+
   const amountPresets = useMemo(() => {
+    if (isPoolMini) {
+      if (!rateType) return [];
+      return getRateOptionsForPreset({ type: poolMiniEntryType }).map(
+        ({ rateType: option, amount: presetAmount }) => ({
+          amount: presetAmount,
+          rateType: option,
+          label:
+            option === "REGULAR"
+              ? `${presetAmount} (Regular)`
+              : `${presetAmount} HH`,
+        })
+      );
+    }
     if (!frameType) return [];
     if (frameType === "RUMMY") {
       return RUMMY_PLAYER_PRESETS.map((count) => ({
@@ -77,14 +113,22 @@ export function SnookerFrameFields({
         .replace(" (Regular)", "")
         .replace(" (Happy Hour)", " HH"),
     }));
-  }, [frameType]);
+  }, [isPoolMini, rateType, poolMiniEntryType, frameType]);
 
   const applyPreset = (preset: {
     amount: number;
     playerCount?: number;
+    rateType?: CounterRateType;
   }) => {
+    if (isPoolMini) {
+      if (preset.rateType && onRateTypeChange) {
+        onRateTypeChange(preset.rateType);
+      }
+      onAmountChange(String(preset.amount));
+      return;
+    }
     if (frameType === "RUMMY" && preset.playerCount != null) {
-      onPlayerCountChange(String(preset.playerCount));
+      onPlayerCountChange?.(String(preset.playerCount));
       onAmountChange(String(preset.amount));
       return;
     }
@@ -94,31 +138,156 @@ export function SnookerFrameFields({
   const isPresetActive = (preset: {
     amount: number;
     playerCount?: number;
+    rateType?: CounterRateType;
   }) => {
+    if (isPoolMini) {
+      return (
+        rateType === preset.rateType && Number(amount) === preset.amount
+      );
+    }
     if (frameType === "RUMMY" && preset.playerCount != null) {
       return playerCount === String(preset.playerCount);
     }
     return Number(amount) === preset.amount;
   };
 
+  const typeSelected = isPoolMini ? Boolean(rateType) : Boolean(frameType);
   const isDialog = variant === "dialog";
 
+  const typeSelect = isPoolMini ? (
+    <SnookerFrameField label="Game Type" className="min-w-0">
+      <select
+        value={rateType}
+        onChange={(e) =>
+          onRateTypeChange?.(e.target.value as CounterRateType | "")
+        }
+        className={cn(
+          snookerFrameControlClass,
+          !rateType && "text-gray-500"
+        )}
+        disabled={disabled}
+      >
+        <option value="">Select type</option>
+        {COUNTER_RATE_TYPES.map((option) => (
+          <option key={option} value={option}>
+            {option === "REGULAR" ? "Regular" : "Happy Hour"}
+          </option>
+        ))}
+      </select>
+    </SnookerFrameField>
+  ) : (
+    <SnookerFrameField label="Frame Type" className="min-w-0">
+      <select
+        value={frameType}
+        onChange={(e) =>
+          onFrameTypeChange?.(e.target.value as SnookerFrameType | "")
+        }
+        className={cn(
+          snookerFrameControlClass,
+          !frameType && "text-gray-500"
+        )}
+        disabled={disabled}
+      >
+        <option value="">Select type</option>
+        {SNOOKER_FRAME_TYPES.map((type) => (
+          <option key={type} value={type}>
+            {SNOOKER_FRAME_TYPE_LABELS[type]}
+          </option>
+        ))}
+      </select>
+    </SnookerFrameField>
+  );
+
+  const amountField = (
+    <SnookerFrameField
+      label={isDialog ? "Total Amount" : "Amount"}
+      className={isDialog ? "min-w-0" : "min-w-[6.5rem] flex-1"}
+    >
+      <div className="relative">
+        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[13px] font-semibold text-gray-500">
+          ₹
+        </span>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={amount}
+          onChange={(e) => {
+            const next = e.target.value.replace(/[^\d]/g, "");
+            onAmountChange(next);
+          }}
+          onKeyDown={onKeyDown}
+          placeholder="0"
+          disabled={!typeSelected || disabled}
+          className={cn(
+            snookerFrameControlClass,
+            "pl-7 font-bold tabular-nums"
+          )}
+        />
+      </div>
+    </SnookerFrameField>
+  );
+
+  const quickAmountBlock =
+    typeSelected && amountPresets.length > 0 ? (
+      <div>
+        <span className={snookerFrameFieldLabelClass}>
+          {!isPoolMini && frameType === "RUMMY" ? "Players" : "Quick Amount"}
+        </span>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {amountPresets.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              disabled={disabled}
+              onClick={() => applyPreset(preset)}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600",
+                isPresetActive(preset)
+                  ? "border-emerald-800 bg-emerald-800 text-white shadow-sm"
+                  : "border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50"
+              )}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : (
+      <div />
+    );
+
+  if (isDialog) {
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {timeSlot}
+          {typeSelect}
+          {amountField}
+        </div>
+
+        <div
+          className={cn(
+            "grid grid-cols-1 gap-3",
+            ownershipSlot ? "sm:grid-cols-2" : ""
+          )}
+        >
+          {quickAmountBlock}
+          {ownershipSlot}
+        </div>
+      </div>
+    );
+  }
+
+  // Toolbar remains Big Snooker–only (Pool/Mini uses PoolMiniAddRow).
   return (
     <>
-      <div
-        className={cn(
-          "flex flex-wrap items-end gap-2.5",
-          isDialog && "flex-col items-stretch sm:flex-row sm:items-end"
-        )}
-      >
-        <SnookerFrameField
-          label="Type"
-          className={cn("min-w-[7.5rem]", isDialog ? "w-full sm:flex-[1.2]" : "flex-[1.2]")}
-        >
+      <div className="flex flex-wrap items-end gap-2.5">
+        <SnookerFrameField label="Type" className="min-w-[7.5rem] flex-[1.2]">
           <select
             value={frameType}
             onChange={(e) =>
-              onFrameTypeChange(e.target.value as SnookerFrameType | "")
+              onFrameTypeChange?.(e.target.value as SnookerFrameType | "")
             }
             className={cn(
               snookerFrameControlClass,
@@ -135,30 +304,7 @@ export function SnookerFrameFields({
           </select>
         </SnookerFrameField>
 
-        <SnookerFrameField
-          label="Amount"
-          className={cn("min-w-[6.5rem]", isDialog ? "w-full sm:flex-1" : "flex-1")}
-        >
-          <div className="relative">
-            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[13px] font-semibold text-gray-500">
-              ₹
-            </span>
-            <input
-              type="number"
-              min={1}
-              value={amount}
-              onChange={(e) => onAmountChange(e.target.value)}
-              onKeyDown={onKeyDown}
-              placeholder="0"
-              disabled={!frameType || disabled}
-              className={cn(
-                snookerFrameControlClass,
-                "pl-7 font-bold tabular-nums"
-              )}
-            />
-          </div>
-        </SnookerFrameField>
-
+        {amountField}
         {submitSlot}
       </div>
 
@@ -174,10 +320,10 @@ export function SnookerFrameFields({
               disabled={disabled}
               onClick={() => applyPreset(preset)}
               className={cn(
-                "rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors",
+                "rounded-[10px] border px-2.5 py-0.5 text-[11px] font-semibold transition-colors",
                 isPresetActive(preset)
-                  ? "border-emerald-700 bg-emerald-700 text-white"
-                  : "border-emerald-200 bg-white text-emerald-900 hover:border-emerald-400 hover:bg-emerald-50"
+                  ? "border-emerald-800 bg-emerald-800 text-white shadow-sm"
+                  : "border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50"
               )}
             >
               {preset.label}
@@ -203,4 +349,17 @@ export function useSnookerFrameAmountDefaults(
     const defaultAmount = getSnookerFrameAmountPresets(frameType)[0]?.amount;
     return defaultAmount ? String(defaultAmount) : "";
   }, [frameType, playerCount]);
+}
+
+export function usePoolMiniAmountDefaults(
+  entryType: "MINI" | "POOL",
+  rateType: CounterRateType | ""
+) {
+  return useMemo(() => {
+    if (!rateType) return "";
+    const amount = getRateOptionsForPreset({ type: entryType }).find(
+      (row) => row.rateType === rateType
+    )?.amount;
+    return amount ? String(amount) : "";
+  }, [entryType, rateType]);
 }

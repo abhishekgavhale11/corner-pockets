@@ -66,7 +66,7 @@ export function MembershipRegistrationForm({
         Student membership
       </label>
       <p className="text-xs text-gray-500">
-        Wallet enabled. Card ID assigned automatically.
+        Card ID is assigned automatically for membership registration.
       </p>
       {state?.error && (
         <p className="rounded bg-red-50 px-3 py-2 text-xs text-red-700">

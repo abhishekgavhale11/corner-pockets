@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import BusinessDay from "@/models/BusinessDay";
+import Outstanding from "@/models/Outstanding";
 import { toBusinessDayDTO } from "@/lib/mappers/business-day";
+import { deleteBusinessDayFinalSummary } from "@/lib/financial-summary";
 import type { BusinessDayDTO } from "@/types";
 
 export async function reopenBusinessDay(input: {
@@ -39,13 +41,39 @@ export async function reopenBusinessDay(input: {
     );
   }
 
-  day.status = "OPEN";
-  day.closedAt = undefined;
-  day.closedBy = undefined;
-  day.reopenedAt = new Date();
-  day.reopenedBy = input.reopenedBy;
-  day.reopenReason = input.reason.trim();
-  await day.save();
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const locked = await BusinessDay.findById(input.businessDayId).session(
+        session
+      );
+      if (!locked || locked.status !== "CLOSED") {
+        throw new Error("Only a CLOSED Business Day can be reopened.");
+      }
 
-  return toBusinessDayDTO(day);
+      await Outstanding.deleteMany({
+        businessDayId: locked._id,
+        sourceType: { $in: ["FRAME", "CAFE"] },
+      }).session(session);
+
+      await deleteBusinessDayFinalSummary(locked._id, session);
+
+      locked.status = "OPEN";
+      locked.closedAt = undefined;
+      locked.closedBy = undefined;
+      locked.reopenedAt = new Date();
+      locked.reopenedBy = input.reopenedBy;
+      locked.reopenReason = input.reason.trim();
+      await locked.save({ session });
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  const reopened = await BusinessDay.findById(input.businessDayId).lean();
+  if (!reopened) {
+    throw new Error("Business Day not found after reopen.");
+  }
+
+  return toBusinessDayDTO(reopened);
 }

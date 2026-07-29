@@ -10,16 +10,16 @@ interface StatsCardsProps {
 export function StatsCards({ stats }: StatsCardsProps) {
   const items = [
     {
-      label: "Today's Wallet Recharges",
-      value: formatCurrency(stats.todayRecharges),
+      label: "Pending Notebook",
+      value: formatCurrency(stats.pendingNotebookAmount),
     },
     {
-      label: "Today's Deductions",
-      value: formatCurrency(stats.todayDeductions),
+      label: "Paid Today",
+      value: formatCurrency(stats.paidTodayAmount),
     },
     {
-      label: "Today's Transactions",
-      value: stats.todayTransactionCount.toString(),
+      label: "Today's Entries",
+      value: stats.todayEntryCount.toString(),
     },
   ];
 

@@ -11,6 +11,10 @@ export interface ITransaction extends Document {
   description: string;
   staffId: mongoose.Types.ObjectId;
   staffUsername: string;
+  /** Staff who recorded this payment. */
+  receivedByStaffId?: mongoose.Types.ObjectId;
+  receivedByUsername?: string;
+  receivedAt?: Date;
   isReversal: boolean;
   reversesTransactionId?: mongoose.Types.ObjectId;
   reversedAt?: Date;
@@ -20,20 +24,19 @@ export interface ITransaction extends Document {
   verificationMethod?: "CARD" | "PHONE";
   /** How the customer paid for the recharge (Cash / GPay). */
   paymentMethod?: "CASH" | "GPAY";
-  /** When Wallet did not cover the full bill — Cash or GPay for the remainder. */
+  /** Cash or GPay remainder when a bill was split across methods. */
   remainingPaymentMethod?: "CASH" | "GPAY";
-  /** Timeline context: purpose, bill breakdown, Business Day. */
+  /** Legacy operational payment metadata (historical records only). */
   paymentContext?: {
     purpose: "FRAME_PAYMENT" | "CAFE_PAYMENT" | "OUTSTANDING_COLLECTION" | "OTHER";
     billAmount: number;
-    walletUsed: number;
     remainderAmount: number;
     remainderMethod?: "CASH" | "GPAY";
     totalPaid: number;
     lines?: { label: string; quantity?: number }[];
     businessDayId?: string;
   };
-  /** Open Business Day when this wallet event occurred. */
+  /** Business Day tied to this legacy transaction. */
   businessDayId?: mongoose.Types.ObjectId;
   createdAt: Date;
 }
@@ -55,6 +58,12 @@ const transactionSchema = new Schema<ITransaction>(
     description: { type: String, required: true, trim: true },
     staffId: { type: Schema.Types.ObjectId, ref: "Staff", required: true },
     staffUsername: { type: String, required: true },
+    receivedByStaffId: {
+      type: Schema.Types.ObjectId,
+      ref: "Staff",
+    },
+    receivedByUsername: { type: String, trim: true },
+    receivedAt: { type: Date },
     isReversal: { type: Boolean, default: false },
     reversesTransactionId: {
       type: Schema.Types.ObjectId,
@@ -90,7 +99,6 @@ const transactionSchema = new Schema<ITransaction>(
         ],
       },
       billAmount: { type: Number, min: 0 },
-      walletUsed: { type: Number, min: 0 },
       remainderAmount: { type: Number, min: 0 },
       remainderMethod: { type: String, enum: ["CASH", "GPAY"] },
       totalPaid: { type: Number, min: 0 },

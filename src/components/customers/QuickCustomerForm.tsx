@@ -55,8 +55,7 @@ export function QuickCustomerForm({ onSuccess, onCancel }: QuickCustomerFormProp
         <Input id="quick-phone" name="phone" type="tel" />
       </div>
       <p className="text-xs text-gray-500">
-        Saved to the main customer database. Enable membership or wallet later
-        from their profile.
+        Saved to the main customer database. Add a membership card from their profile later.
       </p>
       {state?.error && (
         <p className="rounded bg-red-50 px-3 py-2 text-xs text-red-700">

@@ -5,7 +5,7 @@ import type {
   BusinessDayHistorySectionSummaryDTO,
 } from "@/types";
 
-type ValueTone = "neutral" | "cash" | "gpay" | "wallet" | "outstanding";
+type ValueTone = "neutral" | "cash" | "gpay" | "outstanding";
 
 function toneClass(tone: ValueTone): string {
   switch (tone) {
@@ -13,8 +13,6 @@ function toneClass(tone: ValueTone): string {
       return "text-emerald-700";
     case "gpay":
       return "text-sky-700";
-    case "wallet":
-      return "text-violet-700";
     case "outstanding":
       return "text-orange-600";
     default:
@@ -35,42 +33,19 @@ function IconChart({ className }: { className?: string }) {
   );
 }
 
-function IconWalletPay({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 7.5h13.5A2.5 2.5 0 0 1 20 10v7.5A2.5 2.5 0 0 1 17.5 20H4V7.5Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M4 7.5 6.2 4h9.6L18 7.5M14.5 14.5h3"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function IconWallet({ className }: { className?: string }) {
+function IconCash({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
       <rect
-        x="3"
+        x="2"
         y="6"
-        width="18"
-        height="13"
-        rx="2.5"
+        width="20"
+        height="12"
+        rx="2"
         stroke="currentColor"
         strokeWidth="1.8"
       />
-      <path
-        d="M3 10h18M16 14.5h2"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
+      <circle cx="12" cy="12" r="2.5" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
 }
@@ -248,7 +223,7 @@ function SectionHeading({
         >
           {icon}
         </span>
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-gray-700">
+        <h2 className="text-[18px] font-semibold tracking-tight text-gray-900">
           {title}
         </h2>
       </div>
@@ -304,7 +279,7 @@ function SnookerSubCard({
           label="Cash"
           value={formatCurrency(summary.cashCollection)}
           tone="cash"
-          icon={<IconWallet className="h-3.5 w-3.5 text-emerald-600" />}
+          icon={<IconCash className="h-3.5 w-3.5 text-emerald-600" />}
         />
         <MetricRow
           label="GPay"
@@ -313,13 +288,7 @@ function SnookerSubCard({
           icon={<IconPhonePay className="h-3.5 w-3.5 text-sky-600" />}
         />
         <MetricRow
-          label="Wallet"
-          value={formatCurrency(summary.walletCollection)}
-          tone="wallet"
-          icon={<IconWalletPay className="h-3.5 w-3.5 text-violet-600" />}
-        />
-        <MetricRow
-          label="Outstanding"
+          label="Outstanding Created"
           value={formatCurrency(summary.outstandingCreated)}
           tone="outstanding"
           icon={<IconLedger className="h-3.5 w-3.5 text-orange-500" />}
@@ -341,11 +310,14 @@ function SnookerSubCard({
 
 interface BusinessDayHistoryInsightCardsProps {
   insights: BusinessDayHistoryInsightsDTO;
+  /** Defaults to Overall Business Summary (day detail). List uses Business Performance. */
+  overallTitle?: string;
   overallHint?: string;
 }
 
 export function BusinessDayHistoryInsightCards({
   insights,
+  overallTitle = "Overall Business Summary",
   overallHint,
 }: BusinessDayHistoryInsightCardsProps) {
   const { overall, bigSnooker, poolMini, totalSnooker, cafe } = insights;
@@ -353,21 +325,21 @@ export function BusinessDayHistoryInsightCards({
   return (
     <div className="space-y-5">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1.6fr)_minmax(0,0.95fr)]">
-        {/* Overall */}
-        <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm">
+        {/* Business Performance / Overall */}
+        <section className="rounded-[12px] border border-gray-200 bg-white p-5 shadow-sm shadow-gray-900/5">
           <SectionHeading
-            title="Overall Business Summary"
-            icon={<IconChart className="h-4 w-4 text-violet-700" />}
-            iconClassName="bg-violet-50 text-violet-700"
+            title={overallTitle}
+            icon={<IconChart className="h-4 w-4 text-sky-700" />}
+            iconClassName="bg-sky-50 text-sky-700"
             hint={overallHint}
           />
           <dl>
             <MetricRow
-              label="Total Revenue"
+              label="Revenue"
               value={formatCurrency(overall.totalRevenue)}
             />
             <MetricRow
-              label="Total Received"
+              label="Business Collection"
               value={formatCurrency(overall.totalReceived)}
               tone="cash"
             />
@@ -375,19 +347,13 @@ export function BusinessDayHistoryInsightCards({
               label="Cash Collection"
               value={formatCurrency(overall.cashCollection)}
               tone="cash"
-              icon={<IconWallet className="h-3.5 w-3.5 text-emerald-600" />}
+              icon={<IconCash className="h-3.5 w-3.5 text-emerald-600" />}
             />
             <MetricRow
               label="GPay Collection"
               value={formatCurrency(overall.gpayCollection)}
               tone="gpay"
               icon={<IconPhonePay className="h-3.5 w-3.5 text-sky-600" />}
-            />
-            <MetricRow
-              label="Wallet Collection"
-              value={formatCurrency(overall.walletCollection)}
-              tone="wallet"
-              icon={<IconWalletPay className="h-3.5 w-3.5 text-violet-600" />}
             />
             <MetricRow
               label="Outstanding Created"
@@ -398,13 +364,10 @@ export function BusinessDayHistoryInsightCards({
           </dl>
           <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-              <IconWallet className="h-3 w-3" /> Cash
+              <IconCash className="h-3 w-3" /> Cash
             </span>
             <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700">
               <IconPhonePay className="h-3 w-3" /> GPay
-            </span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
-              <IconWalletPay className="h-3 w-3" /> Wallet
             </span>
             <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-700">
               <IconLedger className="h-3 w-3" /> Outstanding
@@ -413,7 +376,7 @@ export function BusinessDayHistoryInsightCards({
         </section>
 
         {/* Snooker */}
-        <section className="rounded-2xl border border-gray-200/80 bg-[#F8FAFC] p-5 shadow-sm">
+        <section className="rounded-[12px] border border-gray-200 bg-slate-50/60 p-5 shadow-sm shadow-gray-900/5">
           <SectionHeading
             title="Snooker Summary"
             icon={<IconSnooker className="h-4 w-4 text-emerald-700" />}
@@ -448,7 +411,7 @@ export function BusinessDayHistoryInsightCards({
         </section>
 
         {/* Cafe */}
-        <section className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
+        <section className="rounded-[12px] border border-gray-200 bg-white p-5 shadow-sm shadow-gray-900/5">
           <SectionHeading
             title="Cafe Summary"
             icon={<IconCafe className="h-4 w-4 text-orange-600" />}
@@ -460,19 +423,13 @@ export function BusinessDayHistoryInsightCards({
               label="Cash Collection"
               value={formatCurrency(cafe.cashCollection)}
               tone="cash"
-              icon={<IconWallet className="h-3.5 w-3.5 text-emerald-600" />}
+              icon={<IconCash className="h-3.5 w-3.5 text-emerald-600" />}
             />
             <MetricRow
               label="GPay Collection"
               value={formatCurrency(cafe.gpayCollection)}
               tone="gpay"
               icon={<IconPhonePay className="h-3.5 w-3.5 text-sky-600" />}
-            />
-            <MetricRow
-              label="Wallet Collection"
-              value={formatCurrency(cafe.walletCollection)}
-              tone="wallet"
-              icon={<IconWalletPay className="h-3.5 w-3.5 text-violet-600" />}
             />
             <MetricRow
               label="Outstanding Created"

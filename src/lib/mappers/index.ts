@@ -1,4 +1,4 @@
-import type { CustomerDTO, TransactionDTO } from "@/types";
+import type { CustomerDTO } from "@/types";
 import { resolveCustomerNameParts } from "@/lib/utils/customer-name";
 
 type LeanCustomerDetailFieldChange = {
@@ -25,31 +25,7 @@ type LeanCustomer = {
   studentStatusChangedAt?: Date;
   studentStatusChangedBy?: string;
   detailChanges?: LeanCustomerDetailChange[];
-  balance: number;
-  walletEnabled?: boolean;
   isActive: boolean;
-  createdAt: Date;
-};
-
-type LeanTransaction = {
-  _id: { toString(): string };
-  customerId: { toString(): string };
-  type: "credit" | "debit";
-  paidAmount?: number;
-  bonusAmount?: number;
-  creditedAmount?: number;
-  amount?: number;
-  balanceAfter: number;
-  description: string;
-  staffUsername: string;
-  isReversal?: boolean;
-  reversesTransactionId?: { toString(): string };
-  reversedAt?: Date;
-  reversedBy?: string;
-  reversalReason?: string;
-  reversalTransactionId?: { toString(): string };
-  verificationMethod?: "CARD" | "PHONE";
-  paymentMethod?: "CASH" | "GPAY";
   createdAt: Date;
 };
 
@@ -79,33 +55,7 @@ export function toCustomerDTO(customer: LeanCustomer): CustomerDTO {
         to: change.to,
       })),
     })),
-    balance: customer.balance,
-    walletEnabled: customer.walletEnabled ?? true,
     isActive: customer.isActive,
     createdAt: customer.createdAt.toISOString(),
-  };
-}
-
-export function toTransactionDTO(transaction: LeanTransaction): TransactionDTO {
-  return {
-    id: transaction._id.toString(),
-    customerId: transaction.customerId.toString(),
-    type: transaction.type,
-    paidAmount: transaction.paidAmount,
-    bonusAmount: transaction.bonusAmount,
-    creditedAmount: transaction.creditedAmount,
-    amount: transaction.amount,
-    balanceAfter: transaction.balanceAfter,
-    description: transaction.description,
-    staffUsername: transaction.staffUsername,
-    isReversal: transaction.isReversal ?? false,
-    reversesTransactionId: transaction.reversesTransactionId?.toString(),
-    reversedAt: transaction.reversedAt?.toISOString(),
-    reversedBy: transaction.reversedBy,
-    reversalReason: transaction.reversalReason,
-    reversalTransactionId: transaction.reversalTransactionId?.toString(),
-    verificationMethod: transaction.verificationMethod,
-    paymentMethod: transaction.paymentMethod,
-    createdAt: transaction.createdAt.toISOString(),
   };
 }

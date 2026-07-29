@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addCafeItems } from "@/actions/notebook-entries";
-import { getCustomerWalletInfo } from "@/actions/customers";
 import { CAFE_QUICK_ITEMS } from "@/lib/constants/counter-sections";
 import type { CafeTableId } from "@/lib/constants/counter-sections";
 import type { NotebookEntryType } from "@/lib/constants/notebook-entry-types";
@@ -50,9 +49,6 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
   const [note, setNote] = useState("");
   const [paidAmount, setPaidAmount] = useState("0");
   const [paymentMode, setPaymentMode] = useState<EntryPaymentMode | "">("");
-  const [useWallet, setUseWallet] = useState(false);
-  const [walletBalance, setWalletBalance] = useState<number | undefined>();
-  const [walletEnabled, setWalletEnabled] = useState(false);
   const [previousSessionId, setPreviousSessionId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -78,28 +74,10 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
       setNote("");
       setPaidAmount("0");
       setPaymentMode("");
-      setUseWallet(false);
-      setWalletBalance(undefined);
-      setWalletEnabled(false);
       setPreviousSessionId("");
       setError(null);
     }
   }, [open, target]);
-
-  useEffect(() => {
-    if (!open || !isCustomerTarget || !target || target.kind !== "customer") {
-      return;
-    }
-    let cancelled = false;
-    void getCustomerWalletInfo(target.id).then((info) => {
-      if (cancelled || !info) return;
-      setWalletBalance(info.balance);
-      setWalletEnabled(info.walletEnabled);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, isCustomerTarget, target]);
 
   const orderAmount = useMemo(() => {
     if (!selected) return 0;
@@ -134,8 +112,6 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
     }
     const paymentCheck = resolveEntryPaymentSubmit({
       paidAmount: parsedPaid,
-      useWallet,
-      walletBalance: walletBalance ?? 0,
       paymentMode,
     });
     if (!paymentCheck.valid) {
@@ -197,8 +173,6 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
       formData.set("items", JSON.stringify(items));
       const paymentFields = appendEntryPaymentFormData(formData, {
         paidAmount: parsedPaid,
-        useWallet,
-        walletBalance: walletBalance ?? 0,
         paymentMode,
       });
       if (!paymentFields.ok) {
@@ -357,7 +331,6 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
               amount={orderAmount}
               paidAmount={paidAmount}
               paymentMode={paymentMode}
-              useWallet={useWallet}
               disabled={isPending}
               onPaidAmountChange={(value) => {
                 setPaidAmount(value);
@@ -367,12 +340,6 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
                 setPaymentMode(value);
                 setError(null);
               }}
-              onUseWalletChange={(value) => {
-                setUseWallet(value);
-                setError(null);
-              }}
-              walletEnabled={walletEnabled && isCustomerTarget}
-              walletBalance={walletBalance}
             />
           </div>
         )}

@@ -10,12 +10,14 @@ interface CustomerDetailViewProps {
   customer: CustomerDTO;
   summary: CustomerLedgerSummaryDTO;
   activityItems: CustomerActivityItemDTO[];
+  canAddOpeningOutstanding?: boolean;
 }
 
 export function CustomerDetailView({
   customer,
   summary,
   activityItems,
+  canAddOpeningOutstanding = false,
 }: CustomerDetailViewProps) {
   return (
     <div>
@@ -27,7 +29,11 @@ export function CustomerDetailView({
       </Link>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,32%)_minmax(0,68%)]">
-        <CustomerSummaryCard customer={customer} summary={summary} />
+        <CustomerSummaryCard
+          customer={customer}
+          summary={summary}
+          canAddOpeningOutstanding={canAddOpeningOutstanding}
+        />
 
         <CustomerActivityTimeline items={activityItems} />
       </div>

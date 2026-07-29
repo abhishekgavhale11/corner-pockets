@@ -1,21 +1,41 @@
-import mongoose from "mongoose";
-import BusinessDay from "@/models/BusinessDay";
-import Outstanding from "@/models/Outstanding";
+import type { OutstandingSourceType } from "@/lib/constants/outstanding";
+import {
+  BUSINESS_DAY_OUTSTANDING_SOURCE_TYPES,
+  type BusinessDayOutstandingSourceType,
+} from "@/lib/constants/outstanding";
 import { loadFinancialProofSnapshot } from "@/lib/business-day/close-financial-proof";
 import { nextOutstandingNumberFromDb } from "@/lib/outstanding/queries";
 import { resolveBusinessDate } from "@/lib/utils/business-date";
-import type { OutstandingSourceType } from "@/lib/constants/outstanding";
+import Outstanding from "@/models/Outstanding";
+import mongoose from "mongoose";
 
 export type OutstandingCandidate = {
   customerId: string;
-  sourceType: OutstandingSourceType;
+  sourceType: BusinessDayOutstandingSourceType;
   sourceRecordId: string;
   dueAmount: number;
 };
 
+function asBusinessDaySourceType(
+  sourceType: OutstandingSourceType | string
+): BusinessDayOutstandingSourceType {
+  if (
+    (BUSINESS_DAY_OUTSTANDING_SOURCE_TYPES as readonly string[]).includes(
+      sourceType
+    )
+  ) {
+    return sourceType as BusinessDayOutstandingSourceType;
+  }
+  throw new Error(`Invalid Outstanding source for Business Day close: ${sourceType}`);
+}
+
 /**
  * Builds Outstanding rows that WOULD be inserted on close.
  * Does not write to the database.
+ *
+ * One candidate per customer for the Business Day (Due aggregated across
+ * Frames + Cafe). Source fields keep a single provenance pointer for audit —
+ * cashiers never collect by individual source line.
  *
  * Candidates are derived from the Phase 1B Financial Proof ownership lines.
  * No independent Bill / Received / Due math lives here.
@@ -36,17 +56,38 @@ export async function buildOutstandingCandidatesForBusinessDay(
     );
   }
 
-  const candidates: OutstandingCandidate[] = [];
+  type Agg = {
+    dueAmount: number;
+    sourceType: BusinessDayOutstandingSourceType;
+    sourceRecordId: string;
+  };
+
+  const byCustomer = new Map<string, Agg>();
 
   for (const line of loaded.snapshot.ownershipLines) {
     if (!line.customerId) continue;
     if (line.due <= 0) continue;
 
-    candidates.push({
-      customerId: line.customerId,
-      sourceType: line.sourceType,
-      sourceRecordId: line.sourceRecordId,
+    const existing = byCustomer.get(line.customerId);
+    if (existing) {
+      existing.dueAmount += line.due;
+      continue;
+    }
+
+    byCustomer.set(line.customerId, {
       dueAmount: line.due,
+      sourceType: asBusinessDaySourceType(line.sourceType),
+      sourceRecordId: line.sourceRecordId,
+    });
+  }
+
+  const candidates: OutstandingCandidate[] = [];
+  for (const [customerId, agg] of byCustomer) {
+    candidates.push({
+      customerId,
+      sourceType: agg.sourceType,
+      sourceRecordId: agg.sourceRecordId,
+      dueAmount: agg.dueAmount,
     });
   }
 

@@ -19,6 +19,11 @@ type LeanContributor = {
   paymentMethod?: string | null;
 };
 
+type LeanPaymentAllocation = {
+  paymentMethod?: string | null;
+  amount?: number;
+};
+
 type LeanNotebookEntry = {
   _id: mongoose.Types.ObjectId;
   businessDayId: mongoose.Types.ObjectId;
@@ -27,6 +32,7 @@ type LeanNotebookEntry = {
   paidAmount?: number;
   balanceCollectedAmount?: number;
   paymentMethod?: string | null;
+  paymentAllocations?: LeanPaymentAllocation[];
   customerId?: mongoose.Types.ObjectId | null;
   customerName?: string;
   contributors?: LeanContributor[];
@@ -46,6 +52,46 @@ type LeanCafeOrder = {
 
 function lineReceived(paidAmount?: number, balanceCollectedAmount?: number): number {
   return (paidAmount ?? 0) + (balanceCollectedAmount ?? 0);
+}
+
+/** Split payments store Cash/GPay in paymentAllocations and clear paymentMethod. */
+function hasValidPaymentAllocations(
+  paidAmount: number,
+  allocations?: LeanPaymentAllocation[] | null
+): boolean {
+  if (!allocations || allocations.length < 2) {
+    return false;
+  }
+
+  let sum = 0;
+  for (const row of allocations) {
+    const method = row.paymentMethod;
+    if (method !== "CASH" && method !== "GPAY") {
+      return false;
+    }
+    const amount = Math.round(row.amount ?? 0);
+    if (amount <= 0) {
+      return false;
+    }
+    sum += amount;
+  }
+
+  return sum === Math.max(0, Math.round(paidAmount));
+}
+
+function entryHasRequiredPaymentMode(
+  received: number,
+  paidAmount?: number,
+  paymentMethod?: string | null,
+  paymentAllocations?: LeanPaymentAllocation[] | null
+): boolean {
+  if (received <= 0) {
+    return true;
+  }
+  if (hasValidPaymentAllocations(paidAmount ?? 0, paymentAllocations)) {
+    return true;
+  }
+  return Boolean(paymentMethod);
 }
 
 function hasContributors(entry: LeanNotebookEntry): boolean {
@@ -359,7 +405,14 @@ export async function validateBusinessDayClosePreflight(
         );
       }
 
-      if (received > 0 && !entry.paymentMethod) {
+      if (
+        !entryHasRequiredPaymentMode(
+          received,
+          entry.paidAmount,
+          entry.paymentMethod,
+          entry.paymentAllocations
+        )
+      ) {
         pushIssue(
           issues,
           "PAYMENT_MODE",

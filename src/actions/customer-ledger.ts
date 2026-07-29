@@ -1,6 +1,5 @@
 "use server";
 
-import mongoose from "mongoose";
 import { connectDB } from "@/lib/db/connect";
 import { authorizePermission } from "@/lib/auth/session";
 import {
@@ -16,44 +15,9 @@ import Customer from "@/models/Customer";
 import CustomerBalancePayment from "@/models/CustomerBalancePayment";
 import NotebookEntry from "@/models/NotebookEntry";
 import Outstanding from "@/models/Outstanding";
-import Transaction from "@/models/Transaction";
+import { getCustomerLifetimeStats } from "@/lib/customers/lifetime-stats";
 import { getCustomerActivityTimeline } from "@/lib/outstanding/activity-timeline";
 import { getCustomerOutstandingBalance } from "@/lib/outstanding/queries";
-
-/**
- * Financial Engine V1 (Visit/Bill/Settlement) removed.
- * Ledger APIs compile and return wallet-aware stubs / light aggregates
- * from CustomerBalancePayment + Transaction + NotebookEntry only.
- */
-
-async function countCustomerVisits(customerId: string): Promise<number> {
-  const customerObjectId = new mongoose.Types.ObjectId(customerId);
-  const result = await NotebookEntry.aggregate<{ visits: number }>([
-    {
-      $match: {
-        status: { $ne: "CANCELLED" },
-        $or: [
-          { customerId: customerObjectId },
-          { "contributors.customerId": customerObjectId },
-        ],
-      },
-    },
-    {
-      $group: {
-        _id: {
-          $dateToString: {
-            format: "%Y-%m-%d",
-            date: "$createdAt",
-            timezone: "Asia/Kolkata",
-          },
-        },
-      },
-    },
-    { $count: "visits" },
-  ]);
-
-  return result[0]?.visits ?? 0;
-}
 
 async function findLastCustomerPayment(customerId: string): Promise<{
   createdAt: string;
@@ -76,16 +40,15 @@ async function findLastCustomerPayment(customerId: string): Promise<{
 }
 
 function emptySummary(
-  walletBalance: number,
   extras?: Partial<CustomerLedgerSummaryDTO>
 ): CustomerLedgerSummaryDTO {
   return {
-    walletBalance,
     outstandingAmount: 0,
     activeVisitDueAmount: 0,
     hasActiveVisitWithDue: false,
     openBillsCount: 0,
     visitCount: 0,
+    lifetimePaid: 0,
     lastVisitAt: null,
     lastPaymentAt: null,
     lastPaymentAmount: null,
@@ -103,9 +66,8 @@ function openingLedgerLine(customerCreatedAt: Date): CustomerLedgerLineDTO {
     kind: "status",
     eventSubtype: "opening",
     staffUsername: "—",
-    walletBalance: 0,
     outstandingBalance: 0,
-    balanceLabel: formatLedgerBalanceLabel(0, 0),
+    balanceLabel: formatLedgerBalanceLabel(0),
   };
 }
 
@@ -124,23 +86,24 @@ export async function getCustomerLedgerSummary(
     return null;
   }
 
-  const [lastVisitEntry, lastPayment, visitCount, outstandingAmount] =
+  const [lastVisitEntry, lastPayment, lifetimeStats, outstandingAmount] =
     await Promise.all([
-    NotebookEntry.findOne({
-      status: { $ne: "CANCELLED" },
-      $or: [{ customerId }, { "contributors.customerId": customerId }],
-    })
-      .sort({ createdAt: -1 })
-      .select("createdAt")
-      .lean(),
-    findLastCustomerPayment(customerId),
-    countCustomerVisits(customerId),
-    getCustomerOutstandingBalance(customerId),
-  ]);
+      NotebookEntry.findOne({
+        status: { $ne: "CANCELLED" },
+        $or: [{ customerId }, { "contributors.customerId": customerId }],
+      })
+        .sort({ createdAt: -1 })
+        .select("createdAt")
+        .lean(),
+      findLastCustomerPayment(customerId),
+      getCustomerLifetimeStats(customerId),
+      getCustomerOutstandingBalance(customerId),
+    ]);
 
-  return emptySummary(customer.balance ?? 0, {
+  return emptySummary({
     outstandingAmount,
-    visitCount,
+    visitCount: lifetimeStats.totalVisits,
+    lifetimePaid: lifetimeStats.lifetimePaid,
     lastVisitAt: lastVisitEntry?.createdAt?.toISOString() ?? null,
     lastPaymentAt: lastPayment?.createdAt ?? null,
     lastPaymentAmount: lastPayment?.amount ?? null,
@@ -162,42 +125,7 @@ export async function getCustomerLedger(
     return [];
   }
 
-  const lines: CustomerLedgerLineDTO[] = [
-    openingLedgerLine(customer.createdAt),
-  ];
-
-  const transactions = await Transaction.find({ customerId })
-    .sort({ createdAt: 1 })
-    .limit(200)
-    .lean();
-
-  let walletBalance = 0;
-  for (const tx of transactions) {
-    const amount = tx.amount ?? tx.creditedAmount ?? tx.paidAmount ?? 0;
-    const isCredit = tx.type === "credit" && !tx.isReversal;
-    walletBalance += isCredit ? amount : -amount;
-
-    lines.push({
-      ledgerId: `tx-${tx._id.toString()}`,
-      id: `tx-${tx._id.toString()}`,
-      timestamp: tx.createdAt.toISOString(),
-      description: tx.description,
-      amount,
-      kind: "payment",
-      eventSubtype: isCredit ? "wallet_recharge" : "wallet_deduct",
-      paymentContext: "WALLET",
-      staffUsername: tx.staffUsername,
-      walletBalance,
-      outstandingBalance: 0,
-      balanceLabel: formatLedgerBalanceLabel(walletBalance, 0),
-      transactionId: tx._id.toString(),
-      canReverseRecharge: Boolean(
-        isCredit && !tx.reversedAt && !tx.isReversal
-      ),
-    });
-  }
-
-  return lines;
+  return [openingLedgerLine(customer.createdAt)];
 }
 
 export async function getCustomerFinancials(customerId: string): Promise<{
@@ -239,9 +167,9 @@ export async function getCustomersWithOutstanding(
   await connectDB();
 
   const aggregated = await Outstanding.aggregate<{
-    _id: mongoose.Types.ObjectId;
+    _id: import("mongoose").Types.ObjectId;
     outstandingAmount: number;
-    unpaidBusinessDays: mongoose.Types.ObjectId[];
+    unpaidBusinessDays: import("mongoose").Types.ObjectId[];
     oldestOutstandingDate: Date;
   }>([
     { $match: { status: "PENDING", remainingAmount: { $gt: 0 } } },
@@ -249,8 +177,25 @@ export async function getCustomersWithOutstanding(
       $group: {
         _id: "$customerId",
         outstandingAmount: { $sum: "$remainingAmount" },
-        unpaidBusinessDays: { $addToSet: "$businessDayId" },
-        oldestOutstandingDate: { $min: "$businessDate" },
+        unpaidBusinessDays: {
+          $addToSet: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: ["$sourceType", "OPENING"] },
+                  { $ne: ["$businessDayId", null] },
+                ],
+              },
+              "$businessDayId",
+              "$$REMOVE",
+            ],
+          },
+        },
+        oldestOutstandingDate: {
+          $min: {
+            $ifNull: ["$businessDate", "$createdAt"],
+          },
+        },
       },
     },
     { $match: { outstandingAmount: { $gt: 0 } } },

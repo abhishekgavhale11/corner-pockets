@@ -7,7 +7,7 @@ import {
   type CafeTabLine,
 } from "@/lib/utils/cafe-tabs";
 import { formatCurrency } from "@/lib/utils/format";
-import { framePaidAmount } from "@/lib/utils/frame-payment";
+import { frameReceivedAmount } from "@/lib/utils/frame-payment";
 import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/Button";
 import { CustomerPreviewNameButton } from "@/components/counter/CustomerPreviewContext";
@@ -31,17 +31,40 @@ function tabAmount(tab: CafeOpenTab): number {
 
 function linePaymentTotals(line: CafeTabLine): {
   paidAmount: number;
-  paymentMethod?: "CASH" | "GPAY" | "WALLET";
+  paymentMethod?: "CASH" | "GPAY";
+  paymentAllocations?: Array<{ paymentMethod: "CASH" | "GPAY"; amount: number }>;
 } {
   let paidAmount = 0;
-  let paymentMethod: "CASH" | "GPAY" | "WALLET" | undefined;
+  let paymentMethod: "CASH" | "GPAY" | undefined;
+  const allocationTotals = new Map<"CASH" | "GPAY", number>();
   for (const entry of line.entries) {
-    paidAmount += framePaidAmount(entry.paidAmount);
+    paidAmount += frameReceivedAmount(
+      entry.paidAmount,
+      entry.balanceCollectedAmount
+    );
     if (!paymentMethod && (entry.paymentMethod === "CASH" || entry.paymentMethod === "GPAY")) {
       paymentMethod = entry.paymentMethod;
     }
+    for (const row of entry.paymentAllocations ?? []) {
+      if (
+        (row.paymentMethod === "CASH" || row.paymentMethod === "GPAY") &&
+        row.amount > 0
+      ) {
+        allocationTotals.set(
+          row.paymentMethod,
+          (allocationTotals.get(row.paymentMethod) ?? 0) + row.amount
+        );
+      }
+    }
   }
-  return { paidAmount, paymentMethod };
+  const paymentAllocations =
+    allocationTotals.size > 0
+      ? Array.from(allocationTotals, ([method, amount]) => ({
+          paymentMethod: method,
+          amount,
+        }))
+      : undefined;
+  return { paidAmount, paymentMethod, paymentAllocations };
 }
 
 export function CafeCustomerTabs({
@@ -190,6 +213,8 @@ export function CafeCustomerTabs({
                               amount={line.amount}
                               paidAmount={payment.paidAmount}
                               paymentMethod={payment.paymentMethod}
+                              paymentAllocations={payment.paymentAllocations}
+                              showReceiptMeta={false}
                             />
                           </span>
                         </li>

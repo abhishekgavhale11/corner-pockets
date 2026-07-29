@@ -6,10 +6,7 @@ import { Button } from "@/components/ui/Button";
 import type { CustomerDTO } from "@/types";
 
 interface CollectPaymentTriggerProps {
-  customer: Pick<
-    CustomerDTO,
-    "id" | "name" | "walletEnabled" | "cardId" | "phone"
-  >;
+  customer: Pick<CustomerDTO, "id" | "name" | "cardId" | "phone">;
   outstandingAmount: number;
   hasActiveVisitWithDue: boolean;
   activeVisitDueAmount: number;

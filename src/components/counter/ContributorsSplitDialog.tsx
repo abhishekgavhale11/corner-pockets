@@ -13,7 +13,6 @@ import {
   validateContributorRows,
   type ContributorRow,
 } from "@/components/counter/ContributorsSplitFields";
-import { initialUseWalletFromPayment } from "@/components/counter/EntryPaymentFields";
 import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 
 interface ContributorsSplitDialogProps {
@@ -44,13 +43,9 @@ export function ContributorsSplitDialog({
           paidAmount: String(contributor.paidAmount ?? 0),
           paymentMethod:
             contributor.paymentMethod === "CASH" ||
-            contributor.paymentMethod === "GPAY" ||
-            contributor.paymentMethod === "WALLET"
+            contributor.paymentMethod === "GPAY"
               ? contributor.paymentMethod
               : "",
-          useWallet: initialUseWalletFromPayment({
-            paymentMethod: contributor.paymentMethod,
-          }),
         }))
       );
     } else {

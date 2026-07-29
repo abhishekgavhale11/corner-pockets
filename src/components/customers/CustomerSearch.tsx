@@ -38,7 +38,7 @@ export function CustomerSearch() {
   return (
     <div className="relative min-w-0 flex-1">
       <span
-        className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-gray-400"
+        className="pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-gray-400"
         aria-hidden
       >
         <svg
@@ -59,11 +59,11 @@ export function CustomerSearch() {
         placeholder="Search by name or mobile number…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        className="h-10 w-full rounded-lg border border-gray-200 bg-white pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15"
+        className="h-[42px] w-full rounded-[11px] border border-gray-200 bg-white pl-10 pr-10 text-sm text-gray-900 shadow-sm shadow-gray-900/5 placeholder:text-gray-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15"
         aria-label="Search customers"
       />
       {isPending ? (
-        <span className="absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">
+        <span className="absolute inset-y-0 right-3.5 flex items-center text-xs text-gray-400">
           …
         </span>
       ) : null}

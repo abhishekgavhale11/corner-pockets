@@ -8,45 +8,53 @@ interface BillingModeToggleProps {
   value: EntryBillingMode;
   onChange: (mode: EntryBillingMode) => void;
   disabled?: boolean;
+  className?: string;
 }
 
 export function BillingModeToggle({
   value,
   onChange,
   disabled = false,
+  className,
 }: BillingModeToggleProps) {
   return (
-    <div className="space-y-1">
-      <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-        Frame ownership
+    <div className={cn(className)}>
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-800/80">
+        Frame Ownership
       </p>
-      <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange("single")}
-          className={cn(
-            "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors",
-            value === "single"
-              ? "bg-white text-emerald-900 shadow-sm"
-              : "text-gray-600 hover:text-gray-900"
-          )}
-        >
-          Single customer
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange("split")}
-          className={cn(
-            "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors",
-            value === "split"
-              ? "bg-white text-emerald-900 shadow-sm"
-              : "text-gray-600 hover:text-gray-900"
-          )}
-        >
-          Split
-        </button>
+      <div
+        role="radiogroup"
+        aria-label="Frame ownership"
+        className="flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1"
+      >
+        {(
+          [
+            { id: "single" as const, label: "Single customer" },
+            { id: "split" as const, label: "Split" },
+          ] as const
+        ).map((option) => {
+          const selected = value === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={disabled}
+              onClick={() => onChange(option.id)}
+              className={cn(
+                "flex-1 rounded-md px-2 py-2 text-xs font-semibold transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-1",
+                selected
+                  ? "bg-emerald-800 text-white shadow-sm"
+                  : "border border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900",
+                disabled && "cursor-not-allowed opacity-40"
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

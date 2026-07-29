@@ -2,330 +2,480 @@
 
 import { formatCurrency } from "@/lib/utils/format";
 import { frameDueAmount } from "@/lib/utils/frame-payment";
-import { computeWalletUsed } from "@/lib/wallet/wallet-payment-math";
 import { cn } from "@/lib/utils/cn";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
+import {
+  CashGpaySegmentedControl,
+  type PaymentModeOption,
+} from "@/components/ui/CashGpaySegmentedControl";
+import {
+  DueStatusBadge,
+  isPaymentModeSelected,
+} from "@/components/counter/DueStatusBadge";
+import {
+  defaultPaymentRow,
+  defaultPaymentRows,
+  framePaymentRemaining,
+  resolveEntryPayments,
+  type PaymentRowInput,
+} from "@/lib/utils/payment-allocations";
 
-export type EntryPaymentMode = "CASH" | "GPAY" | "WALLET";
+export type EntryPaymentMode = "CASH" | "GPAY";
 export type RemainderPaymentMode = "CASH" | "GPAY";
 
 interface EntryPaymentFieldsProps {
   amount: number;
-  paidAmount: string;
-  /** Remainder / full Cash-GPay mode. Empty when unpaid or fully covered by Wallet. */
-  paymentMode: RemainderPaymentMode | "WALLET" | "";
-  useWallet: boolean;
   disabled?: boolean;
-  onPaidAmountChange: (value: string) => void;
-  onPaymentModeChange: (value: RemainderPaymentMode | "WALLET" | "") => void;
-  onUseWalletChange: (value: boolean) => void;
+  paymentDisabled?: boolean;
   idPrefix?: string;
-  /** When true, Wallet option is shown (customer has wallet membership). */
-  walletEnabled?: boolean;
-  walletBalance?: number;
+  layout?: "stack" | "row";
+  allowMultiplePaymentMethods?: boolean;
+  maxPaymentRows?: number;
+  paymentRows?: PaymentRowInput[];
+  onPaymentRowsChange?: (rows: PaymentRowInput[]) => void;
+  /** Legacy single-row API (cafe and other callers). */
+  paidAmount?: string;
+  paymentMode?: RemainderPaymentMode | "";
+  onPaidAmountChange?: (value: string) => void;
+  onPaymentModeChange?: (value: RemainderPaymentMode | "") => void;
 }
 
-/**
- * Shared Frame/Cafe payment fields.
- * Wallet is auto-consumed: Wallet Used = min(balance, Received).
- * Remainder (if any) is Cash OR GPay only — never typed wallet amounts.
- */
-export function EntryPaymentFields({
-  amount,
-  paidAmount,
-  paymentMode,
-  useWallet,
-  disabled = false,
-  onPaidAmountChange,
-  onPaymentModeChange,
-  onUseWalletChange,
-  idPrefix = "entry",
-  walletBalance,
-  walletEnabled = false,
-}: EntryPaymentFieldsProps) {
-  const parsedPaid = Number.parseInt(paidAmount, 10) || 0;
-  const dueAmount = frameDueAmount(amount, parsedPaid);
-  const balance = walletBalance ?? 0;
-  const showWallet = walletEnabled;
-  const walletZero = balance <= 0;
-  const walletUsed = computeWalletUsed({
-    paidAmount: parsedPaid,
-    useWallet: useWallet && !walletZero,
-    availableBalance: balance,
+const posLabelClass =
+  "mb-1.5 block text-[12px] font-medium uppercase tracking-wide text-gray-500";
+
+const moneyInputClass =
+  "h-[46px] w-full rounded-[11px] border border-gray-200 bg-white py-2 pl-8 pr-3 text-right text-[20px] font-bold tabular-nums text-gray-900 shadow-sm shadow-gray-900/5 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 disabled:opacity-60";
+
+function usePaymentRowsState(props: EntryPaymentFieldsProps) {
+  const isControlledRows =
+    props.paymentRows !== undefined && props.onPaymentRowsChange !== undefined;
+
+  if (isControlledRows) {
+    return {
+      rows: props.paymentRows,
+      setRows: props.onPaymentRowsChange,
+      isMultiRowCapable: true,
+    };
+  }
+
+  const row: PaymentRowInput = {
+    received: props.paidAmount ?? "",
+    paymentMode: props.paymentMode ?? "",
+  };
+
+  return {
+    rows: [row],
+    setRows: (nextRows: PaymentRowInput[]) => {
+      const first = nextRows[0] ?? defaultPaymentRow();
+      props.onPaidAmountChange?.(first.received);
+      props.onPaymentModeChange?.(first.paymentMode);
+    },
+    isMultiRowCapable: false,
+  };
+}
+
+function rowDuePaymentMode(
+  row: PaymentRowInput,
+  rows: PaymentRowInput[],
+  frameAmount: number,
+  paymentDisabled: boolean
+): RemainderPaymentMode | "" {
+  const resolved = resolveEntryPayments({ frameAmount, rows });
+  const rowReceived = Number.parseInt(row.received, 10) || 0;
+  if (rowReceived <= 0) return "";
+  if (rows.length > 1) {
+    return resolved.valid ? "CASH" : row.paymentMode;
+  }
+  return row.paymentMode;
+}
+
+export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
+  const {
+    amount,
+    disabled = false,
+    paymentDisabled = false,
+    idPrefix = "entry",
+    layout = "stack",
+    allowMultiplePaymentMethods = false,
+    maxPaymentRows = 2,
+  } = props;
+
+  const { rows: rawRows, setRows, isMultiRowCapable } = usePaymentRowsState(props);
+  const rows = rawRows ?? defaultPaymentRows();
+  const fieldsDisabled = disabled || paymentDisabled;
+  const totalReceived = rows.reduce(
+    (sum, row) => sum + (Number.parseInt(row.received, 10) || 0),
+    0
+  );
+  const frameDue = frameDueAmount(amount, totalReceived);
+  const multiRow = rows.length > 1;
+  const frameRemaining = multiRow ? framePaymentRemaining(amount, rows) : 0;
+  const paymentResolved = resolveEntryPayments({
+    frameAmount: amount,
+    rows,
   });
-  const remainder = Math.max(0, parsedPaid - walletUsed);
-  const needsRemainderMethod = parsedPaid > 0 && remainder > 0;
-  const fullyCoveredByWallet =
-    parsedPaid > 0 && useWallet && !walletZero && remainder === 0;
 
-  const remainderModes: RemainderPaymentMode[] = ["CASH", "GPAY"];
+  const updateRow = (index: number, patch: Partial<PaymentRowInput>) => {
+    setRows?.(
+      rows.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, ...patch } : row
+      )
+    );
+  };
 
-  return (
-    <div className="space-y-3">
-      {showWallet ? (
-        <div className="space-y-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2 text-sm">
-            <span className="text-gray-500">Wallet Balance</span>
-            <span className="font-semibold tabular-nums text-gray-900">
-              {formatCurrency(balance)}
-            </span>
+  const handleReceivedChange = (index: number, raw: string) => {
+    const next = raw.replace(/[^\d]/g, "");
+    const nextReceived = next === "" ? 0 : Number.parseInt(next, 10) || 0;
+
+    if (rows.length === 1 && next === "" && isMultiRowCapable) {
+      setRows?.([defaultPaymentRow()]);
+      return;
+    }
+
+    setRows?.(
+      rows.map((row, rowIndex) => {
+        if (rowIndex !== index) return row;
+        return {
+          ...row,
+          received: next,
+          ...(nextReceived === 0 ? { paymentMode: "" as const } : {}),
+        };
+      })
+    );
+  };
+
+  const handlePaymentModeChange = (
+    index: number,
+    mode: PaymentModeOption
+  ) => {
+    if (mode !== "CASH" && mode !== "GPAY") return;
+    updateRow(index, { paymentMode: mode });
+  };
+
+  const addPaymentRow = () => {
+    if (!isMultiRowCapable || rows.length >= maxPaymentRows) return;
+    setRows?.([...rows, defaultPaymentRow()]);
+  };
+
+  const removeLastRow = () => {
+    if (rows.length <= 1) return;
+    setRows?.(rows.slice(0, -1));
+  };
+
+  const renderPaymentModeCell = (
+    row: PaymentRowInput,
+    index: number,
+    showAddLink: boolean
+  ) => {
+    const rowReceived = Number.parseInt(row.received, 10) || 0;
+
+    if (rowReceived <= 0) {
+      return layout === "row" ? (
+        <div className="flex h-[46px] items-center rounded-[11px] border border-dashed border-gray-200 bg-gray-50 px-3 text-[13px] font-medium text-gray-400">
+          Unassigned
+        </div>
+      ) : (
+        <p className="mt-1 text-xs text-gray-500">Unassigned</p>
+      );
+    }
+
+    return (
+      <div className={cn("space-y-1.5", layout === "stack" && index === 0 && "mt-1")}>
+        <CashGpaySegmentedControl
+          className={layout === "row" ? "w-full" : undefined}
+          size={layout === "row" ? "lg" : "md"}
+          idPrefix={`${idPrefix}-mode-${index}`}
+          value={row.paymentMode}
+          onChange={(mode) => handlePaymentModeChange(index, mode)}
+          disabled={fieldsDisabled}
+          aria-label="Payment mode"
+        />
+        {showAddLink && allowMultiplePaymentMethods && isMultiRowCapable ? (
+          <button
+            type="button"
+            className="text-[12px] font-medium text-emerald-700 underline-offset-2 hover:text-emerald-900 hover:underline disabled:opacity-60"
+            disabled={fieldsDisabled}
+            onClick={addPaymentRow}
+          >
+            + Add Payment Method
+          </button>
+        ) : null}
+        {index === rows.length - 1 && rows.length > 1 && isMultiRowCapable ? (
+          <button
+            type="button"
+            className="text-[12px] font-medium text-gray-500 underline-offset-2 hover:text-gray-700 hover:underline disabled:opacity-60"
+            disabled={fieldsDisabled}
+            onClick={removeLastRow}
+          >
+            Remove row
+          </button>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderRow = (row: PaymentRowInput, index: number) => {
+    const rowReceived = Number.parseInt(row.received, 10) || 0;
+    const showLabels = index === 0;
+    const showAddLink = index === 0 && rows.length === 1;
+    const dueMode = rowDuePaymentMode(row, rows, amount, paymentDisabled);
+
+    if (layout === "row") {
+      return (
+        <div
+          key={index}
+          className={cn(
+            "grid grid-cols-1 gap-4 sm:grid-cols-3 sm:items-start",
+            index > 0 && "pt-0"
+          )}
+        >
+          <div className="min-w-0">
+            {showLabels ? (
+              <label
+                htmlFor={`${idPrefix}-received-${index}`}
+                className={posLabelClass}
+              >
+                Received
+              </label>
+            ) : (
+              <span className={cn(posLabelClass, "invisible")} aria-hidden>
+                Received
+              </span>
+            )}
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[15px] font-semibold text-gray-400">
+                ₹
+              </span>
+              <input
+                id={`${idPrefix}-received-${index}`}
+                type="text"
+                inputMode="numeric"
+                value={row.received}
+                onChange={(event) =>
+                  handleReceivedChange(index, event.target.value)
+                }
+                disabled={fieldsDisabled}
+                className={cn(
+                  moneyInputClass,
+                  rowReceived > 0 &&
+                    "border-emerald-700 focus:border-emerald-700"
+                )}
+              />
+            </div>
           </div>
-          <label
+
+          <div className="min-w-0">
+            {showLabels ? (
+              <span className={posLabelClass}>Payment Mode</span>
+            ) : (
+              <span className={cn(posLabelClass, "invisible")} aria-hidden>
+                Payment Mode
+              </span>
+            )}
+            {renderPaymentModeCell(row, index, showAddLink)}
+          </div>
+
+          <div className="min-w-0">
+            {showLabels ? (
+              <span className={posLabelClass}>Due</span>
+            ) : (
+              <span className={cn(posLabelClass, "invisible")} aria-hidden>
+                Due
+              </span>
+            )}
+            <div className="flex h-[46px] items-center">
+              <DueStatusBadge
+                dueAmount={frameDue}
+                paymentMode={dueMode}
+                allowPaidStatus={!paymentDisabled}
+                size="md"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={index} className={cn(index > 0 && "pt-0")}>
+        <div>
+          <Label htmlFor={`${idPrefix}-received-${index}`}>Received Amount</Label>
+          <Input
+            id={`${idPrefix}-received-${index}`}
+            inputMode="numeric"
+            value={row.received}
+            onChange={(event) =>
+              handleReceivedChange(index, event.target.value)
+            }
+            disabled={fieldsDisabled}
+            className="mt-1 h-10"
+          />
+        </div>
+        <div className="mt-3">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+            Payment Mode
+          </p>
+          {renderPaymentModeCell(row, index, showAddLink)}
+        </div>
+        <div className="mt-3 flex items-baseline justify-between gap-3 rounded border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
+          <span className="text-gray-500">Due</span>
+          <span
             className={cn(
-              "flex items-center justify-between gap-3 text-sm",
-              (disabled || walletZero || parsedPaid <= 0) && "opacity-50"
+              "font-bold tabular-nums",
+              frameDue > 0
+                ? "text-orange-700"
+                : paymentDisabled
+                  ? "text-gray-500"
+                  : paymentResolved.valid || isPaymentModeSelected(dueMode)
+                    ? "text-emerald-800"
+                    : "text-orange-800"
             )}
           >
-            <span className="font-medium text-gray-800">Use Wallet</span>
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-emerald-700"
-              checked={useWallet && !walletZero}
-              disabled={disabled || walletZero || parsedPaid <= 0}
-              onChange={(event) => {
-                const next = event.target.checked;
-                onUseWalletChange(next);
-                if (!next) {
-                  if (paymentMode === "WALLET") onPaymentModeChange("");
-                } else {
-                  const used = computeWalletUsed({
-                    paidAmount: parsedPaid,
-                    useWallet: true,
-                    availableBalance: balance,
-                  });
-                  if (used >= parsedPaid && parsedPaid > 0) {
-                    onPaymentModeChange("WALLET");
-                  } else if (paymentMode === "WALLET") {
-                    onPaymentModeChange("");
-                  }
-                }
-              }}
-            />
-          </label>
-          {walletZero ? (
-            <p className="text-xs text-gray-500">
-              Wallet payment disabled — balance is zero.
-            </p>
-          ) : null}
-          {useWallet && !walletZero && parsedPaid > 0 ? (
-            <dl className="grid grid-cols-2 gap-2 border-t border-gray-200/80 pt-2 text-sm">
-              <div>
-                <dt className="text-[11px] text-gray-500">Wallet Used</dt>
-                <dd className="font-semibold tabular-nums text-emerald-900">
-                  {formatCurrency(walletUsed)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-[11px] text-gray-500">Remaining</dt>
-                <dd className="font-semibold tabular-nums text-gray-900">
-                  {formatCurrency(remainder)}
-                </dd>
-              </div>
-            </dl>
-          ) : null}
+            {frameDue > 0
+              ? formatCurrency(frameDue)
+              : paymentDisabled
+                ? "—"
+                : paymentResolved.valid || isPaymentModeSelected(dueMode)
+                  ? "Paid"
+                  : "Select Payment Mode"}
+          </span>
         </div>
-      ) : null}
-
-      <div>
-        <Label htmlFor={`${idPrefix}-received-amount`}>Received Amount</Label>
-        <Input
-          id={`${idPrefix}-received-amount`}
-          inputMode="numeric"
-          value={paidAmount}
-          onChange={(event) => {
-            const next = event.target.value.replace(/[^\d]/g, "");
-            const nextPaid = Number.parseInt(next, 10) || 0;
-            onPaidAmountChange(next);
-            if (nextPaid === 0) {
-              onPaymentModeChange("");
-              onUseWalletChange(false);
-              return;
-            }
-            if (useWallet && !walletZero) {
-              const used = computeWalletUsed({
-                paidAmount: nextPaid,
-                useWallet: true,
-                availableBalance: balance,
-              });
-              if (used >= nextPaid) {
-                onPaymentModeChange("WALLET");
-              } else if (paymentMode === "WALLET") {
-                onPaymentModeChange("");
-              }
-            }
-          }}
-          disabled={disabled}
-          className="mt-1 h-10"
-        />
       </div>
+    );
+  };
 
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-          {fullyCoveredByWallet
-            ? "Payment Mode"
-            : useWallet && needsRemainderMethod
-              ? "Remaining Payment"
-              : "Payment Mode"}
-        </p>
-        {fullyCoveredByWallet ? (
-          <p className="mt-1 rounded-lg bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-900">
-            Wallet
-          </p>
-        ) : parsedPaid <= 0 ? (
-          <p className="mt-1 text-xs text-gray-500">Unassigned</p>
-        ) : (
-          <div className="mt-1 flex gap-1 rounded-lg bg-gray-100 p-1">
-            {remainderModes.map((mode) => {
-              const selected = paymentMode === mode;
-              return (
-                <button
-                  key={mode}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => onPaymentModeChange(mode)}
-                  className={cn(
-                    "flex-1 rounded-md px-3 py-2 text-sm font-semibold transition-colors",
-                    selected
-                      ? "bg-white text-emerald-900 shadow-sm"
-                      : "text-gray-600 hover:text-gray-900",
-                    disabled && "opacity-40"
-                  )}
-                >
-                  {mode === "CASH" ? "Cash" : "GPay"}
-                </button>
-              );
-            })}
-          </div>
-        )}
-        {useWallet && needsRemainderMethod && !paymentMode ? (
-          <p className="mt-1 text-xs text-amber-700">
-            Select Cash or GPay for the remaining{" "}
-            {formatCurrency(remainder)}.
+  if (layout === "row") {
+    return (
+      <div className="space-y-3.5">
+        {rows.map((row, index) => renderRow(row, index))}
+        {multiRow && frameRemaining !== 0 ? (
+          <p
+            className={cn(
+              "text-[13px] font-medium",
+              frameRemaining > 0 ? "text-amber-700" : "text-red-700"
+            )}
+          >
+            {frameRemaining > 0
+              ? `Remaining ${formatCurrency(frameRemaining)}`
+              : `Over by ${formatCurrency(Math.abs(frameRemaining))}`}
           </p>
         ) : null}
       </div>
+    );
+  }
 
-      <div className="flex items-baseline justify-between gap-3 rounded border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
-        <span className="text-gray-500">Due</span>
-        <span
+  return (
+    <div className="space-y-3">
+      {rows.map((row, index) => renderRow(row, index))}
+      {multiRow && frameRemaining !== 0 ? (
+        <p
           className={cn(
-            "font-bold tabular-nums",
-            dueAmount > 0 ? "text-orange-700" : "text-emerald-800"
+            "text-sm font-medium",
+            frameRemaining > 0 ? "text-amber-700" : "text-red-700"
           )}
         >
-          {dueAmount > 0
-            ? formatCurrency(dueAmount)
-            : fullyCoveredByWallet
-              ? "Wallet"
-              : paymentMode === "CASH"
-                ? useWallet
-                  ? `Wallet + Cash`
-                  : "Cash"
-                : paymentMode === "GPAY"
-                  ? useWallet
-                    ? `Wallet + GPay`
-                    : "GPay"
-                  : "Paid"}
-        </span>
-      </div>
+          {frameRemaining > 0
+            ? `Remaining ${formatCurrency(frameRemaining)}`
+            : `Over by ${formatCurrency(Math.abs(frameRemaining))}`}
+        </p>
+      ) : null}
     </div>
   );
 }
 
-/** Derive submit paymentMethod + useWallet from field state. */
 export function resolveEntryPaymentSubmit(input: {
-  paidAmount: number;
-  useWallet: boolean;
-  walletBalance: number;
-  paymentMode: RemainderPaymentMode | "WALLET" | "";
+  frameAmount?: number;
+  paidAmount?: number;
+  paymentMode?: RemainderPaymentMode | "";
+  paymentRows?: PaymentRowInput[];
+  /** @deprecated */
+  splitPaymentActive?: boolean;
+  /** @deprecated */
+  splitPaymentRows?: Array<{ amount: string; paymentMode: RemainderPaymentMode | "" }>;
 }): {
-  useWallet: boolean;
   paymentMethod: EntryPaymentMode | undefined;
-  walletUsed: number;
-  remainder: number;
+  paymentAllocations?: import("@/lib/utils/payment-allocations").PaymentAllocation[];
   valid: boolean;
   error?: string;
+  remaining?: number;
 } {
-  const paid = Math.round(input.paidAmount);
-  if (paid <= 0) {
+  if (input.paymentRows) {
+    const resolved = resolveEntryPayments({
+      frameAmount: input.frameAmount ?? 0,
+      rows: input.paymentRows,
+    });
     return {
-      useWallet: false,
-      paymentMethod: undefined,
-      walletUsed: 0,
-      remainder: 0,
-      valid: true,
+      paymentMethod: resolved.paymentMethod,
+      paymentAllocations: resolved.paymentAllocations,
+      valid: resolved.valid,
+      error: resolved.error,
+      remaining: resolved.remaining,
     };
   }
 
-  const walletUsed = computeWalletUsed({
-    paidAmount: paid,
-    useWallet: input.useWallet && input.walletBalance > 0,
-    availableBalance: input.walletBalance,
-  });
-  const remainder = paid - walletUsed;
+  const frameAmount = input.frameAmount ?? input.paidAmount ?? 0;
+  const rows: PaymentRowInput[] = [
+    {
+      received: String(Math.round(input.paidAmount ?? 0)),
+      paymentMode: input.paymentMode ?? "",
+    },
+  ];
 
-  if (remainder === 0) {
-    return {
-      useWallet: true,
-      paymentMethod: "WALLET",
-      walletUsed,
-      remainder: 0,
-      valid: true,
+  if (input.splitPaymentActive && input.splitPaymentRows) {
+    rows.push(
+      ...input.splitPaymentRows.slice(1).map((row) => ({
+        received: row.amount,
+        paymentMode: row.paymentMode,
+      }))
+    );
+    rows[0] = {
+      received: String(Math.round(input.paidAmount ?? 0)),
+      paymentMode: input.splitPaymentRows[0]?.paymentMode ?? input.paymentMode ?? "",
     };
   }
 
-  if (input.paymentMode !== "CASH" && input.paymentMode !== "GPAY") {
-    return {
-      useWallet: walletUsed > 0,
-      paymentMethod: undefined,
-      walletUsed,
-      remainder,
-      valid: false,
-      error:
-        walletUsed > 0
-          ? "Select Cash or GPay for the remaining amount"
-          : "Select Cash or GPay",
-    };
-  }
-
+  const resolved = resolveEntryPayments({ frameAmount, rows });
   return {
-    useWallet: walletUsed > 0,
-    paymentMethod: input.paymentMode,
-    walletUsed,
-    remainder,
-    valid: true,
+    paymentMethod: resolved.paymentMethod,
+    paymentAllocations: resolved.paymentAllocations,
+    valid: resolved.valid,
+    error: resolved.error,
+    remaining: resolved.remaining,
   };
 }
 
-/** Write payment fields onto FormData for Counter / Cafe actions. */
 export function appendEntryPaymentFormData(
   formData: FormData,
   input: {
-    paidAmount: number;
-    useWallet: boolean;
-    walletBalance: number;
-    paymentMode: RemainderPaymentMode | "WALLET" | "";
+    frameAmount?: number;
+    paidAmount?: number;
+    paymentMode?: RemainderPaymentMode | "";
+    paymentRows?: PaymentRowInput[];
+    splitPaymentActive?: boolean;
+    splitPaymentRows?: Array<{ amount: string; paymentMode: RemainderPaymentMode | "" }>;
   }
 ): { ok: true } | { ok: false; error: string } {
   const resolved = resolveEntryPaymentSubmit(input);
   if (!resolved.valid) {
     return { ok: false, error: resolved.error ?? "Invalid payment" };
   }
-  formData.set("paidAmount", String(Math.round(input.paidAmount)));
-  formData.set("useWallet", resolved.useWallet ? "true" : "false");
-  if (resolved.paymentMethod) {
+
+  const paidAmount = input.paymentRows
+    ? input.paymentRows.reduce(
+        (sum, row) => sum + (Number.parseInt(row.received, 10) || 0),
+        0
+      )
+    : Math.round(input.paidAmount ?? 0);
+
+  formData.set("paidAmount", String(paidAmount));
+  if (resolved.paymentAllocations) {
+    formData.set(
+      "paymentAllocations",
+      JSON.stringify(resolved.paymentAllocations)
+    );
+  } else if (resolved.paymentMethod) {
     formData.set("paymentMethod", resolved.paymentMethod);
   }
   return { ok: true };
-}
-
-/** Initialize Use Wallet from a saved operational payment. */
-export function initialUseWalletFromPayment(input: {
-  paymentMethod?: string | null;
-  walletAmount?: number | null;
-}): boolean {
-  if (input.paymentMethod === "WALLET") return true;
-  if (input.walletAmount != null && input.walletAmount > 0) return true;
-  return false;
 }

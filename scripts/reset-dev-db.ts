@@ -6,18 +6,9 @@ import {
   getMongoUri,
 } from "./lib/db-safety";
 import { connectDB } from "../src/lib/db/connect";
-import Customer from "../src/models/Customer";
-import Transaction from "../src/models/Transaction";
-import Counter from "../src/models/Counter";
-import Staff from "../src/models/Staff";
-import NotebookEntry from "../src/models/NotebookEntry";
-import TableSession from "../src/models/TableSession";
-import BusinessDay from "../src/models/BusinessDay";
-import Outstanding from "../src/models/Outstanding";
-import OutstandingCollection from "../src/models/OutstandingCollection";
-import CustomerBalancePayment from "../src/models/CustomerBalancePayment";
-import CafeOrder from "../src/models/CafeOrder";
-import CafePurchase from "../src/models/CafePurchase";
+
+/** Collections kept unless `--include-staff` is passed. */
+const STAFF_COLLECTION_NAMES = new Set(["staffs", "staff"]);
 
 async function reset() {
   assertDevDatabaseAllowed("Database reset");
@@ -31,70 +22,42 @@ async function reset() {
 
   await connectDB();
 
-  const [
-    customerCount,
-    transactionCount,
-    counterCount,
-    staffCount,
-    entryCount,
-    sessionCount,
-    businessDayCount,
-    outstandingCount,
-    outstandingCollectionCount,
-    balancePaymentCount,
-    cafeOrderCount,
-    cafePurchaseCount,
-  ] = await Promise.all([
-    Customer.countDocuments(),
-    Transaction.countDocuments(),
-    Counter.countDocuments(),
-    Staff.countDocuments(),
-    NotebookEntry.countDocuments(),
-    TableSession.countDocuments(),
-    BusinessDay.countDocuments(),
-    Outstanding.countDocuments(),
-    OutstandingCollection.countDocuments(),
-    CustomerBalancePayment.countDocuments(),
-    CafeOrder.countDocuments(),
-    CafePurchase.countDocuments(),
-  ]);
-
-  await Promise.all([
-    Customer.deleteMany({}),
-    Transaction.deleteMany({}),
-    Counter.deleteMany({}),
-    NotebookEntry.deleteMany({}),
-    TableSession.deleteMany({}),
-    BusinessDay.deleteMany({}),
-    Outstanding.deleteMany({}),
-    OutstandingCollection.deleteMany({}),
-    CustomerBalancePayment.deleteMany({}),
-    CafeOrder.deleteMany({}),
-    CafePurchase.deleteMany({}),
-  ]);
-
-  let removedStaff = 0;
-  if (includeStaff) {
-    const result = await Staff.deleteMany({});
-    removedStaff = result.deletedCount ?? 0;
+  const db = mongoose.connection.db;
+  if (!db) {
+    throw new Error("MongoDB connection has no database handle");
   }
 
+  const collections = await db.listCollections().toArray();
+  const removed: { name: string; count: number }[] = [];
+  let keptStaff = 0;
+
+  for (const { name } of collections) {
+    if (name.startsWith("system.")) continue;
+
+    const collection = db.collection(name);
+    const count = await collection.countDocuments();
+
+    if (!includeStaff && STAFF_COLLECTION_NAMES.has(name)) {
+      keptStaff = count;
+      continue;
+    }
+
+    if (count > 0) {
+      await collection.deleteMany({});
+    }
+    removed.push({ name, count });
+  }
+
+  removed.sort((a, b) => a.name.localeCompare(b.name));
+
   console.log("\nRemoved:");
-  console.log(`  Customers:                 ${customerCount}`);
-  console.log(`  Transactions:              ${transactionCount}`);
-  console.log(`  Counters:                  ${counterCount}`);
-  console.log(`  Notebook entries:          ${entryCount}`);
-  console.log(`  Table sessions:            ${sessionCount}`);
-  console.log(`  Business Days:             ${businessDayCount}`);
-  console.log(`  Outstanding records:       ${outstandingCount}`);
-  console.log(`  Outstanding collections:   ${outstandingCollectionCount}`);
-  console.log(`  Balance payments:          ${balancePaymentCount}`);
-  console.log(`  Cafe orders:               ${cafeOrderCount}`);
-  console.log(`  Cafe purchases:            ${cafePurchaseCount}`);
+  for (const row of removed) {
+    console.log(`  ${row.name.padEnd(32)} ${row.count}`);
+  }
   if (includeStaff) {
-    console.log(`  Staff:                     ${removedStaff}`);
+    console.log("  Staff:                           wiped (--include-staff)");
   } else {
-    console.log(`  Staff:                     kept (${staffCount} account(s))`);
+    console.log(`  Staff:                           kept (${keptStaff} account(s))`);
   }
 
   console.log("\nDatabase reset complete.");

@@ -45,8 +45,6 @@ export const createCafeOrderSchema = z
     items: cafeOrderItemsSchema,
     received: z.coerce.number().int().min(0).default(0),
     paymentMethod: z.enum(CAFE_PAYMENT_METHODS).optional(),
-    useWallet: z.boolean().optional().default(false),
-    walletAmount: z.coerce.number().int().min(0).optional(),
   })
   .superRefine(paymentRefine);
 
@@ -56,8 +54,6 @@ export const updateCafeOrderSchema = z
     items: cafeOrderItemsSchema,
     received: z.coerce.number().int().min(0),
     paymentMethod: z.enum(CAFE_PAYMENT_METHODS).optional(),
-    useWallet: z.boolean().optional().default(false),
-    walletAmount: z.coerce.number().int().min(0).optional(),
   })
   .superRefine(paymentRefine);
 
@@ -65,6 +61,13 @@ export const assignCafeOrderCustomerSchema = z.object({
   orderId: z.string().min(1),
   customerId: z.string().min(1),
 });
+
+export const deleteCafeOrderSchema = z.object({
+  orderId: z.string().min(1),
+});
+
+/** @deprecated Use deleteCafeOrderSchema */
+export const deleteUnassignedCafeOrderSchema = deleteCafeOrderSchema;
 
 export const createCafePurchaseSchema = z.object({
   date: z.string().min(1),

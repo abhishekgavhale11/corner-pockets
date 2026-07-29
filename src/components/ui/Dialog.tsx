@@ -10,9 +10,17 @@ interface DialogProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  /** Default fits narrow forms; `lg` ~800px for POS-style editors. */
+  size?: "md" | "lg";
 }
 
-export function Dialog({ open, onClose, title, children }: DialogProps) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  children,
+  size = "md",
+}: DialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -32,18 +40,35 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
     }
   };
 
+  const isLg = size === "lg";
+
   return (
     <dialog
       ref={dialogRef}
       className={cn(
-        "fixed left-1/2 top-1/2 m-0 max-h-[min(90vh,640px)] w-[min(calc(100vw-2rem),28rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border-0 bg-white p-0 shadow-xl backdrop:bg-black/50",
-        "open:animate-in open:fade-in"
+        "fixed left-1/2 top-1/2 m-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border-0 bg-white p-0 shadow-xl backdrop:bg-black/50",
+        "open:animate-in open:fade-in",
+        isLg
+          ? "max-h-[min(92vh,760px)] w-[min(calc(100vw-1.5rem),50rem)]"
+          : "max-h-[min(90vh,640px)] w-[min(calc(100vw-2rem),28rem)]"
       )}
       onClose={onClose}
       onClick={handleBackdropClick}
     >
-      <div className="max-h-[min(90vh,640px)] overflow-y-auto p-6">
-        <div className="mb-4 flex items-start justify-between gap-3">
+      <div
+        className={cn(
+          "overflow-y-auto",
+          isLg
+            ? "max-h-[min(92vh,760px)] px-5 py-4 sm:px-6"
+            : "max-h-[min(90vh,640px)] p-6"
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-start justify-between gap-3",
+            isLg ? "mb-3" : "mb-4"
+          )}
+        >
           <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
           <button
             type="button"

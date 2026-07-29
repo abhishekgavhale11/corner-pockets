@@ -8,8 +8,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Corner Pockets — Wallet Management",
-  description: "Prepaid wallet management for Corner Pockets Snooker Club",
+  title: "Corner Pockets — CPOS",
+  description: "Corner Pockets Operating System",
 };
 
 export default function RootLayout({

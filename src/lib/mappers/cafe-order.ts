@@ -5,6 +5,7 @@ import {
   type CafePaymentMethod,
 } from "@/lib/constants/cafe";
 import type { ICafeOrder, ICafeOrderItem } from "@/models/CafeOrder";
+import { paymentReceiptDtoFields } from "@/lib/utils/payment-receipt";
 
 export interface CafeOrderItemDTO {
   id: string;
@@ -26,9 +27,10 @@ export interface CafeOrderDTO {
   amount: number;
   received: number;
   paymentMethod?: CafePaymentMethod;
-  walletAmount?: number;
-  walletTransactionId?: string;
   itemCount: number;
+  receivedByStaffId?: string;
+  receivedByUsername?: string;
+  receivedAt?: string;
   createdBy: string;
   updatedBy?: string;
   createdAt: string;
@@ -68,9 +70,8 @@ export function toCafeOrderDTO(
     amount,
     received: order.received ?? 0,
     paymentMethod: order.paymentMethod,
-    walletAmount: order.walletAmount,
-    walletTransactionId: order.walletTransactionId?.toString(),
     itemCount: items.length,
+    ...paymentReceiptDtoFields(order),
     createdBy: order.createdBy,
     updatedBy: order.updatedBy,
     createdAt: order.createdAt.toISOString(),

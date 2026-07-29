@@ -3,10 +3,10 @@ import Outstanding from "@/models/Outstanding";
 import OutstandingCollection from "@/models/OutstandingCollection";
 import type { OutstandingPaymentMethod } from "@/lib/constants/outstanding";
 import Customer from "@/models/Customer";
+import { applyCashGpayReceipt } from "@/lib/utils/payment-receipt";
 
 /**
  * Collect Outstanding with Cash or GPay only.
- * Wallet is not allowed — Wallet may be used only while paying an active bill.
  */
 export async function collectOutstandingForCustomer(input: {
   customerId: string;
@@ -25,7 +25,7 @@ export async function collectOutstandingForCustomer(input: {
 
   if (input.paymentMethod !== "CASH" && input.paymentMethod !== "GPAY") {
     throw new Error(
-      "Outstanding Collection accepts Cash or GPay only. Wallet may be used only while paying an active bill."
+      "Outstanding Collection accepts Cash or GPay only."
     );
   }
 
@@ -70,6 +70,18 @@ export async function collectOutstandingForCustomer(input: {
       const collectedAt = new Date();
       remainingBalance = totalPending - input.receivedAmount;
 
+      const receipt: {
+        receivedByStaffId?: mongoose.Types.ObjectId;
+        receivedByUsername?: string;
+        receivedAt?: Date;
+      } = {};
+      applyCashGpayReceipt(
+        receipt,
+        { id: input.staffId, username: input.collectedBy },
+        input.paymentMethod,
+        input.receivedAmount
+      );
+
       const [collection] = await OutstandingCollection.create(
         [
           {
@@ -78,6 +90,9 @@ export async function collectOutstandingForCustomer(input: {
             paymentMethod: input.paymentMethod,
             remainingBalanceAfter: remainingBalance,
             createdBy: input.collectedBy,
+            receivedByStaffId: receipt.receivedByStaffId,
+            receivedByUsername: receipt.receivedByUsername,
+            receivedAt: receipt.receivedAt ?? collectedAt,
           },
         ],
         { session: dbSession }

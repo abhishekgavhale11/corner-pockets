@@ -8,7 +8,7 @@ export default function LoginPage() {
           Snooker Club
         </p>
         <h1 className="mt-1 text-3xl font-bold">Corner Pockets</h1>
-        <p className="mt-2 text-emerald-200">Wallet Management</p>
+        <p className="mt-2 text-emerald-200">Operating System</p>
       </div>
 
       <div className="w-full max-w-md">

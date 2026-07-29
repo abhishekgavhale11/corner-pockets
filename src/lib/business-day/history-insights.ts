@@ -2,12 +2,10 @@ import {
   isBigSnookerSection,
   isPoolMiniSection,
 } from "@/lib/constants/counter-sections";
-import { attributePaymentCollections } from "@/lib/business-day/payment-collections";
-import { frameDueAmount, framePaidAmount } from "@/lib/utils/frame-payment";
+import { rollupAttributedChargeLines } from "@/lib/financial-summary/charge-line-rollup";
 import type {
   BusinessDayHistoryCafeLineDTO,
   BusinessDayHistoryCategorySummaryDTO,
-  BusinessDayHistoryDetailDTO,
   BusinessDayHistoryFrameLineDTO,
   BusinessDayHistoryInsightsDTO,
   BusinessDayHistorySectionSummaryDTO,
@@ -15,44 +13,17 @@ import type {
 
 /**
  * Presentation rollup of already-built History charge lines.
- * Same Bill / Received / Due primitives; Cash / GPay / Wallet label Received.
+ * Delegates Bill / Received / Cash / GPay / Created to the Financial Summary Engine.
  */
 export function rollupHistoryChargeLines(
   lines: Array<{
     amount: number;
     paidAmount: number;
     paymentMethod?: string;
-    walletAmount?: number;
+    paymentAllocations?: Array<{ paymentMethod: string; amount: number }>;
   }>
 ): BusinessDayHistoryCategorySummaryDTO {
-  let bill = 0;
-  let received = 0;
-  let cashCollection = 0;
-  let gpayCollection = 0;
-  let walletCollection = 0;
-
-  for (const line of lines) {
-    bill += line.amount;
-    const paid = framePaidAmount(line.paidAmount);
-    received += paid;
-    const portion = attributePaymentCollections({
-      paidAmount: paid,
-      paymentMethod: line.paymentMethod,
-      walletAmount: line.walletAmount,
-    });
-    cashCollection += portion.cash;
-    gpayCollection += portion.gpay;
-    walletCollection += portion.wallet;
-  }
-
-  return {
-    bill,
-    received,
-    cashCollection,
-    gpayCollection,
-    walletCollection,
-    outstandingCreated: frameDueAmount(bill, received),
-  };
+  return rollupAttributedChargeLines(lines);
 }
 
 function uniqueEntryCount(lines: Array<{ entryId: string }>): number {
@@ -80,7 +51,6 @@ export function emptySectionSummary(): BusinessDayHistorySectionSummaryDTO {
     received: 0,
     cashCollection: 0,
     gpayCollection: 0,
-    walletCollection: 0,
     outstandingCreated: 0,
     gamesPlayed: 0,
   };
@@ -93,8 +63,8 @@ export function emptyHistoryInsights(): BusinessDayHistoryInsightsDTO {
       totalReceived: 0,
       cashCollection: 0,
       gpayCollection: 0,
-      walletCollection: 0,
       outstandingCreated: 0,
+      outstandingRecovered: 0,
     },
     bigSnooker: emptySectionSummary(),
     poolMini: emptySectionSummary(),
@@ -112,7 +82,6 @@ export function addSectionSummaries(
     received: a.received + b.received,
     cashCollection: a.cashCollection + b.cashCollection,
     gpayCollection: a.gpayCollection + b.gpayCollection,
-    walletCollection: a.walletCollection + b.walletCollection,
     outstandingCreated: a.outstandingCreated + b.outstandingCreated,
     gamesPlayed: a.gamesPlayed + b.gamesPlayed,
   };
@@ -143,21 +112,4 @@ export function buildSnookerSectionInsights(
   };
 }
 
-/** Presentation insights for one closed Business Day detail. */
-export function buildDetailHistoryInsights(
-  detail: BusinessDayHistoryDetailDTO
-): BusinessDayHistoryInsightsDTO {
-  const snooker = buildSnookerSectionInsights(detail.frames);
-  return {
-    overall: {
-      totalRevenue: detail.summary.todaysBill,
-      totalReceived: detail.summary.totalReceived,
-      cashCollection: detail.summary.cashCollection,
-      gpayCollection: detail.summary.gpayCollection,
-      walletCollection: detail.summary.walletCollection,
-      outstandingCreated: detail.summary.outstandingCreated,
-    },
-    ...snooker,
-    cafe: withGamesPlayed(detail.cafeSummary, countCafeOrders(detail.cafe)),
-  };
-}
+export { buildDetailHistoryInsights } from "@/lib/business-day/history-insights-display";

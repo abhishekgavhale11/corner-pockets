@@ -70,6 +70,7 @@ export type BusinessDayHistoryPreset =
   | "yesterday"
   | "week"
   | "month"
+  | "lastMonth"
   | "custom";
 
 /**
@@ -103,6 +104,25 @@ export function getBusinessDayHistoryPresetRange(
     return { from: getBusinessDate(weekStart), to };
   }
 
+  if (preset === "lastMonth") {
+    const firstOfThisMonth = new Date(year, month - 1, 1, 12, 0, 0, 0);
+    const lastOfPrev = new Date(firstOfThisMonth);
+    lastOfPrev.setDate(0);
+    const firstOfPrev = new Date(
+      lastOfPrev.getFullYear(),
+      lastOfPrev.getMonth(),
+      1,
+      12,
+      0,
+      0,
+      0
+    );
+    return {
+      from: getBusinessDate(firstOfPrev),
+      to: getBusinessDate(lastOfPrev),
+    };
+  }
+
   // month
   return {
     from: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`,
@@ -121,6 +141,7 @@ export function matchBusinessDayHistoryPreset(
     "yesterday",
     "week",
     "month",
+    "lastMonth",
   ];
   for (const preset of presets) {
     const range = getBusinessDayHistoryPresetRange(preset, now);

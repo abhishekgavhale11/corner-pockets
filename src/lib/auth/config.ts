@@ -1,6 +1,5 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
 import { connectDB } from "@/lib/db/connect";
 import Staff from "@/models/Staff";
 import { ensureDefaultStaff } from "@/lib/auth/ensure-default-staff";
@@ -26,26 +25,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         await ensureDefaultStaff();
 
         const staff = await Staff.findOne({
-          username: parsed.data.username.toLowerCase(),
+          username: parsed.data.username,
           isActive: true,
-        });
+        }).lean();
 
-        if (!staff) {
+        if (!staff?.password) {
           return null;
         }
 
-        const isValid = await bcrypt.compare(
-          parsed.data.password,
-          staff.passwordHash
-        );
-
-        if (!isValid) {
+        if (staff.password !== parsed.data.password) {
           return null;
         }
 
         return {
           id: staff._id.toString(),
-          name: staff.name,
+          name: staff.username,
           username: staff.username,
           role: staff.role,
         };

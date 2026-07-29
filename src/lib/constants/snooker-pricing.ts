@@ -3,7 +3,7 @@ import {
   type SnookerGame,
 } from "@/lib/constants/counter-rates";
 
-/** Default regular Big Snooker prices (₹). */
+/** Default regular Big Snooker prices (₹) — aliases of the rate card. */
 export const SNOOKER_SINGLES_AMOUNT =
   resolveCounterRateAmount({
     type: "SNOOKER",
@@ -15,13 +15,13 @@ export const SNOOKER_INDIVIDUAL_AMOUNT =
     type: "SNOOKER",
     rateType: "REGULAR",
     snookerGame: "INDIVIDUAL",
-  }) ?? 180;
+  }) ?? 190;
 export const SNOOKER_SHUFFLE_AMOUNT =
   resolveCounterRateAmount({
     type: "SNOOKER",
     rateType: "REGULAR",
     snookerGame: "SHUFFLE",
-  }) ?? 130;
+  }) ?? 120;
 
 /** Legacy amounts — display labels only; stored amount unchanged on old entries. */
 export const LEGACY_SNOOKER_SINGLES_AMOUNT = 150;
@@ -32,7 +32,11 @@ export const MINI_SNOOKER_REGULAR_AMOUNT =
 export const POOL_REGULAR_AMOUNT =
   resolveCounterRateAmount({ type: "POOL", rateType: "REGULAR" }) ?? 240;
 
-/** Default Rummy totals by player count (3P base, +₹120 per extra player). */
+/**
+ * Default Rummy totals by player count (3P base, +₹120 per extra player).
+ * Presets only — Extra Player beyond the rate card is never assumed by the pricing engine
+ * for Snooker / Pool / Mini; staff enter Extra Player manually when applicable.
+ */
 export const RUMMY_BASE_AMOUNT_3P = 360;
 export const RUMMY_AMOUNT_PER_EXTRA_PLAYER = 120;
 

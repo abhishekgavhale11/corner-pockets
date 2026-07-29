@@ -3,8 +3,8 @@ import type { StaffRole } from "@/lib/auth/roles";
 
 export interface IStaff extends Document {
   username: string;
-  passwordHash: string;
-  name: string;
+  /** Plain password for this internal club app — shown in Admin Users. */
+  password: string;
   role: StaffRole;
   isActive: boolean;
   createdAt: Date;
@@ -14,8 +14,7 @@ export interface IStaff extends Document {
 const staffSchema = new Schema<IStaff>(
   {
     username: { type: String, required: true, unique: true, lowercase: true },
-    passwordHash: { type: String, required: true },
-    name: { type: String, required: true, trim: true },
+    password: { type: String, required: true },
     role: {
       type: String,
       enum: ["SUPER_MASTER", "MASTER", "STAFF"],
@@ -26,7 +25,11 @@ const staffSchema = new Schema<IStaff>(
   { timestamps: true }
 );
 
-const Staff: Model<IStaff> =
-  mongoose.models.Staff ?? mongoose.model<IStaff>("Staff", staffSchema);
+// Drop cached model so schema changes (passwordHash → password) apply after HMR/restart.
+if (mongoose.models.Staff) {
+  delete mongoose.models.Staff;
+}
+
+const Staff: Model<IStaff> = mongoose.model<IStaff>("Staff", staffSchema);
 
 export default Staff;

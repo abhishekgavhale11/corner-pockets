@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   createUserAction,
   deleteUserAction,
-  resetUserPasswordAction,
   updateUserAction,
 } from "@/actions/staff";
 import {
@@ -67,7 +66,7 @@ export function UsersManagement({
             Users
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Login accounts for people who use CPOS.
+            Login accounts for CPOS.
           </p>
         </div>
         <Button type="button" onClick={() => setDialog({ type: "create" })}>
@@ -88,11 +87,10 @@ export function UsersManagement({
 
       <div className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-sm">
+          <table className="w-full min-w-[480px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/80 text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                <th className="px-4 py-3 text-left">Name</th>
-                <th className="px-3 py-3 text-left">Username</th>
+                <th className="px-4 py-3 text-left">Username</th>
                 <th className="px-3 py-3 text-left">Role</th>
                 <th className="px-3 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
@@ -102,10 +100,10 @@ export function UsersManagement({
               {users.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={4}
                     className="px-4 py-10 text-center text-sm text-gray-400"
                   >
-                    No users yet. Add the first login account.
+                    No users yet.
                   </td>
                 </tr>
               ) : (
@@ -117,9 +115,6 @@ export function UsersManagement({
                       className="border-t border-gray-50 transition hover:bg-emerald-50/30"
                     >
                       <td className="px-4 py-3 font-semibold text-gray-900">
-                        {user.name}
-                      </td>
-                      <td className="px-3 py-3 text-gray-700">
                         {user.username}
                       </td>
                       <td className="px-3 py-3 text-gray-800">
@@ -155,11 +150,11 @@ export function UsersManagement({
 
       {dialog ? (
         <UserFormDialog
+          key={dialog.type === "edit" ? dialog.user.id : "create"}
           mode={dialog}
           isPending={isPending}
           formAction={formAction}
           onClose={() => setDialog(null)}
-          onPasswordReset={() => router.refresh()}
           onDeleted={() => {
             setDialog(null);
             router.refresh();
@@ -190,14 +185,12 @@ function UserFormDialog({
   isPending,
   formAction,
   onClose,
-  onPasswordReset,
   onDeleted,
 }: {
   mode: DialogMode;
   isPending: boolean;
   formAction: (payload: FormData) => void;
   onClose: () => void;
-  onPasswordReset: () => void;
   onDeleted: () => void;
 }) {
   const isCreate = mode.type === "create";
@@ -206,32 +199,11 @@ function UserFormDialog({
     user ? toProductRole(user.role) : "STAFF"
   );
   const [isActive, setIsActive] = useState(user?.isActive ?? true);
-  const [resetPassword, setResetPassword] = useState("");
-  const [resetError, setResetError] = useState<string | null>(null);
-  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
-  const [isResetting, startReset] = useTransition();
+  // Controlled so the saved password stays visible (browsers clear name="password").
+  const [password, setPassword] = useState(user?.password ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, startDelete] = useTransition();
-
-  const handleResetPassword = () => {
-    if (!user) return;
-    setResetError(null);
-    setResetSuccess(null);
-    startReset(async () => {
-      const formData = new FormData();
-      formData.set("userId", user.id);
-      formData.set("password", resetPassword);
-      const result = await resetUserPasswordAction(formData);
-      if (!result.success) {
-        setResetError(result.error);
-        return;
-      }
-      setResetPassword("");
-      setResetSuccess("Password updated.");
-      onPasswordReset();
-    });
-  };
 
   const handleDelete = () => {
     if (!user) return;
@@ -252,28 +224,12 @@ function UserFormDialog({
 
   return (
     <>
-      <Dialog
-        open
-        onClose={onClose}
-        title={isCreate ? "Add User" : "Edit User"}
-      >
+      <Dialog open onClose={onClose} title={isCreate ? "Add User" : "Edit User"}>
         <form className="space-y-3" action={formAction}>
           <input type="hidden" name="mode" value={isCreate ? "create" : "edit"} />
           {!isCreate && user ? (
             <input type="hidden" name="userId" value={user.id} />
           ) : null}
-
-          <div>
-            <Label htmlFor="user-name">Name *</Label>
-            <Input
-              id="user-name"
-              name="name"
-              required
-              defaultValue={user?.name ?? ""}
-              className="mt-1"
-              autoComplete="name"
-            />
-          </div>
 
           <div>
             <Label htmlFor="user-username">Username *</Label>
@@ -283,55 +239,26 @@ function UserFormDialog({
               required
               defaultValue={user?.username ?? ""}
               className="mt-1"
-              autoComplete="username"
+              autoComplete="off"
             />
           </div>
 
-          {isCreate ? (
-            <div>
-              <Label htmlFor="user-password">Password *</Label>
-              <Input
-                id="user-password"
-                name="password"
-                type="password"
-                required
-                minLength={6}
-                className="mt-1"
-                autoComplete="new-password"
-              />
-            </div>
-          ) : (
-            <div>
-              <Label htmlFor="user-reset-password">Password</Label>
-              <div className="mt-1 flex gap-2">
-                <Input
-                  id="user-reset-password"
-                  type="password"
-                  value={resetPassword}
-                  onChange={(event) => setResetPassword(event.target.value)}
-                  minLength={6}
-                  placeholder="New password"
-                  className="flex-1"
-                  autoComplete="new-password"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={isResetting || resetPassword.trim().length < 6}
-                  onClick={handleResetPassword}
-                  className="shrink-0"
-                >
-                  {isResetting ? "Saving..." : "Reset Password"}
-                </Button>
-              </div>
-              {resetError ? (
-                <p className="mt-1.5 text-sm text-red-600">{resetError}</p>
-              ) : null}
-              {resetSuccess ? (
-                <p className="mt-1.5 text-sm text-emerald-700">{resetSuccess}</p>
-              ) : null}
-            </div>
-          )}
+          <div>
+            <Label htmlFor="user-staff-password">Password *</Label>
+            <Input
+              id="user-staff-password"
+              name="staffPassword"
+              type="text"
+              required
+              minLength={6}
+              className="mt-1"
+              autoComplete="off"
+              data-1p-ignore="true"
+              data-lpignore="true"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </div>
 
           <div>
             <Label htmlFor="user-role">Role</Label>
@@ -372,37 +299,33 @@ function UserFormDialog({
               type="button"
               variant="secondary"
               fullWidth
-              disabled={isPending || isResetting || isDeleting}
+              disabled={isPending || isDeleting}
               onClick={onClose}
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              fullWidth
-              disabled={isPending || isResetting || isDeleting}
-            >
-              {isPending ? "Saving..." : isCreate ? "Save User" : "Save"}
+            <Button type="submit" fullWidth disabled={isPending || isDeleting}>
+              {isPending ? "Saving..." : "Save"}
             </Button>
           </div>
-
-          {!isCreate && user ? (
-            <div className="border-t border-gray-100 pt-3">
-              <Button
-                type="button"
-                variant="danger"
-                fullWidth
-                disabled={isPending || isResetting || isDeleting}
-                onClick={() => {
-                  setDeleteError(null);
-                  setConfirmDelete(true);
-                }}
-              >
-                Delete User
-              </Button>
-            </div>
-          ) : null}
         </form>
+
+        {!isCreate && user ? (
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <Button
+              type="button"
+              variant="danger"
+              fullWidth
+              disabled={isPending || isDeleting}
+              onClick={() => {
+                setDeleteError(null);
+                setConfirmDelete(true);
+              }}
+            >
+              Delete User
+            </Button>
+          </div>
+        ) : null}
       </Dialog>
 
       {!isCreate && user ? (
@@ -411,7 +334,7 @@ function UserFormDialog({
           onClose={() => !isDeleting && setConfirmDelete(false)}
           onConfirm={handleDelete}
           title="Delete User"
-          message={`Delete “${user.name}” (@${user.username})? This removes their login account and cannot be undone.`}
+          message={`Delete “${user.username}”? This removes their login and cannot be undone.`}
           confirmLabel="Delete"
           isLoading={isDeleting}
         />

@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import BusinessDay from "@/models/BusinessDay";
 import Outstanding from "@/models/Outstanding";
+import BusinessDayFinalSummary from "@/models/BusinessDayFinalSummary";
 import { toBusinessDayDTO } from "@/lib/mappers/business-day";
 import { validateBusinessDayClosePreflight } from "@/lib/business-day/close-preflight";
 import { validateBusinessDayCloseFinancialProof } from "@/lib/business-day/close-financial-proof";
@@ -10,6 +11,10 @@ import {
   buildOutstandingCandidatesForBusinessDay,
   insertOutstandingCandidatesInSession,
 } from "@/lib/outstanding/generate-on-close";
+import {
+  buildBusinessDayFinalSummaryPayload,
+  insertBusinessDayFinalSummaryInSession,
+} from "@/lib/financial-summary";
 import type { BusinessDayCloseExecutionResult } from "@/types";
 
 function formatPreflightAffected(
@@ -29,11 +34,14 @@ function formatPreflightAffected(
  * Phase 4 — Safe Business Day Close.
  *
  * Gates: Phase 1A → 1B → 2 (no writes).
- * Then one MongoDB transaction: Outstanding insert + mark CLOSED.
- * History is the CLOSED Business Day audit view (no separate History document).
+ * Then one MongoDB transaction:
+ *   Outstanding insert + Business Day Final Summary insert + mark CLOSED.
+ * All three succeed or all roll back together.
  */
 export async function closeBusinessDay(input: {
   closedBy: string;
+  closedByStaffId: string;
+  closedByUsername: string;
 }): Promise<BusinessDayCloseExecutionResult> {
   const openDay = await BusinessDay.findOne({ status: "OPEN" });
 
@@ -119,6 +127,19 @@ export async function closeBusinessDay(input: {
     await buildOutstandingCandidatesForBusinessDay(businessDayId);
   const expectedOutstandingCount = candidates.length;
 
+  const closedAt = new Date();
+  const finalSummaryPayload = await buildBusinessDayFinalSummaryPayload({
+    businessDayId,
+    closedAt,
+  });
+  if (!finalSummaryPayload) {
+    return {
+      status: "FAIL",
+      stage: "TRANSACTION",
+      reason: "Financial Summary Engine failed to build Business Day Final Summary.",
+    };
+  }
+
   // --- Transaction ---
   const dbSession = await mongoose.startSession();
   let closedDayDto = toBusinessDayDTO(openDay);
@@ -152,6 +173,16 @@ export async function closeBusinessDay(input: {
         );
       }
 
+      const existingFinalSummary = await BusinessDayFinalSummary.countDocuments({
+        businessDayId,
+      }).session(dbSession);
+
+      if (existingFinalSummary > 0) {
+        throw new Error(
+          "Cannot close: Business Day Final Summary already exists for this still-OPEN Business Day."
+        );
+      }
+
       await insertOutstandingCandidatesInSession({
         businessDayId,
         openedAt: day.openedAt,
@@ -160,11 +191,18 @@ export async function closeBusinessDay(input: {
         session: dbSession,
       });
 
-      // History is produced by marking the Business Day CLOSED (audit reads CLOSED days).
       day.status = "CLOSED";
-      day.closedAt = new Date();
+      day.closedAt = closedAt;
       day.closedBy = input.closedBy;
       await day.save({ session: dbSession });
+
+      await insertBusinessDayFinalSummaryInSession({
+        payload: {
+          ...finalSummaryPayload,
+          closedAt,
+        },
+        session: dbSession,
+      });
 
       closedDayDto = toBusinessDayDTO(day);
     });
@@ -212,6 +250,18 @@ export async function closeBusinessDay(input: {
       stage: "POST_COMMIT_VALIDATION",
       businessDayId: businessDayIdStr,
       reason: `CRITICAL: Expected ${expectedOutstandingCount} Outstanding record(s) after close, found ${outstandingCount}.`,
+    };
+  }
+
+  const finalSummaryCount = await BusinessDayFinalSummary.countDocuments({
+    businessDayId,
+  });
+  if (finalSummaryCount !== 1) {
+    return {
+      status: "CRITICAL",
+      stage: "POST_COMMIT_VALIDATION",
+      businessDayId: businessDayIdStr,
+      reason: `CRITICAL: Expected 1 Business Day Final Summary after close, found ${finalSummaryCount}.`,
     };
   }
 

@@ -8,7 +8,12 @@
     "start": "next start",
     "lint": "eslint",
     "seed:sample": "tsx scripts/seed-sample-data.ts",
-    "db:reset": "tsx scripts/reset-dev-db.ts"
+    "db:reset": "tsx scripts/reset-dev-db.ts",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:workflows": "playwright test tests/e2e/workflows --headed",
+    "test:e2e:customer-fi": "playwright test tests/customer/customer-financial-integrity.spec.ts",
+    "test:e2e:customer-fi-ui": "playwright test tests/ui/customer-financial-integrity-ui.spec.ts --headed"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -24,6 +29,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@playwright/test": "^1.61.0",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
@@ -31,9 +37,12 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.19",
+    "mongodb-memory-server": "^11.2.0",
     "playwright": "^1.61.0",
     "tailwindcss": "^4",
+    "tsconfig-paths": "^4.2.0",
     "tsx": "^4.22.4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

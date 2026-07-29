@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateCustomerDetails } from "@/actions/customers";
-import { formatCurrency, formatDate } from "@/lib/utils/format";
+import { formatDate } from "@/lib/utils/format";
 import type { CustomerDTO } from "@/types";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -97,20 +97,17 @@ export function CustomerInfo({
             />
           </div>
 
-          {customer.walletEnabled && (
-            <div>
-              <Label htmlFor="edit-card-id">Card ID</Label>
-              <Input
-                id="edit-card-id"
-                name="cardId"
-                defaultValue={customer.cardId}
-                required
-                placeholder="e.g. CP0001"
-                className="uppercase"
-                autoCapitalize="characters"
-              />
-            </div>
-          )}
+          <div>
+            <Label htmlFor="edit-card-id">Card ID</Label>
+            <Input
+              id="edit-card-id"
+              name="cardId"
+              defaultValue={customer.cardId}
+              placeholder="e.g. CP0001"
+              className="uppercase"
+              autoCapitalize="characters"
+            />
+          </div>
 
           {state?.error && (
             <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -157,12 +154,6 @@ export function CustomerInfo({
                   ` by ${customer.studentStatusChangedBy}`}
               </div>
             )}
-            <div className="sm:col-span-2">
-              <dt className="text-sm text-gray-500">Current Balance</dt>
-              <dd className="mt-1 text-3xl font-bold text-emerald-800">
-                {formatCurrency(customer.balance)}
-              </dd>
-            </div>
           </dl>
 
           {state?.success && (

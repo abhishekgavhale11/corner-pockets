@@ -12,6 +12,72 @@ import {
   SNOOKER_GAMES,
 } from "@/lib/constants/counter-rates";
 import { VERIFICATION_METHODS } from "@/lib/constants/verification";
+import { sumPaymentAllocations } from "@/lib/utils/payment-allocations";
+
+export const paymentAllocationSchema = z.object({
+  paymentMethod: z.enum(["CASH", "GPAY"]),
+  amount: z.coerce
+    .number()
+    .int("Payment amount must be a whole number")
+    .positive("Payment amount must be greater than zero"),
+});
+
+function refineSingleCustomerPayment(
+  data: {
+    amount: number;
+    paidAmount: number;
+    paymentMethod?: "CASH" | "GPAY";
+    paymentAllocations?: z.infer<typeof paymentAllocationSchema>[];
+  },
+  ctx: z.RefinementCtx,
+  paidAmountPath: string,
+  paymentMethodPath: string,
+  paymentAllocationsPath: string,
+  receivedExceedsMessage: string
+) {
+  if (data.paidAmount > data.amount) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: receivedExceedsMessage,
+      path: [paidAmountPath],
+    });
+  }
+
+  if (data.paymentAllocations?.length === 2) {
+    const methods = data.paymentAllocations.map((row) => row.paymentMethod);
+    if (methods[0] === methods[1]) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Use Cash and GPay — not the same method twice",
+        path: [paymentAllocationsPath],
+      });
+    }
+    if (sumPaymentAllocations(data.paymentAllocations) !== data.paidAmount) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Payment totals must match received amount",
+        path: [paymentAllocationsPath],
+      });
+    }
+    return;
+  }
+
+  if (data.paymentAllocations?.length === 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Enter both payment methods",
+      path: [paymentAllocationsPath],
+    });
+  }
+
+  if (data.paidAmount > 0 && !data.paymentMethod) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Select Cash or GPay when received amount is greater than zero",
+      path: [paymentMethodPath],
+    });
+  }
+}
 
 const optionalPhoneSchema = z
   .string()
@@ -167,14 +233,8 @@ export const updateSnookerFrameEntrySchema = z
       .min(0, "Received amount cannot be negative")
       .max(100000, "Received amount is too large")
       .default(0),
-    paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
-    useWallet: z.boolean().optional().default(false),
-    walletAmount: z.coerce
-      .number()
-      .int("Wallet amount must be a whole number")
-      .min(0, "Wallet amount cannot be negative")
-      .max(100000, "Wallet amount is too large")
-      .optional(),
+    paymentMethod: z.enum(["CASH", "GPAY"]).optional(),
+    paymentAllocations: z.array(paymentAllocationSchema).max(2).optional(),
     playerCount: z.coerce
       .number()
       .int("Players must be a whole number")
@@ -190,30 +250,14 @@ export const updateSnookerFrameEntrySchema = z
   })
   .superRefine((data, ctx) => {
     if (!data.splitBilling) {
-      if (data.paidAmount > data.amount) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Received amount cannot exceed frame amount",
-          path: ["paidAmount"],
-        });
-      }
-      if (data.paidAmount > 0 && !data.paymentMethod) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Select Cash, GPay, or Wallet when received amount is greater than zero",
-          path: ["paymentMethod"],
-        });
-      }
-      if (
-        data.walletAmount !== undefined &&
-        data.walletAmount > data.paidAmount
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Wallet amount cannot exceed received amount",
-          path: ["walletAmount"],
-        });
-      }
+      refineSingleCustomerPayment(
+        data,
+        ctx,
+        "paidAmount",
+        "paymentMethod",
+        "paymentAllocations",
+        "Received amount cannot exceed frame amount"
+      );
     }
     if (data.frameType === "RUMMY" && data.playerCount === undefined) {
       ctx.addIssue({
@@ -255,14 +299,8 @@ export const updatePoolMiniEntrySchema = z
       .min(0, "Received amount cannot be negative")
       .max(100000, "Received amount is too large")
       .default(0),
-    paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
-    useWallet: z.boolean().optional().default(false),
-    walletAmount: z.coerce
-      .number()
-      .int("Wallet amount must be a whole number")
-      .min(0, "Wallet amount cannot be negative")
-      .max(100000, "Wallet amount is too large")
-      .optional(),
+    paymentMethod: z.enum(["CASH", "GPAY"]).optional(),
+    paymentAllocations: z.array(paymentAllocationSchema).max(2).optional(),
     startTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid start time"),
     endTime: z
       .string()
@@ -283,30 +321,14 @@ export const updatePoolMiniEntrySchema = z
     customerId: z.string().min(1).optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.paidAmount > data.amount) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Received amount cannot exceed amount",
-        path: ["paidAmount"],
-      });
-    }
-    if (data.paidAmount > 0 && !data.paymentMethod) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Select Cash, GPay, or Wallet when received amount is greater than zero",
-        path: ["paymentMethod"],
-      });
-    }
-    if (
-      data.walletAmount !== undefined &&
-      data.walletAmount > data.paidAmount
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Wallet amount cannot exceed received amount",
-        path: ["walletAmount"],
-      });
-    }
+    refineSingleCustomerPayment(
+      data,
+      ctx,
+      "paidAmount",
+      "paymentMethod",
+      "paymentAllocations",
+      "Received amount cannot exceed amount"
+    );
     if (data.endTime) {
       const [sh, sm] = data.startTime.split(":").map(Number);
       const [eh, em] = data.endTime.split(":").map(Number);
@@ -355,14 +377,7 @@ export const setEntryContributorsSchema = z.object({
           .max(100000)
           .optional()
           .default(0),
-        paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
-        useWallet: z.boolean().optional().default(false),
-        walletAmount: z.coerce
-          .number()
-          .int()
-          .min(0)
-          .max(100000)
-          .optional(),
+        paymentMethod: z.enum(["CASH", "GPAY"]).optional(),
       })
       .superRefine((row, ctx) => {
         if ((row.paidAmount ?? 0) > row.amount) {
@@ -377,16 +392,6 @@ export const setEntryContributorsSchema = z.object({
             code: z.ZodIssueCode.custom,
             message: "Please select Cash or GPay.",
             path: ["paymentMethod"],
-          });
-        }
-        if (
-          row.walletAmount !== undefined &&
-          row.walletAmount > (row.paidAmount ?? 0)
-        ) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Wallet amount cannot exceed received amount",
-            path: ["walletAmount"],
           });
         }
       })
@@ -451,31 +456,7 @@ export const settleNotebookEntriesSchema = z
     verificationMethod: z.enum(VERIFICATION_METHODS).optional(),
     customerConfirmed: z.literal("true").optional(),
   })
-  .superRefine((data, ctx) => {
-    if (data.paymentMethod === "WALLET") {
-      if (!data.paidByCustomerId) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Wallet payer is required",
-          path: ["paidByCustomerId"],
-        });
-      }
-      if (!data.verificationMethod) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Verification method is required",
-          path: ["verificationMethod"],
-        });
-      }
-      if (data.customerConfirmed !== "true") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Customer confirmation is required",
-          path: ["customerConfirmed"],
-        });
-      }
-    }
-  });
+  .superRefine(() => undefined);
 
 export const reverseNotebookSettlementSchema = z
   .object({
@@ -551,8 +532,7 @@ export const correctCafeEntrySchema = z
       .min(0, "Received amount cannot be negative")
       .max(100000, "Received amount is too large")
       .optional(),
-    paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
-    useWallet: z.boolean().optional().default(false),
+    paymentMethod: z.enum(["CASH", "GPAY"]).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.paidAmount !== undefined && data.amount !== undefined) {
@@ -571,7 +551,7 @@ export const correctCafeEntrySchema = z
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Select Cash, GPay, or Wallet when received amount is greater than zero",
+        message: "Select Cash or GPay when received amount is greater than zero",
         path: ["paymentMethod"],
       });
     }
@@ -588,8 +568,7 @@ export const addCafeItemsSchema = z
       .min(0, "Received amount cannot be negative")
       .max(100000, "Received amount is too large")
       .default(0),
-    paymentMethod: z.enum(["CASH", "GPAY", "WALLET"]).optional(),
-    useWallet: z.boolean().optional().default(false),
+    paymentMethod: z.enum(["CASH", "GPAY"]).optional(),
     items: z
       .array(
         z.object({
@@ -628,7 +607,7 @@ export const addCafeItemsSchema = z
     if (data.paidAmount > 0 && !data.paymentMethod) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Select Cash, GPay, or Wallet when received amount is greater than zero",
+        message: "Select Cash or GPay when received amount is greater than zero",
         path: ["paymentMethod"],
       });
     }
@@ -650,15 +629,7 @@ export const recordCustomerBalancePaymentSchema = z
     verificationMethod: z.enum(VERIFICATION_METHODS).optional(),
     entryIds: z.array(z.string().min(1)).optional(),
   })
-  .superRefine((data, ctx) => {
-    if (data.paymentMethod === "WALLET" && !data.verificationMethod) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Wallet verification is required",
-        path: ["verificationMethod"],
-      });
-    }
-  });
+  .superRefine(() => undefined);
 
 export const dailyClosingSchema = z.object({
   date: z.string().optional(),

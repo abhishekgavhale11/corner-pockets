@@ -16,7 +16,7 @@ export default async function DashboardLayout({
       role={role}
       topBar={
         <TopBar
-          staffName={session?.user?.name ?? "Staff"}
+          staffName={session?.user?.username ?? "Staff"}
           staffRole={role}
         />
       }

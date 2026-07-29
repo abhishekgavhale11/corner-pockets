@@ -1,89 +1,121 @@
 import bcrypt from "bcryptjs";
 import { connectDB } from "@/lib/db/connect";
+import { normalizePassword } from "@/lib/auth/credentials";
 import type { StaffRole } from "@/lib/auth/roles";
 import Staff from "@/models/Staff";
 
-const DEFAULT_PASSWORD = "corner123";
+const DEFAULT_PASSWORD = normalizePassword("corner123");
 
 const REQUIRED_ACCOUNTS: {
   username: string;
-  name: string;
   role: StaffRole;
 }[] = [
-  { username: "abhishek", name: "Abhishek", role: "SUPER_MASTER" },
-  { username: "wani", name: "Vani", role: "MASTER" },
-  { username: "rahul", name: "Rahul", role: "STAFF" },
-  { username: "kartik", name: "Kartik", role: "STAFF" },
-  { username: "mahendra", name: "Mahendra", role: "STAFF" },
-  { username: "shubham", name: "Shubham", role: "STAFF" },
+  { username: "abhishek", role: "SUPER_MASTER" },
+  { username: "wani", role: "MASTER" },
+  { username: "rahul", role: "STAFF" },
+  { username: "kartik", role: "STAFF" },
+  { username: "mahendra", role: "STAFF" },
+  { username: "shubham", role: "STAFF" },
 ];
 
-/** Legacy password from the removed seed:staff script. */
-const LEGACY_SEED_PASSWORD = "changeme";
+type LegacyStaffDoc = {
+  _id: { toString(): string };
+  username?: string;
+  password?: string;
+  passwordHash?: string;
+  name?: string;
+  role?: StaffRole;
+  isActive?: boolean;
+};
 
-async function migrateLegacyAdminPassword(): Promise<void> {
-  const existingAdmin = await Staff.findOne({ username: "admin" });
+/**
+ * Migrate old bcrypt passwordHash documents → plain `password` field
+ * so Admin Users can show the password and login works.
+ */
+export async function migrateLegacyPasswordStorage(): Promise<void> {
+  const docs = (await Staff.collection
+    .find({})
+    .toArray()) as unknown as LegacyStaffDoc[];
 
-  if (!existingAdmin) {
-    return;
-  }
+  for (const doc of docs) {
+    const updates: Record<string, unknown> = {};
+    const unsets: Record<string, 1> = {};
 
-  const usesLegacyPassword = await bcrypt.compare(
-    LEGACY_SEED_PASSWORD,
-    existingAdmin.passwordHash
-  );
+    const hasPlain =
+      typeof doc.password === "string" && doc.password.trim().length > 0;
 
-  if (usesLegacyPassword) {
-    existingAdmin.passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 12);
-    await existingAdmin.save();
-    console.log(
-      "[corner-pockets] Updated legacy admin password to corner123"
-    );
+    if (hasPlain) {
+      const normalized = normalizePassword(doc.password!);
+      if (normalized !== doc.password) {
+        updates.password = normalized;
+      }
+    } else if (typeof doc.passwordHash === "string") {
+      let recovered: string | null = null;
+      for (const candidate of [DEFAULT_PASSWORD, "changeme", "corner123"]) {
+        try {
+          const ok = await bcrypt.compare(candidate, doc.passwordHash);
+          if (ok) {
+            recovered = normalizePassword(candidate);
+            break;
+          }
+        } catch {
+          /* ignore bad hash */
+        }
+      }
+      // Recoverable default for club accounts; admin can change anytime in Users.
+      updates.password = recovered ?? DEFAULT_PASSWORD;
+    } else {
+      updates.password = DEFAULT_PASSWORD;
+    }
+
+    if (doc.passwordHash !== undefined) {
+      unsets.passwordHash = 1;
+    }
+    if (doc.name !== undefined) {
+      unsets.name = 1;
+    }
+
+    const updateDoc: Record<string, unknown> = {};
+    if (Object.keys(updates).length > 0) {
+      updateDoc.$set = updates;
+    }
+    if (Object.keys(unsets).length > 0) {
+      updateDoc.$unset = unsets;
+    }
+
+    if (Object.keys(updateDoc).length > 0) {
+      await Staff.collection.updateOne({ _id: doc._id }, updateDoc);
+    }
   }
 }
 
 export async function ensureDefaultStaff(): Promise<void> {
   await connectDB();
-  await migrateLegacyAdminPassword();
+  await migrateLegacyPasswordStorage();
 
   await Staff.updateMany(
     { $or: [{ role: { $exists: false } }, { role: null }] },
     { $set: { role: "STAFF" } }
   );
 
-  const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 12);
-
   for (const account of REQUIRED_ACCOUNTS) {
     const existing = await Staff.findOne({ username: account.username });
 
     if (existing) {
-      let changed = false;
-
-      if (existing.name !== account.name) {
-        existing.name = account.name;
-        changed = true;
-      }
-
       if (existing.role !== account.role) {
         existing.role = account.role;
-        changed = true;
-      }
-
-      if (changed) {
         await existing.save();
         console.log(
           `[corner-pockets] Updated staff account ${account.username}`
         );
       }
-
       continue;
     }
 
     try {
       await Staff.create({
         username: account.username,
-        passwordHash,
-        name: account.name,
+        password: DEFAULT_PASSWORD,
         role: account.role,
         isActive: true,
       });

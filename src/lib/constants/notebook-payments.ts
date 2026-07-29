@@ -1,4 +1,4 @@
-export const NOTEBOOK_PAYMENT_METHODS = ["CASH", "GPAY", "WALLET"] as const;
+export const NOTEBOOK_PAYMENT_METHODS = ["CASH", "GPAY"] as const;
 
 export type NotebookPaymentMethod = (typeof NOTEBOOK_PAYMENT_METHODS)[number];
 
@@ -60,7 +60,5 @@ export function paymentMethodLabel(method: NotebookPaymentMethod): string {
       return "Cash";
     case "GPAY":
       return "GPay";
-    case "WALLET":
-      return "Wallet";
   }
 }

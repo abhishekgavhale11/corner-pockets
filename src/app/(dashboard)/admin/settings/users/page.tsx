@@ -18,10 +18,10 @@ export default async function UsersSettingsPage() {
   return (
     <div className="space-y-4">
       <Link
-        href="/admin/settings"
+        href="/admin"
         className="text-sm font-medium text-emerald-800 hover:text-emerald-950"
       >
-        ← Settings
+        ← Admin
       </Link>
       <UsersManagement users={users} currentUserId={session.user.id} />
     </div>

@@ -108,11 +108,8 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
       setError("Received amount cannot exceed item amount");
       return;
     }
-    // Cafe entry correction has no customer wallet UI — wallet stays off.
     const paymentCheck = resolveEntryPaymentSubmit({
       paidAmount: parsedPaid,
-      useWallet: false,
-      walletBalance: 0,
       paymentMode,
     });
     if (!paymentCheck.valid) {
@@ -122,8 +119,6 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
 
     const paymentFields = appendEntryPaymentFormData(formData, {
       paidAmount: parsedPaid,
-      useWallet: false,
-      walletBalance: 0,
       paymentMode,
     });
     if (!paymentFields.ok) {
@@ -198,7 +193,6 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
           amount={effectiveAmount}
           paidAmount={paidAmount}
           paymentMode={paymentMode}
-          useWallet={false}
           disabled={isPending}
           onPaidAmountChange={(value) => {
             setPaidAmount(value);
@@ -208,10 +202,6 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
             setPaymentMode(value);
             setError(null);
           }}
-          onUseWalletChange={() => {
-            /* wallet not available on cafe entry correction */
-          }}
-          walletEnabled={false}
         />
 
         <div>

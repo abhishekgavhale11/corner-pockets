@@ -209,8 +209,6 @@ export function paymentMethodLabel(
       return "Cash";
     case "GPAY":
       return "GPay";
-    case "WALLET":
-      return "Wallet";
     default:
       return "";
   }

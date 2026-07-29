@@ -193,6 +193,8 @@ export async function closeBusinessDayAction(): Promise<
       closedBy:
         authResult.session.user.name?.trim() ||
         authResult.session.user.username,
+      closedByStaffId: authResult.session.user.id,
+      closedByUsername: authResult.session.user.username,
     });
 
     if (result.status === "SUCCESS" || result.status === "ALREADY_CLOSED") {

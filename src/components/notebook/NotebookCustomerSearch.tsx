@@ -104,11 +104,6 @@ export function NotebookCustomerSearch({
           <p className="text-sm text-gray-600">
             {formatCustomerContactLine(selectedCustomer)}
           </p>
-          <p className="mt-1 text-xs text-gray-500">
-            {selectedCustomer.walletEnabled
-              ? "Wallet member"
-              : "Regular customer"}
-          </p>
         </div>
 
         <div>
@@ -255,8 +250,7 @@ export function NotebookCustomerSearch({
             />
           </div>
           <p className="text-xs text-gray-500">
-            Saved to the main customer database. Upgrade to member anytime from
-            their profile.
+            Saved to the main customer database for future visits.
           </p>
           <Button type="submit" fullWidth disabled={isPending}>
             {isPending ? "Creating..." : "Create & Select"}

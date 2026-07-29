@@ -206,6 +206,7 @@ export function BusinessDayPageClient({
           <Button
             type="button"
             variant="danger"
+            size="lg"
             className="mt-4"
             onClick={() => {
               setError(null);

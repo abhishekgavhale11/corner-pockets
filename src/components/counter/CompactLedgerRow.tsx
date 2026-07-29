@@ -16,7 +16,7 @@ import {
   entryRowClass,
   splitContributorRowClass,
 } from "@/components/counter/EntryPayStatus";
-import { frameDueAmount, framePaidAmount } from "@/lib/utils/frame-payment";
+import { frameDueFromParts } from "@/lib/utils/frame-payment";
 import { isSnookerFrameEntry } from "@/lib/utils/snooker-frame";
 import { isPoolMiniEntry } from "@/lib/utils/pool-mini-entry";
 import { paymentMethodLabel } from "@/lib/constants/notebook-payments";
@@ -84,7 +84,7 @@ function EditIconButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-5 w-5 items-center justify-center rounded text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
       aria-label={label}
       title={title}
     >
@@ -119,7 +119,7 @@ function DeleteIconButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-5 w-5 items-center justify-center rounded text-red-600 transition-colors hover:bg-red-50 hover:text-red-800"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50 hover:text-red-800"
       aria-label={label}
       title={title}
     >
@@ -148,11 +148,13 @@ function DeleteIconButton({
 function DueStatusCell({
   amount,
   paidAmount,
+  balanceCollectedAmount,
   paymentMethod,
   status,
 }: {
   amount: number;
   paidAmount?: number;
+  balanceCollectedAmount?: number;
   paymentMethod?: NotebookEntryDTO["paymentMethod"];
   status: NotebookEntryDTO["status"];
 }) {
@@ -167,8 +169,7 @@ function DueStatusCell({
     );
   }
 
-  const paid = framePaidAmount(paidAmount);
-  const due = frameDueAmount(amount, paid);
+  const due = frameDueFromParts(amount, paidAmount, balanceCollectedAmount);
 
   if (due <= 0) {
     if (paymentMethod === "CASH") {
@@ -237,36 +238,37 @@ function SplitContributorRow({
         <>
           <td
             rowSpan={total}
-            className="overflow-visible whitespace-nowrap py-1.5 pl-2 pr-1 align-top"
+            className="overflow-visible whitespace-nowrap py-2.5 pl-3 pr-1 align-top"
           >
             <div className="flex flex-col gap-0.5">{timeCell}</div>
           </td>
           <td
             rowSpan={total}
-            className="whitespace-nowrap px-1.5 py-1.5 align-top text-[14px] font-semibold text-gray-800"
+            className="whitespace-nowrap px-1.5 py-2.5 align-top text-[13px] font-semibold text-gray-800"
           >
             {typeCell}
           </td>
         </>
       )}
-      <td className="px-2 py-1.5 align-middle">
+      <td className="px-2 py-2.5 align-middle">
         <CustomerNameCell
           customerId={contributor.customerId}
           customerName={contributor.customerName}
         />
       </td>
-      <td className="whitespace-nowrap px-1.5 py-1.5 text-right text-[14px] font-bold tabular-nums text-gray-900">
+      <td className="whitespace-nowrap px-1.5 py-2.5 text-right text-[13px] font-bold tabular-nums text-gray-900">
         {formatCurrency(contributor.amount)}
       </td>
-      <td className="whitespace-nowrap px-1.5 py-1.5 text-right align-middle">
+      <td className="whitespace-nowrap px-1.5 py-2.5 text-right align-middle">
         <DueStatusCell
           amount={contributor.amount}
           paidAmount={contributor.paidAmount}
+          balanceCollectedAmount={contributor.balanceCollectedAmount}
           paymentMethod={contributor.paymentMethod ?? entry.paymentMethod}
           status={entry.status}
         />
       </td>
-      <td className="py-1.5 pl-1 pr-2 text-right align-middle">
+      <td className="py-2.5 pl-1 pr-3 text-right align-middle">
         <div className="flex flex-col items-end gap-1">
           {index === 0 ? (
             <div className="flex items-center gap-0.5">
@@ -443,29 +445,30 @@ export function CompactLedgerRow({
       onClick={rowPreview.handleRowClick}
       onDoubleClick={rowPreview.handleRowDoubleClick}
     >
-      <td className="py-1.5 pl-2 pr-1 align-top">
+      <td className="py-2.5 pl-3 pr-1 align-top">
         <div className="flex flex-col gap-0.5">{timeCell}</div>
       </td>
-      <td className="whitespace-nowrap px-1.5 py-1.5 align-top text-[14px] font-semibold text-gray-800">
+      <td className="whitespace-nowrap px-1.5 py-2.5 align-top text-[13px] font-semibold text-gray-800">
         {typeCell}
       </td>
-      <td className="px-2 py-1.5 align-top">
+      <td className="px-2 py-2.5 align-top">
         <FieldCell correction={byField.customer}>{nameCell}</FieldCell>
       </td>
-      <td className="whitespace-nowrap px-1.5 py-1.5 pr-1 align-top text-right text-[14px] font-bold tabular-nums text-gray-900">
+      <td className="whitespace-nowrap px-1.5 py-2.5 pr-1 align-top text-right text-[13px] font-bold tabular-nums text-gray-900">
         <FieldCell correction={byField.amount}>
           {formatCurrency(entry.amount)}
         </FieldCell>
       </td>
-      <td className="whitespace-nowrap px-1.5 py-1.5 text-right align-top">
+      <td className="whitespace-nowrap px-1.5 py-2.5 text-right align-top">
         <DueStatusCell
           amount={entry.amount}
           paidAmount={entry.paidAmount}
+          balanceCollectedAmount={entry.balanceCollectedAmount}
           paymentMethod={entry.paymentMethod}
           status={entry.status}
         />
       </td>
-      <td className="py-1.5 pl-1 pr-2 align-top text-right">
+      <td className="py-2.5 pl-1 pr-3 align-top text-right">
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-0.5">
             {editFrameButton}

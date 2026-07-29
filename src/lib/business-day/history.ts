@@ -6,37 +6,36 @@ import { toBusinessDayDTO } from "@/lib/mappers/business-day";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import {
   CAFE_SECTION,
-  isBigSnookerSection,
-  isPoolMiniSection,
 } from "@/lib/constants/counter-sections";
 import { CAFE_ITEM_TYPE_LABELS } from "@/lib/constants/cafe";
 import { sectionLabel } from "@/lib/constants/notebook-sections";
 import { NOTEBOOK_SECTIONS } from "@/lib/constants/notebook-sections";
-import { buildBusinessDayCloseSummaryForId } from "@/lib/business-day/close-summary";
+import {
+  listBusinessDayFinalSummaries,
+  requireBusinessDayFinalSummary,
+  type BusinessDayFinalSummaryPayload,
+} from "@/lib/financial-summary";
 import { formatBusinessDayPublicId } from "@/lib/business-day/format";
 import {
   getBusinessDateRangeBounds,
   getDefaultBusinessDayHistoryRange,
   resolveBusinessDate,
 } from "@/lib/utils/business-date";
-import { attributePaymentCollections } from "@/lib/business-day/payment-collections";
-import { frameDueAmount, framePaidAmount } from "@/lib/utils/frame-payment";
+import { frameReceivedAmount } from "@/lib/utils/frame-payment";
 import {
   formatCafeItemLabel,
   getEntryDisplayLabel,
 } from "@/lib/utils/notebook-entry-label";
 import {
   addSectionSummaries,
-  buildSnookerSectionInsights,
-  countCafeOrders,
   emptyHistoryInsights,
 } from "@/lib/business-day/history-insights";
 import {
-  buildWalletActivityForBusinessDays,
-} from "@/lib/business-day/wallet-activity";
+  buildBusinessDayOutstandingTrend,
+  getOutstandingRecoveredForReportRange,
+} from "@/lib/business-day/history-outstanding";
 import type {
   BusinessDayHistoryCafeLineDTO,
-  BusinessDayHistoryCategorySummaryDTO,
   BusinessDayHistoryDetailDTO,
   BusinessDayHistoryFrameLineDTO,
   BusinessDayHistoryListItemDTO,
@@ -76,7 +75,9 @@ type ChargeLine = {
   amount: number;
   paidAmount: number;
   paymentMethod?: NotebookEntryDTO["paymentMethod"];
-  walletAmount?: number;
+  paymentAllocations?: NotebookEntryDTO["paymentAllocations"];
+  receivedByUsername?: string;
+  receivedAt?: string;
   createdAt: string;
 };
 
@@ -87,9 +88,14 @@ function collectChargeLines(entry: NotebookEntryDTO): ChargeLine[] {
       customerId: contributor.customerId,
       customerName: contributor.customerName,
       amount: contributor.amount,
-      paidAmount: framePaidAmount(contributor.paidAmount),
+      // History charge-line paidAmount = full Received (Proof): paid + balanceCollected.
+      paidAmount: frameReceivedAmount(
+        contributor.paidAmount,
+        contributor.balanceCollectedAmount
+      ),
       paymentMethod: contributor.paymentMethod ?? entry.paymentMethod,
-      walletAmount: contributor.walletAmount,
+      receivedByUsername: contributor.receivedByUsername,
+      receivedAt: contributor.receivedAt,
       createdAt: entry.createdAt,
     }));
   }
@@ -104,9 +110,15 @@ function collectChargeLines(entry: NotebookEntryDTO): ChargeLine[] {
       customerId: entry.customerId,
       customerName: entry.customerName,
       amount: entry.amount,
-      paidAmount: framePaidAmount(entry.paidAmount),
+      // History charge-line paidAmount = full Received (Proof): paid + balanceCollected.
+      paidAmount: frameReceivedAmount(
+        entry.paidAmount,
+        entry.balanceCollectedAmount
+      ),
       paymentMethod: entry.paymentMethod,
-      walletAmount: entry.walletAmount,
+      paymentAllocations: entry.paymentAllocations,
+      receivedByUsername: entry.receivedByUsername,
+      receivedAt: entry.receivedAt,
       createdAt: entry.createdAt,
     },
   ];
@@ -126,7 +138,9 @@ function buildFrameLines(
       amount: line.amount,
       paidAmount: line.paidAmount,
       paymentMethod: line.paymentMethod,
-      walletAmount: line.walletAmount,
+      paymentAllocations: line.paymentAllocations,
+      receivedByUsername: line.receivedByUsername,
+      receivedAt: line.receivedAt,
       createdAt: line.createdAt,
     }))
   );
@@ -144,163 +158,12 @@ function buildCafeLines(
       amount: line.amount,
       paidAmount: line.paidAmount,
       paymentMethod: line.paymentMethod,
-      walletAmount: line.walletAmount,
+      paymentAllocations: line.paymentAllocations,
+      receivedByUsername: line.receivedByUsername,
+      receivedAt: line.receivedAt,
       createdAt: line.createdAt,
     }))
   );
-}
-
-function buildSettlementRows(
-  frames: BusinessDayHistoryFrameLineDTO[],
-  cafe: BusinessDayHistoryCafeLineDTO[]
-): BusinessDayHistorySettlementRowDTO[] {
-  type Acc = {
-    customerId: string;
-    customerName: string;
-    bigSnooker: number;
-    poolMini: number;
-    cafe: number;
-    received: number;
-    cashCollection: number;
-    gpayCollection: number;
-    walletCollection: number;
-  };
-
-  const byCustomer = new Map<string, Acc>();
-
-  function ensure(customerId: string, customerName: string): Acc {
-    const existing = byCustomer.get(customerId);
-    if (existing) {
-      if (customerName && existing.customerName === "—") {
-        existing.customerName = customerName;
-      }
-      return existing;
-    }
-    const created: Acc = {
-      customerId,
-      customerName: customerName || "—",
-      bigSnooker: 0,
-      poolMini: 0,
-      cafe: 0,
-      received: 0,
-      cashCollection: 0,
-      gpayCollection: 0,
-      walletCollection: 0,
-    };
-    byCustomer.set(customerId, created);
-    return created;
-  }
-
-  function addPayment(
-    row: Acc,
-    paidAmount: number,
-    paymentMethod?: BusinessDayHistoryFrameLineDTO["paymentMethod"],
-    walletAmount?: number
-  ) {
-    const paid = framePaidAmount(paidAmount);
-    row.received += paid;
-    const portion = attributePaymentCollections({
-      paidAmount: paid,
-      paymentMethod,
-      walletAmount,
-    });
-    row.cashCollection += portion.cash;
-    row.gpayCollection += portion.gpay;
-    row.walletCollection += portion.wallet;
-  }
-
-  for (const line of frames) {
-    if (!line.customerId) continue;
-    const row = ensure(line.customerId, line.customerName);
-    if (isBigSnookerSection(line.section)) {
-      row.bigSnooker += line.amount;
-    } else if (isPoolMiniSection(line.section)) {
-      row.poolMini += line.amount;
-    } else {
-      row.bigSnooker += line.amount;
-    }
-    addPayment(row, line.paidAmount, line.paymentMethod, line.walletAmount);
-  }
-
-  for (const line of cafe) {
-    if (!line.customerId) continue;
-    const row = ensure(line.customerId, line.customerName);
-    row.cafe += line.amount;
-    addPayment(row, line.paidAmount, line.paymentMethod, line.walletAmount);
-  }
-
-  return [...byCustomer.values()]
-    .map((row) => {
-      const bill = row.bigSnooker + row.poolMini + row.cafe;
-      const received = framePaidAmount(row.received);
-      return {
-        customerId: row.customerId,
-        customerName: row.customerName,
-        bigSnooker: row.bigSnooker,
-        poolMini: row.poolMini,
-        cafe: row.cafe,
-        bill,
-        received,
-        cashCollection: row.cashCollection,
-        gpayCollection: row.gpayCollection,
-        walletCollection: row.walletCollection,
-        due: frameDueAmount(bill, received),
-      };
-    })
-    .sort((a, b) =>
-      a.customerName.localeCompare(b.customerName, undefined, {
-        sensitivity: "base",
-      })
-    );
-}
-
-/** History Total Outstanding Created = sum of Settlement Due rows. */
-function totalOutstandingCreatedFromSettlements(
-  settlements: BusinessDayHistorySettlementRowDTO[]
-): number {
-  return settlements.reduce((sum, row) => sum + row.due, 0);
-}
-
-/**
- * Groups already-built History charge lines into a category summary.
- * Uses the same Bill / Received / Due primitives as Settlement (no new formulas).
- */
-function aggregateHistoryCategorySummary(
-  lines: Array<{
-    amount: number;
-    paidAmount: number;
-    paymentMethod?: NotebookEntryDTO["paymentMethod"];
-    walletAmount?: number;
-  }>
-): BusinessDayHistoryCategorySummaryDTO {
-  let bill = 0;
-  let received = 0;
-  let cashCollection = 0;
-  let gpayCollection = 0;
-  let walletCollection = 0;
-
-  for (const line of lines) {
-    bill += line.amount;
-    const paid = framePaidAmount(line.paidAmount);
-    received += paid;
-    const portion = attributePaymentCollections({
-      paidAmount: paid,
-      paymentMethod: line.paymentMethod,
-      walletAmount: line.walletAmount,
-    });
-    cashCollection += portion.cash;
-    gpayCollection += portion.gpay;
-    walletCollection += portion.wallet;
-  }
-
-  return {
-    bill,
-    received,
-    cashCollection,
-    gpayCollection,
-    walletCollection,
-    outstandingCreated: frameDueAmount(bill, received),
-  };
 }
 
 type LeanCafeOrder = {
@@ -310,7 +173,8 @@ type LeanCafeOrder = {
   amount: number;
   received?: number;
   paymentMethod?: NotebookEntryDTO["paymentMethod"];
-  walletAmount?: number;
+  receivedByUsername?: string;
+  receivedAt?: Date;
   createdAt: Date;
   items?: Array<{
     type: string;
@@ -320,16 +184,30 @@ type LeanCafeOrder = {
   }>;
 };
 
+function settlementsFromFinalSummary(
+  summary: BusinessDayFinalSummaryPayload
+): BusinessDayHistorySettlementRowDTO[] {
+  return summary.customers.map((row) => ({
+    customerId: row.customerId,
+    customerName: row.customerName,
+    bigSnooker: row.bigSnooker,
+    poolMini: row.poolMini,
+    cafe: row.cafe,
+    bill: row.bill,
+    received: row.received,
+    cashCollection: row.cashCollection,
+    gpayCollection: row.gpayCollection,
+    due: row.due,
+  }));
+}
+
 /**
- * Operational History views for one Business Day.
- * Settlement and Total Outstanding Created share this charge path.
+ * Drill-down operational lines only (frames / cafe items).
+ * Financial totals come from Business Day Final Summary — never from these lines.
  */
-async function buildHistoryOperationalViews(businessDayId: Types.ObjectId): Promise<{
+async function buildHistoryDrilldownLines(businessDayId: Types.ObjectId): Promise<{
   frames: BusinessDayHistoryFrameLineDTO[];
   cafe: BusinessDayHistoryCafeLineDTO[];
-  settlements: BusinessDayHistorySettlementRowDTO[];
-  gamesSummary: BusinessDayHistoryCategorySummaryDTO;
-  cafeSummary: BusinessDayHistoryCategorySummaryDTO;
 }> {
   const [rawEntries, cafeOrders] = await Promise.all([
     NotebookEntry.find({
@@ -353,7 +231,6 @@ async function buildHistoryOperationalViews(businessDayId: Types.ObjectId): Prom
   const frames = buildFrameLines(frameEntries);
   const cafeFromEntries = buildCafeLines(cafeEntries);
 
-  // Snapshot: item-level lines for display
   const cafeFromOrders: BusinessDayHistoryCafeLineDTO[] = cafeOrders.flatMap(
     (order) =>
       (order.items ?? []).map((item, index) => ({
@@ -378,35 +255,13 @@ async function buildHistoryOperationalViews(businessDayId: Types.ObjectId): Prom
             ? Math.round(((order.received ?? 0) * item.amount) / order.amount)
             : 0,
         paymentMethod: order.paymentMethod,
-        walletAmount:
-          order.amount > 0 && order.walletAmount
-            ? Math.round((order.walletAmount * item.amount) / order.amount)
-            : undefined,
+        receivedByUsername: order.receivedByUsername,
+        receivedAt: order.receivedAt?.toISOString(),
         createdAt: order.createdAt.toISOString(),
       }))
   );
 
-  // Settlement: order-level CafeOrder amounts (same grain as Outstanding create)
-  const cafeOrdersForSettlement: BusinessDayHistoryCafeLineDTO[] =
-    cafeOrders.map((order) => ({
-      entryId: order._id.toString(),
-      customerId: order.customerId?.toString(),
-      customerName: order.customerName,
-      item: "Cafe Order",
-      amount: order.amount,
-      paidAmount: framePaidAmount(order.received),
-      paymentMethod: order.paymentMethod,
-      walletAmount: order.walletAmount,
-      createdAt: order.createdAt.toISOString(),
-    }));
-
-  const cafe = [...cafeFromEntries, ...cafeFromOrders];
-  const cafeForMoney = [...cafeFromEntries, ...cafeOrdersForSettlement];
-  const settlements = buildSettlementRows(frames, cafeForMoney);
-  const gamesSummary = aggregateHistoryCategorySummary(frames);
-  const cafeSummary = aggregateHistoryCategorySummary(cafeForMoney);
-
-  return { frames, cafe, settlements, gamesSummary, cafeSummary };
+  return { frames, cafe: [...cafeFromEntries, ...cafeFromOrders] };
 }
 
 export async function getClosedBusinessDayHistoryList(
@@ -423,8 +278,6 @@ export async function getClosedBusinessDayHistoryList(
 
   const { start, end } = getBusinessDateRangeBounds(from, to);
 
-  // Filter by Business Date (not createdAt). Legacy days without businessDate
-  // fall back to openedAt within the same range.
   const days = await BusinessDay.find({
     status: "CLOSED",
     $or: [
@@ -446,77 +299,91 @@ export async function getClosedBusinessDayHistoryList(
     .limit(limit)
     .lean();
 
-  const items: BusinessDayHistoryListItemDTO[] = [];
-  let insights = emptyHistoryInsights();
-  const matchedDayIds: Types.ObjectId[] = [];
+  const matchedDays: Array<{
+    _id: Types.ObjectId;
+    businessDayNumber: number;
+    openedAt: Date;
+    closedAt: Date;
+    resolvedBusinessDate: Date;
+  }> = [];
 
   for (const day of days) {
-    const summary = await buildBusinessDayCloseSummaryForId(day._id);
-    if (!summary || !day.closedAt) continue;
-
+    if (!day.closedAt) continue;
     const businessDate = resolveBusinessDate(day.businessDate, day.openedAt);
+    if (businessDate < start || businessDate > end) continue;
+    matchedDays.push({
+      _id: day._id,
+      businessDayNumber: day.businessDayNumber,
+      openedAt: day.openedAt,
+      closedAt: day.closedAt,
+      resolvedBusinessDate: businessDate,
+    });
+  }
 
-    // Extra guard for edge cases where openedAt matched but resolved date is outside.
-    if (businessDate < start || businessDate > end) {
-      continue;
-    }
+  const finalById = await listBusinessDayFinalSummaries(
+    matchedDays.map((day) => day._id)
+  );
+  const reportRangeRecovered = await getOutstandingRecoveredForReportRange(
+    from,
+    to
+  );
 
-    matchedDayIds.push(day._id);
+  const items: BusinessDayHistoryListItemDTO[] = [];
+  let insights = emptyHistoryInsights();
 
-    const { frames, cafe, settlements, cafeSummary } =
-      await buildHistoryOperationalViews(day._id);
-    const outstandingCreated =
-      totalOutstandingCreatedFromSettlements(settlements);
-    const snooker = buildSnookerSectionInsights(frames);
+  for (const day of matchedDays) {
+    const dayId = day._id.toString();
+    const finalSummary = finalById.get(dayId);
+    if (!finalSummary) continue;
 
     items.push({
-      id: day._id.toString(),
+      id: dayId,
       businessDayNumber: day.businessDayNumber,
       publicId: formatBusinessDayPublicId(day.businessDayNumber),
-      businessDate: businessDate.toISOString(),
+      businessDate: day.resolvedBusinessDate.toISOString(),
       openedAt: day.openedAt.toISOString(),
-      closedAt: day.closedAt.toISOString(),
-      todaysBill: summary.todaysBill,
-      totalReceived: summary.totalPaid,
-      outstandingCreated,
+      closedAt: day.closedAt!.toISOString(),
+      todaysBill: finalSummary.bill,
+      totalReceived: finalSummary.paid,
+      outstandingCreated: finalSummary.outstandingCreated,
+      outstandingRecovered: finalSummary.outstandingCollected,
+      closingOutstanding: finalSummary.closingOutstanding,
     });
 
     insights = {
       overall: {
-        totalRevenue: insights.overall.totalRevenue + summary.todaysBill,
-        totalReceived: insights.overall.totalReceived + summary.totalPaid,
+        totalRevenue: insights.overall.totalRevenue + finalSummary.bill,
+        totalReceived: insights.overall.totalReceived + finalSummary.paid,
         cashCollection:
-          insights.overall.cashCollection + summary.cashCollection,
+          insights.overall.cashCollection + finalSummary.cashCollection,
         gpayCollection:
-          insights.overall.gpayCollection + summary.gpayCollection,
-        walletCollection:
-          insights.overall.walletCollection + summary.walletCollection,
+          insights.overall.gpayCollection + finalSummary.gpayCollection,
         outstandingCreated:
-          insights.overall.outstandingCreated + outstandingCreated,
+          insights.overall.outstandingCreated + finalSummary.outstandingCreated,
+        outstandingRecovered:
+          insights.overall.outstandingRecovered +
+          finalSummary.outstandingCollected,
       },
-      bigSnooker: addSectionSummaries(insights.bigSnooker, snooker.bigSnooker),
-      poolMini: addSectionSummaries(insights.poolMini, snooker.poolMini),
+      bigSnooker: addSectionSummaries(
+        insights.bigSnooker,
+        finalSummary.bigSnooker
+      ),
+      poolMini: addSectionSummaries(insights.poolMini, finalSummary.poolMini),
       totalSnooker: addSectionSummaries(
         insights.totalSnooker,
-        snooker.totalSnooker
+        finalSummary.snooker
       ),
-      cafe: addSectionSummaries(insights.cafe, {
-        ...cafeSummary,
-        gamesPlayed: countCafeOrders(cafe),
-      }),
+      cafe: addSectionSummaries(insights.cafe, finalSummary.cafe),
     };
   }
-
-  const walletActivity =
-    await buildWalletActivityForBusinessDays(matchedDayIds);
 
   const listSummary: BusinessDayHistorySummaryDTO = {
     totalBusinessDays: items.length,
     totalBill: insights.overall.totalRevenue,
     totalReceived: insights.overall.totalReceived,
     outstandingCreated: insights.overall.outstandingCreated,
+    outstandingRecovered: reportRangeRecovered,
     insights,
-    walletActivity,
   };
 
   return { from, to, items, summary: listSummary };
@@ -534,14 +401,22 @@ export async function getBusinessDayHistoryDetail(
     return null;
   }
 
-  const summary = await buildBusinessDayCloseSummaryForId(day._id);
-  if (!summary) return null;
+  const finalSummary = await requireBusinessDayFinalSummary(day._id);
+  const settlements = settlementsFromFinalSummary(finalSummary);
+  const { frames, cafe } = await buildHistoryDrilldownLines(day._id);
 
-  const { frames, cafe, settlements, gamesSummary, cafeSummary } =
-    await buildHistoryOperationalViews(day._id);
-  const outstandingCreated =
-    totalOutstandingCreatedFromSettlements(settlements);
-  const walletActivity = await buildWalletActivityForBusinessDays([day._id]);
+  const outstandingTrend = await buildBusinessDayOutstandingTrend({
+    businessDayNumber: day.businessDayNumber,
+    openedAt: day.openedAt,
+    closedAt: day.closedAt,
+    settlements,
+    outstandingCreated: finalSummary.outstandingCreated,
+    snapshotted: {
+      openingOutstanding: finalSummary.openingOutstanding,
+      closingOutstanding: finalSummary.closingOutstanding,
+      outstandingRecovered: finalSummary.outstandingCollected,
+    },
+  });
 
   return {
     day: toBusinessDayDTO(day),
@@ -551,16 +426,42 @@ export async function getBusinessDayHistoryDetail(
       day.openedAt
     ).toISOString(),
     summary: {
-      todaysBill: summary.todaysBill,
-      totalReceived: summary.totalPaid,
-      cashCollection: summary.cashCollection,
-      gpayCollection: summary.gpayCollection,
-      walletCollection: summary.walletCollection,
-      outstandingCreated,
+      todaysBill: finalSummary.bill,
+      totalReceived: finalSummary.paid,
+      cashCollection: finalSummary.cashCollection,
+      gpayCollection: finalSummary.gpayCollection,
+      outstandingCreated: finalSummary.outstandingCreated,
+      closingOutstanding: finalSummary.closingOutstanding,
     },
-    gamesSummary,
-    cafeSummary,
-    walletActivity,
+    gamesSummary: {
+      bill: finalSummary.snooker.bill,
+      received: finalSummary.snooker.received,
+      cashCollection: finalSummary.snooker.cashCollection,
+      gpayCollection: finalSummary.snooker.gpayCollection,
+      outstandingCreated: finalSummary.snooker.outstandingCreated,
+    },
+    cafeSummary: {
+      bill: finalSummary.cafe.bill,
+      received: finalSummary.cafe.received,
+      cashCollection: finalSummary.cafe.cashCollection,
+      gpayCollection: finalSummary.cafe.gpayCollection,
+      outstandingCreated: finalSummary.cafe.outstandingCreated,
+    },
+    insights: {
+      overall: {
+        totalRevenue: finalSummary.bill,
+        totalReceived: finalSummary.paid,
+        cashCollection: finalSummary.cashCollection,
+        gpayCollection: finalSummary.gpayCollection,
+        outstandingCreated: finalSummary.outstandingCreated,
+        outstandingRecovered: finalSummary.outstandingCollected,
+      },
+      bigSnooker: finalSummary.bigSnooker,
+      poolMini: finalSummary.poolMini,
+      totalSnooker: finalSummary.snooker,
+      cafe: finalSummary.cafe,
+    },
+    outstandingTrend,
     settlements,
     frames,
     cafe,

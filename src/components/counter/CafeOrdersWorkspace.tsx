@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import {
   assignCafeOrderCustomerAction,
   createCafeOrderAction,
+  deleteCafeOrderAction,
   updateCafeOrderAction,
 } from "@/actions/cafe-orders";
-import { getCustomerWalletInfo } from "@/actions/customers";
 import {
   CAFE_DEFAULT_UNIT_PRICE,
   CAFE_ITEM_TYPE_LABELS,
@@ -15,8 +15,9 @@ import {
   isQtyCafeItemType,
   type CafeItemType,
 } from "@/lib/constants/cafe";
+import { paymentMethodLabel } from "@/lib/constants/notebook-payments";
 import type { CafeOrderDTO, CafeOrderItemDTO } from "@/lib/mappers/cafe-order";
-import { frameDueAmount } from "@/lib/utils/frame-payment";
+import { defaultReceivedForEdit, frameDueAmount } from "@/lib/utils/frame-payment";
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 import type { CustomerDTO } from "@/types";
@@ -26,11 +27,14 @@ import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import {
   EntryPaymentFields,
-  initialUseWalletFromPayment,
   resolveEntryPaymentSubmit,
   type EntryPaymentMode,
 } from "@/components/counter/EntryPaymentFields";
-import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
+import {
+  CustomerPreviewNameButton,
+  CustomerPreviewProvider,
+  invalidateCustomerGlanceCache,
+} from "@/components/counter/CustomerPreviewContext";
 import {
   AlertIcon,
   CafeItemTypeIcon,
@@ -39,6 +43,7 @@ import {
   SearchIcon,
   TrashIcon,
 } from "@/components/counter/CafeItemIcons";
+import { CafeNewTabDialog } from "@/components/counter/CafeNewTabDialog";
 import { CustomerPickerDialog } from "@/components/customers/CustomerPickerDialog";
 
 type DraftItem = {
@@ -90,6 +95,51 @@ function orderItemsSummary(order: CafeOrderDTO): string {
   const countLabel = `${order.itemCount} ${order.itemCount === 1 ? "Item" : "Items"}`;
   if (names.length === 0) return countLabel;
   return `${countLabel}: ${names.join(", ")}`;
+}
+
+/** Due column: "Paid" (or payment mode) when settled — never ₹0. */
+function CafeDueDisplay({
+  due,
+  paymentMethod,
+  className,
+}: {
+  due: number;
+  paymentMethod?: CafeOrderDTO["paymentMethod"];
+  className?: string;
+}) {
+  if (due <= 0) {
+    if (paymentMethod === "CASH" || paymentMethod === "GPAY") {
+      return (
+        <span
+          className={cn(
+            "inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold",
+            paymentMethod === "CASH"
+              ? "bg-emerald-50 text-emerald-800"
+              : "bg-blue-50 text-blue-800",
+            className
+          )}
+        >
+          {paymentMethodLabel(paymentMethod)}
+        </span>
+      );
+    }
+    return (
+      <span className={cn("text-[11px] font-bold text-emerald-700", className)}>
+        Paid
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={cn(
+        "font-semibold tabular-nums text-red-600",
+        className
+      )}
+    >
+      {formatCurrency(due)}
+    </span>
+  );
 }
 
 function CafeAddItemModal({
@@ -356,13 +406,10 @@ function CafeOrderPanel({
   const [customer, setCustomer] = useState<{
     id: string;
     name: string;
-    balance?: number;
-    walletEnabled?: boolean;
   } | null>(null);
   const [items, setItems] = useState<DraftItem[]>([]);
   const [paidAmount, setPaidAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<EntryPaymentMode | "">("");
-  const [useWallet, setUseWallet] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAddItem, setShowAddItem] = useState(false);
   const [editingManual, setEditingManual] = useState<DraftItem | null>(null);
@@ -372,45 +419,28 @@ function CafeOrderPanel({
   useEffect(() => {
     setCustomer(
       order?.customerId
-        ? { id: order.customerId, name: order.customerName }
+        ? {
+            id: order.customerId,
+            name: order.customerName,
+          }
         : null
     );
     setItems(order ? toDraftItems(order.items) : []);
-    setPaidAmount(order ? String(order.received || "") : "");
-    setPaymentMode(order?.paymentMethod ?? "");
-    setUseWallet(
+    setPaidAmount(
       order
-        ? initialUseWalletFromPayment({
-            paymentMethod: order.paymentMethod,
-            walletAmount: order.walletAmount,
-          })
-        : false
+        ? defaultReceivedForEdit(order.amount, order.received)
+        : ""
+    );
+    setPaymentMode(
+      order?.paymentMethod === "CASH" || order?.paymentMethod === "GPAY"
+        ? order.paymentMethod
+        : ""
     );
     setError(null);
     setShowAddItem(false);
     setEditingManual(null);
     setConfirmRemoveKey(null);
   }, [order?.id, mode]);
-
-  useEffect(() => {
-    if (!customer?.id) return;
-    let cancelled = false;
-    void getCustomerWalletInfo(customer.id).then((info) => {
-      if (cancelled || !info) return;
-      setCustomer((prev) =>
-        prev && prev.id === customer.id
-          ? {
-              ...prev,
-              balance: info.balance,
-              walletEnabled: info.walletEnabled,
-            }
-          : prev
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [customer?.id]);
 
   const cafeTotal = items.reduce((sum, item) => sum + draftAmount(item), 0);
   const received = Number.parseInt(paidAmount, 10) || 0;
@@ -451,8 +481,6 @@ function CafeOrderPanel({
     }
     const paymentCheck = resolveEntryPaymentSubmit({
       paidAmount: received,
-      useWallet,
-      walletBalance: customer?.balance ?? 0,
       paymentMode,
     });
     if (!paymentCheck.valid) {
@@ -483,14 +511,12 @@ function CafeOrderPanel({
               customerId: customer?.id,
               items: payloadItems,
               received,
-              useWallet: paymentCheck.useWallet,
               paymentMethod: paymentCheck.paymentMethod,
             })
           : await updateCafeOrderAction({
               orderId: order!.id,
               items: payloadItems,
               received,
-              useWallet: paymentCheck.useWallet,
               paymentMethod: paymentCheck.paymentMethod,
             });
 
@@ -509,9 +535,17 @@ function CafeOrderPanel({
       <div className="flex items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-bold text-gray-900">
-              {customer?.name ?? "Walk-in Customer"}
-            </h2>
+            {customer ? (
+              <CustomerPreviewNameButton
+                customerId={customer.id}
+                customerName={customer.name}
+                className="text-lg font-bold"
+              />
+            ) : (
+              <h2 className="text-lg font-bold text-gray-900">
+                Walk-in Customer
+              </h2>
+            )}
             <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
               Cafe Order
             </span>
@@ -658,14 +692,17 @@ function CafeOrderPanel({
           </div>
           <div className="flex justify-between border-t border-gray-200 pt-1.5">
             <span className="text-gray-500">Due</span>
-            <span
-              className={cn(
-                "font-bold tabular-nums",
-                due > 0 ? "text-red-600" : "text-emerald-800"
-              )}
-            >
-              {formatCurrency(due)}
-            </span>
+            <CafeDueDisplay
+              due={due}
+              paymentMethod={
+                paymentMode === "CASH" || paymentMode === "GPAY"
+                  ? paymentMode
+                  : order?.paymentMethod === "CASH" ||
+                      order?.paymentMethod === "GPAY"
+                    ? order.paymentMethod
+                    : undefined
+              }
+            />
           </div>
         </div>
 
@@ -677,13 +714,9 @@ function CafeOrderPanel({
             amount={cafeTotal}
             paidAmount={paidAmount}
             paymentMode={paymentMode}
-            useWallet={useWallet}
             onPaidAmountChange={setPaidAmount}
             onPaymentModeChange={setPaymentMode}
-            onUseWalletChange={setUseWallet}
             idPrefix="cafe-order"
-            walletEnabled={Boolean(customer?.walletEnabled)}
-            walletBalance={customer?.balance}
           />
         </div>
 
@@ -756,8 +789,6 @@ function CafeOrderPanel({
           setCustomer({
             id: selected.id,
             name: selected.name,
-            balance: selected.balance,
-            walletEnabled: selected.walletEnabled,
           });
           setShowCustomerPicker(false);
         }}
@@ -803,8 +834,11 @@ export function CafeOrdersWorkspace({
   const [search, setSearch] = useState("");
   const [panel, setPanel] = useState<PanelState | null>(null);
   const [assignOrderId, setAssignOrderId] = useState<string | null>(null);
+  const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null);
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [assignError, setAssignError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -834,11 +868,19 @@ export function CafeOrdersWorkspace({
   };
 
   return (
+    <CustomerPreviewProvider>
     <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
       <div className="min-w-0 flex-1">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-bold text-gray-900">Cafe Orders</h2>
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              className="border-emerald-200 text-emerald-900"
+              onClick={() => setNewCustomerOpen(true)}
+            >
+              + New Customer
+            </Button>
             <Button
               variant="secondary"
               className="border-emerald-700 text-emerald-900"
@@ -906,21 +948,43 @@ export function CafeOrdersWorkspace({
                       <p className="text-xs text-gray-500">
                         Amount {formatCurrency(order.amount)} · Received{" "}
                         {formatCurrency(order.received)} ·{" "}
-                        <span className="font-semibold text-red-600">
-                          Due {formatCurrency(due)}
-                        </span>
+                        {due > 0 ? (
+                          <span className="font-semibold text-red-600">
+                            Due {formatCurrency(due)}
+                          </span>
+                        ) : (
+                          <CafeDueDisplay
+                            due={due}
+                            paymentMethod={order.paymentMethod}
+                            className="align-middle"
+                          />
+                        )}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setAssignOrderId(order.id);
-                      }}
-                      disabled={isPending}
-                    >
-                      Assign Customer
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAssignOrderId(order.id);
+                        }}
+                        disabled={isPending}
+                      >
+                        Assign Customer
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteError(null);
+                          setDeleteOrderId(order.id);
+                        }}
+                        disabled={isPending}
+                      >
+                        Delete
+                      </Button>
+                    </div>
                   </li>
                 );
               })}
@@ -982,9 +1046,17 @@ export function CafeOrdersWorkspace({
                               statusDotClass(due, order.received, true)
                             )}
                           />
-                          <span className="font-medium text-gray-900">
-                            {order.customerName}
-                          </span>
+                          {order.customerId ? (
+                            <CustomerPreviewNameButton
+                              customerId={order.customerId}
+                              customerName={order.customerName}
+                              className="text-sm font-medium"
+                            />
+                          ) : (
+                            <span className="font-medium text-gray-900">
+                              {order.customerName}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="max-w-[14rem] truncate px-3 py-3 text-gray-600">
@@ -996,26 +1068,39 @@ export function CafeOrdersWorkspace({
                       <td className="px-3 py-3 text-right tabular-nums">
                         {formatCurrency(order.received)}
                       </td>
-                      <td
-                        className={cn(
-                          "px-3 py-3 text-right font-semibold tabular-nums",
-                          due > 0 ? "text-red-600" : "text-gray-900"
-                        )}
-                      >
-                        {formatCurrency(due)}
+                      <td className="px-3 py-3 text-right">
+                        <CafeDueDisplay
+                          due={due}
+                          paymentMethod={order.paymentMethod}
+                        />
                       </td>
                       <td className="px-3 py-3 text-right">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openOrder(order);
-                          }}
-                        >
-                          <PencilIcon className="text-emerald-700" />
-                          Edit
-                        </button>
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openOrder(order);
+                            }}
+                          >
+                            <PencilIcon className="text-emerald-700" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteError(null);
+                              setDeleteOrderId(order.id);
+                            }}
+                            disabled={isPending}
+                          >
+                            <TrashIcon className="text-red-600" />
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1032,9 +1117,19 @@ export function CafeOrdersWorkspace({
             <span className="tabular-nums">
               Total Amount: {formatCurrency(totals.amount)} · Total Received:{" "}
               {formatCurrency(totals.received)} ·{" "}
-              <span className="font-semibold text-red-600">
-                Total Due: {formatCurrency(totals.due)}
-              </span>
+              {totals.due > 0 ? (
+                <span className="font-semibold text-red-600">
+                  Total Due: {formatCurrency(totals.due)}
+                </span>
+              ) : assigned.length > 0 ? (
+                <span className="font-semibold text-emerald-700">
+                  Total Due: Paid
+                </span>
+              ) : (
+                <span className="font-semibold text-gray-600">
+                  Total Due: {formatCurrency(0)}
+                </span>
+              )}
             </span>
           </div>
         </div>
@@ -1051,6 +1146,15 @@ export function CafeOrdersWorkspace({
           Select a cafe order to view details
         </div>
       )}
+
+      <CafeNewTabDialog
+        open={newCustomerOpen}
+        onClose={() => setNewCustomerOpen(false)}
+        submitLabel="Create Customer"
+        onCreated={() => {
+          router.refresh();
+        }}
+      />
 
       <CustomerPickerDialog
         open={assignOrderId !== null}
@@ -1077,6 +1181,68 @@ export function CafeOrdersWorkspace({
         }}
         title="Assign Customer"
       />
+
+      <Dialog
+        open={deleteOrderId !== null}
+        onClose={() => {
+          if (isPending) return;
+          setDeleteOrderId(null);
+          setDeleteError(null);
+        }}
+        title="Delete this cafe order?"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            This removes the order from today&apos;s cafe notebook. It cannot be
+            undone after the Business Day closes.
+          </p>
+          {deleteError ? (
+            <p className="text-xs text-red-600">{deleteError}</p>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={isPending}
+              onClick={() => {
+                setDeleteOrderId(null);
+                setDeleteError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={isPending || !deleteOrderId}
+              onClick={() => {
+                if (!deleteOrderId) return;
+                setDeleteError(null);
+                startTransition(async () => {
+                  const orderId = deleteOrderId;
+                  const result = await deleteCafeOrderAction({
+                    orderId,
+                  });
+                  if (!result.success) {
+                    setDeleteError(result.error);
+                    return;
+                  }
+                  setDeleteOrderId(null);
+                  setPanel((current) =>
+                    current?.mode === "edit" && current.order.id === orderId
+                      ? null
+                      : current
+                  );
+                  router.refresh();
+                });
+              }}
+            >
+              {isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
+    </CustomerPreviewProvider>
   );
 }

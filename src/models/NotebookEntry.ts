@@ -26,6 +26,11 @@ export interface INotebookEntryCorrection {
   correctionReason: string;
 }
 
+export interface INotebookEntryPaymentAllocation {
+  paymentMethod: NotebookPaymentMethod;
+  amount: number;
+}
+
 export interface INotebookEntryContributor {
   customerId: mongoose.Types.ObjectId;
   customerName: string;
@@ -36,10 +41,12 @@ export interface INotebookEntryContributor {
   counterBalanceAmount?: number;
   status: "PENDING" | "PAID";
   paymentMethod?: NotebookPaymentMethod;
-  /** Auto-computed wallet portion of paidAmount. */
-  walletAmount?: number;
   settlementId?: mongoose.Types.ObjectId;
   paidAt?: Date;
+  /** Staff who last saved this contributor's Cash/GPay payment. */
+  receivedByStaffId?: mongoose.Types.ObjectId;
+  receivedByUsername?: string;
+  receivedAt?: Date;
   visitId?: mongoose.Types.ObjectId;
   billId?: mongoose.Types.ObjectId;
 }
@@ -57,12 +64,11 @@ export interface INotebookEntry extends Document {
   phoneNumber: string;
   status: NotebookEntryStatus;
   paymentMethod?: NotebookPaymentMethod;
+  /** When present, Received is split across Cash and GPay (single-customer frames only). */
+  paymentAllocations?: INotebookEntryPaymentAllocation[];
   settlementId?: mongoose.Types.ObjectId;
   paidByName?: string;
   paidByCustomerId?: mongoose.Types.ObjectId;
-  walletTransactionId?: mongoose.Types.ObjectId;
-  /** Portion of Received taken from wallet (full paid when paymentMethod is WALLET). */
-  walletAmount?: number;
   reversedAt?: Date;
   reversedBy?: string;
   reversalReason?: string;
@@ -91,6 +97,10 @@ export interface INotebookEntry extends Document {
   businessDayId?: mongoose.Types.ObjectId;
   businessDate?: Date;
   contributors: INotebookEntryContributor[];
+  /** Staff who last saved this entry's Cash/GPay payment (non-split). */
+  receivedByStaffId?: mongoose.Types.ObjectId;
+  receivedByUsername?: string;
+  receivedAt?: Date;
   createdBy: string;
   createdByStaffId: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -126,6 +136,19 @@ const notebookEntryCorrectionSchema = new Schema<INotebookEntryCorrection>(
   { _id: false }
 );
 
+const notebookEntryPaymentAllocationSchema =
+  new Schema<INotebookEntryPaymentAllocation>(
+    {
+      paymentMethod: {
+        type: String,
+        enum: ["CASH", "GPAY"],
+        required: true,
+      },
+      amount: { type: Number, required: true, min: 1 },
+    },
+    { _id: false }
+  );
+
 const notebookEntryContributorSchema = new Schema<INotebookEntryContributor>(
   {
     customerId: {
@@ -144,14 +167,19 @@ const notebookEntryContributorSchema = new Schema<INotebookEntryContributor>(
     },
     paymentMethod: {
       type: String,
-      enum: ["CASH", "GPAY", "WALLET"],
+      enum: ["CASH", "GPAY"],
     },
-    walletAmount: { type: Number, min: 0 },
     settlementId: {
       type: Schema.Types.ObjectId,
       ref: "NotebookSettlement",
     },
     paidAt: { type: Date },
+    receivedByStaffId: {
+      type: Schema.Types.ObjectId,
+      ref: "Staff",
+    },
+    receivedByUsername: { type: String, trim: true },
+    receivedAt: { type: Date },
     counterPaidAmount: { type: Number, min: 0 },
     counterBalanceAmount: { type: Number, min: 0 },
     visitId: {
@@ -238,7 +266,11 @@ const notebookEntrySchema = new Schema<INotebookEntry>(
     },
     paymentMethod: {
       type: String,
-      enum: ["CASH", "GPAY", "WALLET"],
+      enum: ["CASH", "GPAY"],
+    },
+    paymentAllocations: {
+      type: [notebookEntryPaymentAllocationSchema],
+      default: undefined,
     },
     settlementId: {
       type: Schema.Types.ObjectId,
@@ -247,8 +279,6 @@ const notebookEntrySchema = new Schema<INotebookEntry>(
     },
     paidByName: { type: String, trim: true },
     paidByCustomerId: { type: Schema.Types.ObjectId, ref: "Customer" },
-    walletTransactionId: { type: Schema.Types.ObjectId, ref: "Transaction" },
-    walletAmount: { type: Number, min: 0 },
     reversedAt: { type: Date },
     reversedBy: { type: String, trim: true },
     reversalReason: { type: String, trim: true },
@@ -297,6 +327,12 @@ const notebookEntrySchema = new Schema<INotebookEntry>(
       index: true,
     },
     contributors: { type: [notebookEntryContributorSchema], default: [] },
+    receivedByStaffId: {
+      type: Schema.Types.ObjectId,
+      ref: "Staff",
+    },
+    receivedByUsername: { type: String, trim: true },
+    receivedAt: { type: Date },
     createdBy: { type: String, required: true, trim: true },
     createdByStaffId: {
       type: Schema.Types.ObjectId,

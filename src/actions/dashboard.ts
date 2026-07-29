@@ -2,7 +2,7 @@
 
 import { connectDB } from "@/lib/db/connect";
 import { authorizePermission } from "@/lib/auth/session";
-import Transaction from "@/models/Transaction";
+import NotebookEntry from "@/models/NotebookEntry";
 import type { DashboardStats } from "@/types";
 
 export async function getDashboardStats(): Promise<DashboardStats> {
@@ -18,37 +18,26 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const [result] = await Transaction.aggregate<{
-    todayRecharges: number;
-    todayDeductions: number;
-    todayTransactionCount: number;
-  }>([
-    { $match: { createdAt: { $gte: startOfDay } } },
-    {
-      $group: {
-        _id: null,
-        todayRecharges: {
-          $sum: {
-            $cond: [
-              { $eq: ["$type", "credit"] },
-              { $ifNull: ["$creditedAmount", 0] },
-              0,
-            ],
-          },
+  const [pendingRow, paidTodayRow, countRow] = await Promise.all([
+    NotebookEntry.aggregate<{ total: number }>([
+      { $match: { status: "PENDING" } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+    NotebookEntry.aggregate<{ total: number }>([
+      {
+        $match: {
+          status: "PAID",
+          createdAt: { $gte: startOfDay },
         },
-        todayDeductions: {
-          $sum: {
-            $cond: [{ $eq: ["$type", "debit"] }, { $ifNull: ["$amount", 0] }, 0],
-          },
-        },
-        todayTransactionCount: { $sum: 1 },
       },
-    },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]),
+    NotebookEntry.countDocuments({ createdAt: { $gte: startOfDay } }),
   ]);
 
   return {
-    todayRecharges: result?.todayRecharges ?? 0,
-    todayDeductions: result?.todayDeductions ?? 0,
-    todayTransactionCount: result?.todayTransactionCount ?? 0,
+    pendingNotebookAmount: pendingRow[0]?.total ?? 0,
+    paidTodayAmount: paidTodayRow[0]?.total ?? 0,
+    todayEntryCount: countRow,
   };
 }

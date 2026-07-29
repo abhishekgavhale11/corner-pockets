@@ -9,6 +9,7 @@ import type {
   NotebookPaymentMethod,
 } from "@/lib/constants/notebook-payments";
 import type { NotebookSection } from "@/lib/constants/notebook-sections";
+import { paymentReceiptDtoFields } from "@/lib/utils/payment-receipt";
 
 type LeanNotebookEntry = {
   _id: { toString(): string };
@@ -24,11 +25,13 @@ type LeanNotebookEntry = {
   phoneNumber: string;
   status: NotebookEntryStatus;
   paymentMethod?: NotebookPaymentMethod;
+  paymentAllocations?: {
+    paymentMethod: NotebookPaymentMethod;
+    amount: number;
+  }[];
   settlementId?: { toString(): string };
   paidByName?: string;
   paidByCustomerId?: { toString(): string };
-  walletTransactionId?: { toString(): string };
-  walletAmount?: number;
   reversedAt?: Date;
   reversedBy?: string;
   reversalReason?: string;
@@ -72,12 +75,17 @@ type LeanNotebookEntry = {
     counterBalanceAmount?: number;
     status: "PENDING" | "PAID";
     paymentMethod?: NotebookPaymentMethod;
-    walletAmount?: number;
     settlementId?: { toString(): string };
     paidAt?: Date;
+    receivedByStaffId?: { toString(): string };
+    receivedByUsername?: string;
+    receivedAt?: Date;
     visitId?: { toString(): string };
     billId?: { toString(): string };
   }[];
+  receivedByStaffId?: { toString(): string };
+  receivedByUsername?: string;
+  receivedAt?: Date;
   createdBy: string;
   createdAt: Date;
 };
@@ -99,11 +107,13 @@ export function toNotebookEntryDTO(entry: LeanNotebookEntry): NotebookEntryDTO {
     isUnassigned: !customerId,
     status: entry.status,
     paymentMethod: entry.paymentMethod,
+    paymentAllocations: entry.paymentAllocations?.map((row) => ({
+      paymentMethod: row.paymentMethod,
+      amount: row.amount,
+    })),
     settlementId: entry.settlementId?.toString(),
     paidByName: entry.paidByName,
     paidByCustomerId: entry.paidByCustomerId?.toString(),
-    walletTransactionId: entry.walletTransactionId?.toString(),
-    walletAmount: entry.walletAmount,
     reversedAt: entry.reversedAt?.toISOString(),
     reversedBy: entry.reversedBy,
     reversalReason: entry.reversalReason,
@@ -147,12 +157,13 @@ export function toNotebookEntryDTO(entry: LeanNotebookEntry): NotebookEntryDTO {
       counterBalanceAmount: contributor.counterBalanceAmount,
       status: contributor.status,
       paymentMethod: contributor.paymentMethod,
-      walletAmount: contributor.walletAmount,
       settlementId: contributor.settlementId?.toString(),
       paidAt: contributor.paidAt?.toISOString(),
+      ...paymentReceiptDtoFields(contributor),
       visitId: contributor.visitId?.toString(),
       billId: contributor.billId?.toString(),
     })),
+    ...paymentReceiptDtoFields(entry),
     createdBy: entry.createdBy,
     createdAt: entry.createdAt.toISOString(),
   };

@@ -213,6 +213,36 @@ Split does not represent payment allocation.
 
 ---
 
+# 7a. Pricing (Rate Card)
+
+CPOS uses a fixed club rate card for new Frames and hourly sessions.
+
+Happy Hour windows (Asia/Kolkata):
+
+• Monday–Friday: 10:00 AM – 4:00 PM
+
+• Saturday–Sunday: 10:00 AM – 2:00 PM
+
+The cashier chooses Regular or Happy Hour when billing. CPOS does not auto-switch rates from the clock.
+
+Base rates (₹):
+
+• Big Snooker Per Frame (Singles): Regular 160 · Happy Hour 130
+
+• Big Snooker Individual: Regular 190 · Happy Hour 160
+
+• Shuffle: Regular 120 · Happy Hour 100
+
+• Mini Snooker (hourly): Regular 260 · Happy Hour 220
+
+• Pool (hourly): Regular 240 · Happy Hour 200
+
+Extra Player is never calculated automatically. When applicable, staff enter the Extra Player fee manually during billing.
+
+The amount resolved at create time is stored on the Frame / session. Historical bills keep their original amounts after rate-card updates.
+
+---
+
 # 8. Cafe
 
 Cafe behaves exactly like Frames.
@@ -283,41 +313,13 @@ Cash
 
 GPay
 
-Wallet
-
-Wallet is a first-class payment method.
-
-Wallet may be used only while paying an active bill.
-
-Supported operational payments:
-
-- Frames
-- Split Frames
-- Cafe Orders
-
-Wallet is automatically consumed.
-
-Wallet Used = min(Wallet Balance, Bill Amount)
-
-The cashier never enters the Wallet amount manually.
-
-If any balance remains, the cashier selects either Cash or GPay for the remaining amount.
-
-Do not allow Wallet + Cash + GPay together.
-
-Wallet Balance can never become negative.
-
-Wallet debit operations must remain transactional.
-
-If Wallet Balance is zero, Wallet is disabled.
-
 If Received = 0
 
 Payment Mode becomes Unassigned.
 
 If Received > 0
 
-Payment Mode becomes mandatory (Cash, GPay, Wallet, or Wallet + Cash/GPay remainder).
+Payment Mode becomes mandatory (Cash or GPay).
 
 There is:
 
@@ -360,6 +362,12 @@ The customer should never have separate bills per module.
 ---
 
 # 11. Financial Summary Engine
+
+## Financial Summary Principle
+
+During an OPEN Business Day, operational modules may compute temporary values to support cashier workflows.
+
+After a Business Day is CLOSED, all financial views must derive their values from the shared Financial Summary calculations. No module may implement its own Bill, Received, Due, Cash, GPay, or Outstanding aggregation logic.
 
 The Financial Summary Engine is the only place allowed to calculate:
 
@@ -407,6 +415,14 @@ Every screen that shows Bill, Received, Due, Cash, GPay, or Outstanding totals m
 
 No second aggregation path is allowed.
 
+If two screens display the same financial metric, they must never calculate it independently. They must consume the same shared aggregation service.
+
+Business Day Close is the financial boundary. After a Business Day is closed, all financial screens must consume the same finalized financial summaries. No module may perform independent financial aggregation of finalized data.
+
+At Business Day Close, the Financial Summary Engine runs once and persists an immutable **Business Day Final Summary**. That record is the financial truth of the closed day (Bill, Paid, Due, Cash, GPay, Outstanding Created, Outstanding Collected, and per-customer settlements). It is never updated when Outstanding Remaining changes after close.
+
+Outstanding remains the live customer ledger for collections. History, Timeline, Lifetime Paid, and Reports read finalized totals from the Business Day Final Summary. Operational collections may still supply drill-down detail (frame lines, cafe items, timestamps) but must not re-derive finalized totals after Close.
+
 ---
 
 # 12. Customer
@@ -423,6 +439,8 @@ Customer Information
 
 Customer Timeline display
 
+Customer Summary display
+
 The Customer module never calculates financial data.
 
 It consumes the Financial Summary Engine.
@@ -432,6 +450,47 @@ Customer Timeline, Outstanding figures, Balance History, and Business Day summar
 The Customer page never edits Frames.
 
 The Customer page never edits Cafe Orders.
+
+Customer Details page summary fields are:
+
+Customer Name
+
+Phone Number
+
+Member Status
+
+Last Visit
+
+Current Outstanding
+
+Total Visits
+
+Lifetime Paid
+
+Current Outstanding come from the Financial Summary Engine.
+
+Total Visits represents the number of unique Business Days on which the customer visited the club.
+
+Total Visits rules:
+
+- One Business Day = One Visit.
+- Multiple visits during the same Business Day count as a single visit.
+- Only finalized (closed) Business Days contribute.
+- Display as a whole number.
+
+Lifetime Paid represents the total finalized money received from the customer throughout their relationship with the club.
+
+Lifetime Paid includes:
+
+- Cash
+- GPay
+
+Lifetime Paid excludes:
+- Pending/Open Business Day payments
+- Opening Outstanding
+- Outstanding amounts not yet collected
+
+Lifetime Paid is derived from finalized financial records.
 
 Customer information is simple.
 
@@ -443,6 +502,37 @@ Mobile Number
 
 Status
 
+Customer page sensitive value behavior:
+
+- Lifetime Paid is hidden by default.
+- An Eye icon reveals or hides Lifetime Paid.
+- This is a UI-only feature.
+- No business logic or financial calculations change.
+
+Customers page footer summary:
+
+- Total Outstanding
+
+Customers page footer rules:
+
+- Totals are calculated from the currently visible customer list.
+- Search and filters affect these totals.
+- Hidden by default.
+- One Eye icon reveals or hides both values together.
+- This is a presentation feature only.
+
+Customers page sorting supports:
+
+- Customer Name
+- Outstanding
+
+Customers page sorting rules:
+
+- Clicking a column toggles ascending and descending order.
+- Sorting is numeric for monetary values.
+- Sorting never changes business data.
+- Sorting only affects presentation.
+
 Customers are never deleted.
 
 Only deactivated.
@@ -453,7 +543,21 @@ Only deactivated.
 
 Outstanding is customer debt.
 
-Outstanding is created only when a Business Day closes.
+Outstanding is created when a Business Day closes with unpaid amounts.
+
+Outstanding may also be created once per customer as Opening Outstanding — an Admin-only migration for debt that existed before CPOS went live.
+
+Opening Outstanding:
+
+• Does not create a Business Day, Frame, Cafe Order, or Payment
+
+• Immediately increases Current Outstanding
+
+• Participates in normal Outstanding Collection (FIFO) like any other Outstanding row
+
+• Is never counted as Today's Bill, Revenue, Due, or Outstanding Created for any Business Day
+
+• Is a historical baseline included in Closing Outstanding and Current Outstanding
 
 Outstanding is never created during normal Counter operations.
 
@@ -461,7 +565,9 @@ Outstanding Balance
 
 increases
 
-when a Business Day closes with unpaid amounts.
+when a Business Day closes with unpaid amounts,
+
+or when Admin records Opening Outstanding.
 
 Outstanding Balance
 
@@ -484,6 +590,14 @@ Outstanding is created only from the validated Due amounts of the Business Day.
 The total Outstanding created must equal the total Due of the Business Day.
 
 If these conditions cannot be proven, Business Day Close must fail.
+
+Current Outstanding identity:
+
+Current Outstanding
+=
+Opening Outstanding
++ Business Day Outstanding Created
+− Outstanding Recovered
 
 ---
 
@@ -527,8 +641,6 @@ Games Summary
 
 Cafe Summary
 
-Wallet Activity
-
 Customer Settlement Summary
 
 Counter Snapshot
@@ -545,15 +657,13 @@ Games Summary combines Big Snooker, Pool and Mini Snooker.
 
 Cafe Summary covers Cafe only.
 
-Wallet Activity is an informational Wallet Recharge audit for that Business Day (or selected History range).
+Business Summary / Business Performance may include Outstanding Created as a day or range total.
 
-Wallet Activity shows Total Recharges, Recharge Received (Paid Amount), Bonus Issued, and Wallet Credit Issued — kept separate, never merged.
+History list rows show Club Outstanding (End of Day): the club receivable when that Business Day closed. It is historical for that day and must not change when later collections occur.
 
-Wallet Recharge is not Business Revenue. Wallet Activity must never change Business Summary revenue calculations.
+Outstanding Recovered is not part of that day's business. It is recovery of prior Outstanding via the Customer page. It must not appear inside Business Performance (Revenue / Business Collection / Outstanding Created). History exposes collections on a dedicated Outstanding tab (Outstanding Collection Ledger), filtered by OutstandingCollection time — never mixed into Revenue or Business Collection.
 
-Business Summary may include Total Outstanding Created as a day total.
-
-Business Day History must not display individual Outstanding records.
+Business Day History must not display individual Outstanding debt records. Collection ledger rows are OutstandingCollection events only.
 
 Business Day History must not expose internal Outstanding implementation details.
 
@@ -576,6 +686,10 @@ Balance History explains:
 How the customer's balance increased.
 
 How the customer's balance decreased.
+
+Opening Outstanding
+
+increases balance (Admin migration baseline).
 
 Business Day Close
 
@@ -643,7 +757,31 @@ Prefer simple workflows over complex automation.
 
 11.
 
-Never hide financial calculations.
+Never hide financial calculations inside the system logic.
+
+12.
+
+Sensitive financial values may be hidden by default in the UI.
+
+13.
+
+The Eye icon is used to reveal or hide sensitive values.
+
+14.
+
+Tables may support click-to-sort.
+
+15.
+
+Summary totals always reflect the currently displayed dataset.
+
+16.
+
+UI enhancements must never change business logic or financial calculations.
+
+17.
+
+Operational speed is preferred over visual complexity.
 
 ---
 
@@ -669,8 +807,6 @@ Reports
 
 Financial Summary Engine
 
-Wallet
-
 Future modules may be added later.
 
 ---
@@ -690,111 +826,6 @@ Analytics
 Settings
 
 These modules must never complicate the existing operational workflow.
-
----
-
-# 18A. Wallet
-
-Wallet has only two operations:
-
-- Recharge
-- Pay
-
-Do not add Wallet Transfer, Adjustment, Expiry, Refund, Sharing, Loyalty Points, Cashback, or Reward Levels.
-
-Wallet is simply another payment method. Do not redesign the payment engine, Business Day, or Customer Settlement.
-
-## Recharge
-
-Offers:
-
-₹1000 → ₹1100
-
-₹3000 → ₹3300
-
-₹5000 → ₹5700
-
-₹10000 → ₹11500
-
-Custom Amount (No Bonus)
-
-Recharge payment methods: Cash or GPay only.
-
-Store: Paid Amount, Bonus, Wallet Credit, Payment Method, Created By, Date & Time.
-
-Wallet Balance increases by Wallet Credit.
-
-If the customer has Outstanding Balance > 0, Wallet Recharge is not allowed.
-
-Display: "Please collect the customer's outstanding before recharging the wallet."
-
-Workflow: Collect Outstanding → Outstanding becomes ₹0 → Recharge Wallet.
-
-Recharge data may be linked to the open Business Day for later reporting. Do not change Business Day revenue cards for Wallet.
-
-Wallet Activity inside Business Day History is the recharge audit for that day or History range. It is informational only and is not Business Revenue.
-
-Store Paid Amount, Bonus, and Wallet Credit as separate values. Never merge them into a single amount.
-
-Definitions:
-
-- Paid Amount = Real money received
-- Bonus = Promotional credit given by the club
-- Wallet Credit = Amount added to the customer's Wallet
-
-## Pay
-
-Wallet is a first-class payment method.
-
-Wallet may be used only while paying an active bill.
-
-Supported operational payments:
-
-- Frames
-- Split Frames
-- Cafe Orders
-
-Wallet is not allowed for Outstanding Collection. Outstanding is collected with Cash or GPay only.
-
-Wallet is automatically consumed.
-
-Wallet Used = min(Wallet Balance, Bill Amount)
-
-The cashier never enters the Wallet amount manually.
-
-Remaining = Bill Amount − Wallet Used
-
-- If Remaining = 0 → payment is Wallet only
-- If Remaining > 0 → cashier selects either Cash or GPay for the remaining amount
-
-Do not allow Wallet + Cash + GPay together.
-
-Do not allow manual Wallet amount entry.
-
-If Wallet Balance is zero, Wallet payment is disabled.
-
-Wallet Balance can never become negative.
-
-All Wallet debit operations must remain transactional.
-
-## Timeline
-
-Customer Timeline must show:
-
-Wallet Recharge — Paid Amount, Bonus, Wallet Credit
-
-Wallet Payment — complete financial story:
-
-- Purpose (Frame Payment / Split Frame Payment / Cafe Payment)
-- Business Day reference
-- Bill details / line items
-- Bill Amount
-- Wallet Used
-- Remaining Cash or GPay (when applicable)
-- Total Paid
-- Balance After Transaction
-
-The owner must never have to guess what a Wallet Payment was used for.
 
 ---
 
@@ -866,7 +897,6 @@ Supported payment methods:
 
 - Cash
 - GPay
-- Wallet
 
 Where applicable, every report should display:
 
@@ -876,13 +906,11 @@ Cash
 
 GPay
 
-Wallet
-
 Outstanding
 
 Identity:
 
-Revenue = Cash + GPay + Wallet + Outstanding
+Revenue = Cash + GPay + Outstanding
 
 Examples:
 
@@ -894,7 +922,7 @@ Cafe
 
 Customer Settlement
 
-Outstanding Collections (Cash / GPay only — Wallet is not used here)
+Outstanding Collections (Cash / GPay only)
 
 The owner should immediately know:
 

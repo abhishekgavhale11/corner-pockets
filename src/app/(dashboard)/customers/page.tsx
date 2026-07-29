@@ -3,7 +3,9 @@ import { getCustomers } from "@/actions/customers";
 import { CustomerSearch } from "@/components/customers/CustomerSearch";
 import { CustomerFilters } from "@/components/customers/CustomerFilters";
 import { CustomerList } from "@/components/customers/CustomerList";
+import { CustomersOverview } from "@/components/customers/CustomersOverview";
 import { NewCustomerButton } from "@/components/customers/NewCustomerDrawer";
+import { HistoryPageLayout } from "@/components/business-day/history";
 import { Pagination } from "@/components/ui/Pagination";
 
 interface CustomersPageProps {
@@ -21,31 +23,43 @@ export default async function CustomersPage({
   const autoOpenRegister = params.register === "1";
   const isOutstanding = filter === "outstanding";
 
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-950">
-            Customers
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage your customers and their outstanding balances
-          </p>
-        </div>
-        <NewCustomerButton autoOpen={autoOpenRegister} />
-      </div>
+  const pageOutstanding = result.items.reduce(
+    (sum, row) => sum + row.outstandingAmount,
+    0
+  );
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Suspense fallback={<div className="h-10 flex-1 rounded-lg bg-gray-100" />}>
-          <CustomerSearch />
-        </Suspense>
-        <Suspense fallback={<div className="h-10 w-48 rounded-lg bg-gray-100" />}>
-          <CustomerFilters
-            allCount={result.allCount}
-            outstandingCount={result.outstandingCount}
-          />
-        </Suspense>
-      </div>
+  return (
+    <HistoryPageLayout
+      title="Customers"
+      subtitle="Manage your customers and their outstanding balances"
+      actions={<NewCustomerButton autoOpen={autoOpenRegister} />}
+      filters={
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Suspense
+            fallback={
+              <div className="h-[42px] flex-1 rounded-[11px] bg-gray-100" />
+            }
+          >
+            <CustomerSearch />
+          </Suspense>
+          <Suspense
+            fallback={
+              <div className="h-[42px] w-52 rounded-[11px] bg-gray-100" />
+            }
+          >
+            <CustomerFilters
+              allCount={result.allCount}
+              outstandingCount={result.outstandingCount}
+            />
+          </Suspense>
+        </div>
+      }
+    >
+      <CustomersOverview
+        totalCustomers={result.allCount}
+        customersWithOutstanding={result.outstandingCount}
+        totalOutstanding={pageOutstanding}
+      />
 
       <CustomerList
         customers={result.items}
@@ -64,6 +78,6 @@ export default async function CustomersPage({
         query={query}
         filter={filter}
       />
-    </div>
+    </HistoryPageLayout>
   );
 }

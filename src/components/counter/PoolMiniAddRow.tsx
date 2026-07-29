@@ -94,7 +94,7 @@ export function PoolMiniAddRow({ section }: PoolMiniAddRowProps) {
   };
 
   return (
-    <div className="border-b border-emerald-200/80 bg-gradient-to-b from-emerald-50 to-emerald-50/40 px-3 py-3">
+    <div className="border-b border-gray-100 bg-white px-3 py-2.5">
       <div className="flex flex-wrap items-end gap-2">
         <SnookerFrameField label="Rate" className="min-w-[9.5rem] flex-[1.2]">
           <div className="flex gap-1">
@@ -110,10 +110,10 @@ export function PoolMiniAddRow({ section }: PoolMiniAddRowProps) {
                   onClick={() => applyRateType(option)}
                   disabled={isPending}
                   className={cn(
-                    "h-9 flex-1 rounded-lg border px-2 text-[12px] font-bold transition-colors",
+                    "h-9 flex-1 rounded-[10px] border px-2 text-[12px] font-bold transition-colors",
                     selected
-                      ? "border-emerald-700 bg-emerald-800 text-white"
-                      : "border-gray-300 bg-white text-gray-700 hover:border-emerald-400 hover:bg-emerald-50"
+                      ? "border-emerald-700 bg-emerald-800 text-white shadow-sm"
+                      : "border-gray-200 bg-white text-gray-700 hover:border-emerald-400 hover:bg-emerald-50"
                   )}
                   title={`${option === "REGULAR" ? "Regular" : "Happy Hour"} · ₹${optionAmount}`}
                 >
@@ -143,13 +143,13 @@ export function PoolMiniAddRow({ section }: PoolMiniAddRowProps) {
             type="button"
             onClick={submit}
             disabled={isPending}
-            className="h-9 whitespace-nowrap rounded-lg bg-emerald-800 px-4 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-45"
+            className="h-9 whitespace-nowrap rounded-[10px] bg-emerald-800 px-4 text-[13px] font-bold text-white shadow-sm shadow-emerald-900/15 transition-colors hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-45"
           >
             {isPending ? "Adding…" : "+ Add"}
           </button>
         </div>
       </div>
-      <p className="mt-1.5 text-[11px] text-emerald-800/70">
+      <p className="mt-1.5 text-[11px] text-gray-500">
         Amount can still be edited — software does not auto-calculate time
       </p>
       {error && (

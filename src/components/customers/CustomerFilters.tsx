@@ -35,7 +35,7 @@ export function CustomerFilters({
 
   return (
     <div
-      className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5"
+      className="inline-flex h-[42px] items-stretch gap-1 rounded-[11px] border border-gray-200 bg-gray-50 p-1"
       role="tablist"
       aria-label="Customer filters"
     >
@@ -49,10 +49,10 @@ export function CustomerFilters({
             aria-selected={isActive}
             onClick={() => setFilter(filter.id)}
             className={cn(
-              "rounded-md px-3.5 py-1.5 text-sm font-semibold transition-colors",
+              "inline-flex items-center rounded-[9px] px-3.5 text-[13px] font-semibold transition-all duration-150",
               isActive
-                ? "bg-white text-emerald-800 shadow-sm ring-1 ring-emerald-200"
-                : "text-gray-500 hover:text-gray-800"
+                ? "bg-white text-gray-900 shadow-sm shadow-gray-900/10"
+                : "text-gray-500 hover:bg-white/70 hover:text-gray-800"
             )}
           >
             {filter.label}

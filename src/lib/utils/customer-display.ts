@@ -1,13 +1,12 @@
 import type { CustomerDTO } from "@/types";
 
-/** Wallet members: Card ID + phone. Regular customers: phone or — */
 export function formatCustomerContactLine(
-  customer: Pick<CustomerDTO, "walletEnabled" | "cardId" | "phone">
+  customer: Pick<CustomerDTO, "cardId" | "phone">
 ): string {
   const phone = customer.phone?.trim();
   const cardId = customer.cardId?.trim();
 
-  if (customer.walletEnabled && cardId) {
+  if (cardId) {
     return phone ? `${cardId} · ${phone}` : cardId;
   }
 
@@ -15,23 +14,23 @@ export function formatCustomerContactLine(
 }
 
 export function hasMembershipCardId(
-  customer: Pick<CustomerDTO, "walletEnabled" | "cardId">
+  customer: Pick<CustomerDTO, "cardId">
 ): boolean {
-  return customer.walletEnabled && Boolean(customer.cardId?.trim());
-}
-
-export function getCustomerMembershipLabel(
-  customer: Pick<CustomerDTO, "walletEnabled" | "isStudent">
-): string {
-  if (customer.walletEnabled && customer.isStudent) return "Student";
-  if (customer.walletEnabled) return "Member";
-  return "Regular";
+  return Boolean(customer.cardId?.trim());
 }
 
 export function getCustomerBadgeIcon(
-  customer: Pick<CustomerDTO, "walletEnabled" | "isStudent">
+  customer: Pick<CustomerDTO, "isStudent" | "cardId">
 ): string {
-  if (customer.walletEnabled && customer.isStudent) return "🎓💳";
-  if (customer.walletEnabled) return "💳";
+  if (customer.cardId?.trim() && customer.isStudent) return "🎓";
+  if (customer.cardId?.trim()) return "🪪";
   return "⚪";
+}
+
+export function getCustomerMembershipLabel(
+  customer: Pick<CustomerDTO, "isStudent" | "cardId">
+): string {
+  if (customer.cardId?.trim() && customer.isStudent) return "Student";
+  if (customer.cardId?.trim()) return "Member";
+  return "Walk-in";
 }

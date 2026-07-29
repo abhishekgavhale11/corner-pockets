@@ -23,7 +23,7 @@ export const CAFE_DEFAULT_UNIT_PRICE: Record<"CIGARETTE" | "WATER", number> = {
 export const CAFE_ORDER_STATUSES = ["OPEN", "CANCELLED"] as const;
 export type CafeOrderStatus = (typeof CAFE_ORDER_STATUSES)[number];
 
-export const CAFE_PAYMENT_METHODS = ["CASH", "GPAY", "WALLET"] as const;
+export const CAFE_PAYMENT_METHODS = ["CASH", "GPAY"] as const;
 export type CafePaymentMethod = (typeof CAFE_PAYMENT_METHODS)[number];
 
 export function isQtyCafeItemType(

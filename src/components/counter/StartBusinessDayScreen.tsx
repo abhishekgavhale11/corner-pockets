@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { openBusinessDayAction } from "@/actions/business-day";
 import { Button } from "@/components/ui/Button";
@@ -17,7 +16,6 @@ export function StartBusinessDayScreen({
 }: {
   canManageBusinessDay: boolean;
 }) {
-  const router = useRouter();
   const [businessDate, setBusinessDate] = useState(() => getBusinessDate());
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -25,14 +23,23 @@ export function StartBusinessDayScreen({
   const handleStart = () => {
     setError(null);
     startTransition(async () => {
-      const formData = new FormData();
-      formData.set("businessDate", businessDate);
-      const result = await openBusinessDayAction(formData);
-      if (!result.success) {
-        setError(result.error);
-        return;
+      try {
+        const formData = new FormData();
+        formData.set("businessDate", businessDate);
+        const result = await openBusinessDayAction(formData);
+        if (!result.success) {
+          setError(result.error);
+          return;
+        }
+        // Action has finished — hard navigate so the Counter layout re-checks
+        // OPEN day. router.refresh() alone can leave cashiers on this gate
+        // after a prior close (stale RSC tree).
+        window.location.assign("/counter/big-snooker");
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to start Business Day"
+        );
       }
-      router.refresh();
     });
   };
 
@@ -55,7 +62,10 @@ export function StartBusinessDayScreen({
             </p>
 
             {error ? (
-              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <div
+                role="alert"
+                className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+              >
                 {error}
               </div>
             ) : null}
@@ -77,8 +87,9 @@ export function StartBusinessDayScreen({
                 fullWidth
                 onClick={handleStart}
                 disabled={isPending || businessDate.trim() === ""}
+                data-testid="start-business-day"
               >
-                Start Business Day
+                {isPending ? "Starting…" : "Start Business Day"}
               </Button>
             </div>
           </>

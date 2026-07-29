@@ -1,6 +1,7 @@
 "use server";
 
 import mongoose from "mongoose";
+import { z } from "zod";
 import { connectDB } from "@/lib/db/connect";
 import { authorizePermission } from "@/lib/auth/session";
 import { getOpenBusinessDayContext } from "@/lib/business-day/require-open-business-day";
@@ -23,6 +24,7 @@ import {
   createRummyCounterEntrySchema,
   createSnookerFrameEntrySchema,
   updateSnookerFrameEntrySchema,
+  paymentAllocationSchema,
   createPoolMiniEntrySchema,
   updatePoolMiniEntrySchema,
   correctCounterEntrySchema,
@@ -34,6 +36,12 @@ import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import { formatCurrency } from "@/lib/utils/format";
 import { applyTimeToDate } from "@/lib/utils/format-time";
 import { framePaymentStatus } from "@/lib/utils/frame-payment";
+import { applySingleCustomerEntryPayment } from "@/lib/notebook/apply-entry-payment";
+import type { PaymentAllocation } from "@/lib/utils/payment-allocations";
+import {
+  applyCashGpayReceipt,
+  type PaymentReceiptFields,
+} from "@/lib/utils/payment-receipt";
 import { getEntryDisplayLabel } from "@/lib/utils/notebook-entry-label";
 import { buildSnookerAmountCorrectionChanges } from "@/lib/utils/entry-corrections";
 import { buildCustomerTodayGlance } from "@/lib/utils/customer-today-glance";
@@ -46,15 +54,6 @@ import {
 import type { NotebookEntryCorrectionChangeDTO } from "@/types";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import { revalidateCounterPaths, revalidateCustomerFinancials } from "@/lib/utils/revalidate-counter";
-import {
-  debitWalletForOperationalPayment,
-  parseUseWalletFlag,
-  remainingPaymentMethodForDebit,
-  resolveWalletDebitAmount,
-} from "@/lib/wallet/operational-payment";
-import { buildWalletPaymentContext } from "@/lib/wallet/wallet-payment-context";
-import { CAFE_ITEM_TYPE_LABELS } from "@/lib/constants/cafe";
-import type { CafeItemType } from "@/lib/constants/cafe";
 import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
 import TableSession from "@/models/TableSession";
@@ -73,6 +72,42 @@ import {
   isSessionPayableEntry,
   sessionEntryAmountRemaining,
 } from "@/lib/utils/entry-contributors";
+
+function parsePaymentAllocationsFromForm(
+  raw: FormDataEntryValue | null
+): PaymentAllocation[] | undefined {
+  if (!raw) return undefined;
+  const text = String(raw).trim();
+  if (!text) return undefined;
+  try {
+    const parsed = JSON.parse(text);
+    const result = z.array(paymentAllocationSchema).max(2).safeParse(parsed);
+    return result.success ? result.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function cashGpayReceiptCreateFields(
+  actor: { id: string; username: string },
+  paymentMethod: string | undefined,
+  receivedAmount: number
+): {
+  receivedByStaffId?: mongoose.Types.ObjectId;
+  receivedByUsername?: string;
+  receivedAt?: Date;
+} {
+  const receipt: PaymentReceiptFields = {};
+  applyCashGpayReceipt(receipt, actor, paymentMethod, receivedAmount);
+  if (!receipt.receivedByStaffId || !receipt.receivedByUsername || !receipt.receivedAt) {
+    return {};
+  }
+  return {
+    receivedByStaffId: receipt.receivedByStaffId,
+    receivedByUsername: receipt.receivedByUsername,
+    receivedAt: receipt.receivedAt,
+  };
+}
 
 export async function createQuickCounterEntry(
   formData: FormData
@@ -257,22 +292,15 @@ export async function updateSnookerFrameEntry(
   }
 
   const splitBilling = formData.get("splitBilling") === "true";
-  const walletAmountRaw = formData.get("walletAmount");
   const parsed = updateSnookerFrameEntrySchema.safeParse({
     entryId: formData.get("entryId"),
     frameType: formData.get("frameType"),
     amount: formData.get("amount"),
     paidAmount: splitBilling ? 0 : formData.get("paidAmount") || 0,
     paymentMethod: formData.get("paymentMethod") || undefined,
-    useWallet: splitBilling
-      ? false
-      : parseUseWalletFlag(formData.get("useWallet")),
-    walletAmount:
-      !splitBilling &&
-      walletAmountRaw !== null &&
-      String(walletAmountRaw).trim() !== ""
-        ? walletAmountRaw
-        : undefined,
+    paymentAllocations: splitBilling
+      ? undefined
+      : parsePaymentAllocationsFromForm(formData.get("paymentAllocations")),
     playerCount: formData.get("playerCount") || undefined,
     entryTime: formData.get("entryTime"),
     customerId: formData.get("customerId") || undefined,
@@ -309,11 +337,10 @@ export async function updateSnookerFrameEntry(
     amount,
     paidAmount,
     paymentMethod,
+    paymentAllocations,
     playerCount,
     entryTime,
     customerId,
-    walletAmount,
-    useWallet,
   } = parsed.data;
 
   if (frameType === "RUMMY") {
@@ -332,13 +359,18 @@ export async function updateSnookerFrameEntry(
   }
 
   if (!parsed.data.splitBilling) {
-    entry.paidAmount = paidAmount;
-    entry.status = framePaymentStatus(amount, paidAmount);
-    if (paidAmount > 0 && paymentMethod) {
-      entry.paymentMethod = paymentMethod;
-    } else {
-      entry.paymentMethod = undefined;
-    }
+    applySingleCustomerEntryPayment(
+      entry,
+      {
+        paidAmount,
+        paymentMethod,
+        paymentAllocations,
+      },
+      {
+        id: authResult.session.user.id,
+        username: authResult.session.user.username,
+      }
+    );
   }
 
   entry.createdAt = applyTimeToDate(entry.createdAt, entryTime);
@@ -362,94 +394,7 @@ export async function updateSnookerFrameEntry(
     }
   }
 
-  let walletDebit = 0;
-  if (!parsed.data.splitBilling) {
-    try {
-      const priorWallet = Math.round(entry.walletAmount ?? 0);
-      let availableBalance = priorWallet;
-      const walletCustomerId =
-        customerId ?? entry.customerId?.toString() ?? undefined;
-      if (walletCustomerId) {
-        const walletCustomer = await Customer.findById(walletCustomerId)
-          .select("balance")
-          .lean();
-        if (walletCustomer) {
-          availableBalance =
-            Math.round(walletCustomer.balance ?? 0) + priorWallet;
-        }
-      }
-      walletDebit = resolveWalletDebitAmount({
-        paidAmount,
-        paymentMethod,
-        useWallet,
-        availableBalance,
-        walletAmount,
-      });
-    } catch (error) {
-      return failure(
-        error instanceof Error ? error.message : "Invalid wallet amount"
-      );
-    }
-  }
-
-  const previousWalletDebit = Math.round(entry.walletAmount ?? 0);
-  const walletDebitDelta = Math.max(0, walletDebit - previousWalletDebit);
-
-  if (walletDebitDelta > 0) {
-    const walletCustomerId = entry.customerId?.toString();
-    if (!walletCustomerId) {
-      return failure("Assign a customer before using wallet");
-    }
-
-    const dbSession = await mongoose.startSession();
-    try {
-      await dbSession.withTransaction(async () => {
-        const frameLabel = getEntryDisplayLabel(entry);
-        const remainderMethod = remainingPaymentMethodForDebit(
-          walletDebit,
-          paidAmount,
-          paymentMethod
-        );
-        const txnId = await debitWalletForOperationalPayment({
-          customerId: walletCustomerId,
-          amount: walletDebitDelta,
-          description: `Frame payment — ${frameLabel}`,
-          staffId: authResult.session.user.id,
-          staffUsername: authResult.session.user.username,
-          dbSession,
-          remainingPaymentMethod: remainderMethod,
-          businessDayId: entry.businessDayId?.toString(),
-          paymentContext: buildWalletPaymentContext({
-            purpose: "FRAME_PAYMENT",
-            billAmount: paidAmount,
-            walletUsed: walletDebitDelta,
-            totalWalletApplied: walletDebit,
-            remainderMethod,
-            lines: [{ label: frameLabel, quantity: 1 }],
-            businessDayId: entry.businessDayId?.toString(),
-          }),
-        });
-        entry.walletAmount = walletDebit;
-        entry.walletTransactionId = txnId;
-        await entry.save({ session: dbSession });
-      });
-    } catch (error) {
-      return failure(
-        error instanceof Error ? error.message : "Wallet payment failed"
-      );
-    } finally {
-      await dbSession.endSession();
-    }
-  } else if (walletDebit > 0) {
-    entry.walletAmount = walletDebit;
-    await entry.save();
-  } else {
-    if (!parsed.data.splitBilling) {
-      entry.walletAmount = undefined;
-      entry.walletTransactionId = undefined;
-    }
-    await entry.save();
-  }
+  await entry.save();
 
   revalidateCounterPaths(entry.customerId?.toString());
   if (priorCustomerId && priorCustomerId !== entry.customerId?.toString()) {
@@ -513,17 +458,14 @@ export async function updatePoolMiniEntry(
     return authResult;
   }
 
-  const walletAmountRaw = formData.get("walletAmount");
   const parsed = updatePoolMiniEntrySchema.safeParse({
     entryId: formData.get("entryId"),
     amount: formData.get("amount"),
     paidAmount: formData.get("paidAmount") || 0,
     paymentMethod: formData.get("paymentMethod") || undefined,
-    useWallet: parseUseWalletFlag(formData.get("useWallet")),
-    walletAmount:
-      walletAmountRaw !== null && String(walletAmountRaw).trim() !== ""
-        ? walletAmountRaw
-        : undefined,
+    paymentAllocations: parsePaymentAllocationsFromForm(
+      formData.get("paymentAllocations")
+    ),
     startTime: formData.get("startTime"),
     endTime: formData.get("endTime") || undefined,
     notes: formData.get("notes") ?? "",
@@ -562,12 +504,11 @@ export async function updatePoolMiniEntry(
     amount,
     paidAmount,
     paymentMethod,
+    paymentAllocations,
     startTime,
     endTime,
     notes,
     customerId,
-    walletAmount,
-    useWallet,
   } = parsed.data;
 
   entry.amount = amount;
@@ -576,13 +517,18 @@ export async function updatePoolMiniEntry(
       entry.type === "MINI" ? "MINI" : "POOL",
       amount
     ) ?? entry.rateType;
-  entry.paidAmount = paidAmount;
-  entry.status = framePaymentStatus(amount, paidAmount);
-  if (paidAmount > 0 && paymentMethod) {
-    entry.paymentMethod = paymentMethod;
-  } else {
-    entry.paymentMethod = undefined;
-  }
+  applySingleCustomerEntryPayment(
+    entry,
+    {
+      paidAmount,
+      paymentMethod,
+      paymentAllocations,
+    },
+    {
+      id: authResult.session.user.id,
+      username: authResult.session.user.username,
+    }
+  );
 
   const baseDate = entry.playStartedAt ?? entry.createdAt;
   entry.playStartedAt = applyTimeToDate(baseDate, startTime);
@@ -613,89 +559,7 @@ export async function updatePoolMiniEntry(
     }
   }
 
-  let walletDebit = 0;
-  try {
-    const previousWalletDebit = Math.round(entry.walletAmount ?? 0);
-    let availableBalance = previousWalletDebit;
-    const walletCustomerId = entry.customerId?.toString();
-    if (walletCustomerId) {
-      const walletCustomer = await Customer.findById(walletCustomerId)
-        .select("balance")
-        .lean();
-      if (walletCustomer) {
-        availableBalance =
-          Math.round(walletCustomer.balance ?? 0) + previousWalletDebit;
-      }
-    }
-    walletDebit = resolveWalletDebitAmount({
-      paidAmount,
-      paymentMethod,
-      useWallet,
-      availableBalance,
-      walletAmount,
-    });
-  } catch (error) {
-    return failure(
-      error instanceof Error ? error.message : "Invalid wallet amount"
-    );
-  }
-
-  const previousWalletDebit = Math.round(entry.walletAmount ?? 0);
-  const walletDebitDelta = Math.max(0, walletDebit - previousWalletDebit);
-
-  if (walletDebitDelta > 0) {
-    const walletCustomerId = entry.customerId?.toString();
-    if (!walletCustomerId) {
-      return failure("Assign a customer before using wallet");
-    }
-
-    const dbSession = await mongoose.startSession();
-    try {
-      await dbSession.withTransaction(async () => {
-        const frameLabel = getEntryDisplayLabel(entry);
-        const remainderMethod = remainingPaymentMethodForDebit(
-          walletDebit,
-          paidAmount,
-          paymentMethod
-        );
-        const txnId = await debitWalletForOperationalPayment({
-          customerId: walletCustomerId,
-          amount: walletDebitDelta,
-          description: `Pool/Mini payment — ${frameLabel}`,
-          staffId: authResult.session.user.id,
-          staffUsername: authResult.session.user.username,
-          dbSession,
-          remainingPaymentMethod: remainderMethod,
-          businessDayId: entry.businessDayId?.toString(),
-          paymentContext: buildWalletPaymentContext({
-            purpose: "FRAME_PAYMENT",
-            billAmount: paidAmount,
-            walletUsed: walletDebitDelta,
-            totalWalletApplied: walletDebit,
-            remainderMethod,
-            lines: [{ label: frameLabel, quantity: 1 }],
-            businessDayId: entry.businessDayId?.toString(),
-          }),
-        });
-        entry.walletAmount = walletDebit;
-        entry.walletTransactionId = txnId;
-        await entry.save({ session: dbSession });
-      });
-    } catch (error) {
-      return failure(
-        error instanceof Error ? error.message : "Wallet payment failed"
-      );
-    } finally {
-      await dbSession.endSession();
-    }
-  } else if (walletDebit > 0) {
-    entry.walletAmount = walletDebit;
-    await entry.save();
-  } else {
-    entry.walletAmount = undefined;
-    entry.walletTransactionId = undefined;
-    await entry.save();
-  }
+  await entry.save();
 
   revalidateCounterPaths(entry.customerId?.toString());
   if (priorCustomerId && priorCustomerId !== entry.customerId?.toString()) {
@@ -896,7 +760,6 @@ export async function correctCafeEntry(
         ? formData.get("paidAmount")
         : undefined,
     paymentMethod: formData.get("paymentMethod") || undefined,
-    useWallet: parseUseWalletFlag(formData.get("useWallet")),
   });
 
   if (!parsed.success) {
@@ -1000,6 +863,15 @@ export async function correctCafeEntry(
     } else {
       entry.paymentMethod = undefined;
     }
+    applyCashGpayReceipt(
+      entry,
+      {
+        id: authResult.session.user.id,
+        username: authResult.session.user.username,
+      },
+      parsed.data.paymentMethod,
+      parsed.data.paidAmount
+    );
   }
 
   entry.status = framePaymentStatus(entry.amount, entry.paidAmount ?? 0);
@@ -1151,6 +1023,7 @@ export async function assignCounterEntryCustomer(
   await entry.save();
 
   revalidateCounterPaths(customer._id.toString());
+  revalidateCustomerFinancials(customer._id.toString());
 
   return success(toNotebookEntryDTO(entry));
 }
@@ -1167,9 +1040,7 @@ export async function setEntryContributors(
     customerId: string;
     amount: number;
     paidAmount?: number;
-    paymentMethod?: "CASH" | "GPAY" | "WALLET";
-    useWallet?: boolean;
-    walletAmount?: number;
+    paymentMethod?: "CASH" | "GPAY";
   }[] = [];
   try {
     contributorsInput = JSON.parse(String(formData.get("contributors") ?? "[]"));
@@ -1192,6 +1063,13 @@ export async function setEntryContributors(
   if (!entry) {
     return failure("Entry not found");
   }
+  const priorCustomerIds = new Set<string>();
+  if (entry.customerId) {
+    priorCustomerIds.add(entry.customerId.toString());
+  }
+  for (const existing of entry.contributors ?? []) {
+    priorCustomerIds.add(existing.customerId.toString());
+  }
 
   if (entry.status === "CANCELLED" || entry.status === "REVERSED") {
     return failure("Cancelled or reversed frames cannot be updated");
@@ -1212,7 +1090,14 @@ export async function setEntryContributors(
     entry.status = "PENDING";
     await entry.save();
 
-    revalidateCounterPaths();
+    if (priorCustomerIds.size === 0) {
+      revalidateCounterPaths();
+    } else {
+      for (const id of priorCustomerIds) {
+        revalidateCounterPaths(id);
+        revalidateCustomerFinancials(id);
+      }
+    }
     return success(toNotebookEntryDTO(entry));
   }
 
@@ -1223,34 +1108,22 @@ export async function setEntryContributors(
     );
   }
 
-  const priorWalletByCustomer = new Map<string, number>();
-  for (const existing of entry.contributors ?? []) {
-    priorWalletByCustomer.set(
-      existing.customerId.toString(),
-      Math.round(
-        (existing as { walletAmount?: number }).walletAmount ?? 0
-      )
-    );
-  }
-
   const contributorDocs: {
     customerId: mongoose.Types.ObjectId;
     customerName: string;
     amount: number;
     paidAmount: number;
     status: "PENDING" | "PAID";
-    paymentMethod?: "CASH" | "GPAY" | "WALLET";
-    walletAmount?: number;
+    paymentMethod?: "CASH" | "GPAY";
+    receivedByStaffId?: mongoose.Types.ObjectId;
+    receivedByUsername?: string;
+    receivedAt?: Date;
   }[] = [];
   let totalPaid = 0;
-  const walletDebits: {
-    customerId: string;
-    amount: number;
-    name: string;
-    paidAmount: number;
-    paymentMethod?: "CASH" | "GPAY" | "WALLET";
-    targetWallet: number;
-  }[] = [];
+  const receiptActor = {
+    id: authResult.session.user.id,
+    username: authResult.session.user.username,
+  };
 
   for (const row of parsed.data.contributors) {
     const customer = await Customer.findById(row.customerId);
@@ -1261,47 +1134,19 @@ export async function setEntryContributors(
     const paidAmount = row.paidAmount ?? 0;
     totalPaid += paidAmount;
 
-    const priorWallet =
-      priorWalletByCustomer.get(customer._id.toString()) ?? 0;
-    const availableBalance =
-      Math.round(customer.balance ?? 0) + priorWallet;
-
-    let targetWallet = 0;
-    try {
-      targetWallet = resolveWalletDebitAmount({
-        paidAmount,
-        paymentMethod: row.paymentMethod,
-        useWallet: row.useWallet,
-        availableBalance,
-      });
-    } catch (error) {
-      return failure(
-        error instanceof Error ? error.message : "Invalid wallet amount"
-      );
-    }
-
-    const walletDebitDelta = Math.max(0, targetWallet - priorWallet);
-    if (walletDebitDelta > 0) {
-      walletDebits.push({
-        customerId: customer._id.toString(),
-        amount: walletDebitDelta,
-        name: customer.name,
-        paidAmount,
-        paymentMethod: row.paymentMethod,
-        targetWallet,
-      });
-    }
-
-    contributorDocs.push({
+    const customerIdStr = customer._id.toString();
+    const method =
+      paidAmount > 0 && row.paymentMethod ? row.paymentMethod : undefined;
+    const contributorDoc: (typeof contributorDocs)[number] = {
       customerId: customer._id,
       customerName: customer.name,
       amount: row.amount,
       paidAmount,
       status: framePaymentStatus(row.amount, paidAmount),
-      paymentMethod:
-        paidAmount > 0 && row.paymentMethod ? row.paymentMethod : undefined,
-      ...(targetWallet > 0 ? { walletAmount: targetWallet } : {}),
-    });
+      paymentMethod: method,
+    };
+    applyCashGpayReceipt(contributorDoc, receiptActor, method, paidAmount);
+    contributorDocs.push(contributorDoc);
   }
 
   entry.contributors = contributorDocs;
@@ -1314,55 +1159,21 @@ export async function setEntryContributors(
   entry.paymentMethod = undefined;
   entry.paidAmount = totalPaid;
   entry.status = framePaymentStatus(entry.amount, totalPaid);
+  applyCashGpayReceipt(entry, receiptActor, undefined, 0);
 
-  if (walletDebits.length > 0) {
-    const dbSession = await mongoose.startSession();
-    try {
-      await dbSession.withTransaction(async () => {
-        for (const debit of walletDebits) {
-          const remainderMethod = remainingPaymentMethodForDebit(
-            debit.targetWallet,
-            debit.paidAmount,
-            debit.paymentMethod
-          );
-          const frameLabel = getEntryDisplayLabel(entry);
-          await debitWalletForOperationalPayment({
-            customerId: debit.customerId,
-            amount: debit.amount,
-            description: `Split frame payment — ${debit.name}`,
-            staffId: authResult.session.user.id,
-            staffUsername: authResult.session.user.username,
-            dbSession,
-            remainingPaymentMethod: remainderMethod,
-            businessDayId: entry.businessDayId?.toString(),
-            paymentContext: buildWalletPaymentContext({
-              purpose: "FRAME_PAYMENT",
-              billAmount: debit.paidAmount,
-              walletUsed: debit.amount,
-              totalWalletApplied: debit.targetWallet,
-              remainderMethod,
-              lines: [{ label: frameLabel, quantity: 1 }],
-              businessDayId: entry.businessDayId?.toString(),
-            }),
-          });
-        }
-        await entry.save({ session: dbSession });
-      });
-    } catch (error) {
-      return failure(
-        error instanceof Error ? error.message : "Wallet payment failed"
-      );
-    } finally {
-      await dbSession.endSession();
-    }
-  } else {
-    await entry.save();
-  }
+  await entry.save();
 
-  revalidateCounterPaths();
+  const affectedCustomerIds = new Set<string>(priorCustomerIds);
   for (const row of contributorDocs) {
-    revalidateCounterPaths(row.customerId.toString());
-    revalidateCustomerFinancials(row.customerId.toString());
+    affectedCustomerIds.add(row.customerId.toString());
+  }
+  if (affectedCustomerIds.size === 0) {
+    revalidateCounterPaths();
+  } else {
+    for (const id of affectedCustomerIds) {
+      revalidateCounterPaths(id);
+      revalidateCustomerFinancials(id);
+    }
   }
 
   return success(toNotebookEntryDTO(entry));
@@ -1774,6 +1585,7 @@ function revalidateFrameCustomers(entry: {
   }
   for (const id of ids) {
     revalidateCounterPaths(id);
+    revalidateCustomerFinancials(id);
   }
 }
 
@@ -1806,7 +1618,6 @@ export async function addCafeItems(
     sessionId: sessionIdRaw ? String(sessionIdRaw) : undefined,
     paidAmount: formData.get("paidAmount") || 0,
     paymentMethod: formData.get("paymentMethod") || undefined,
-    useWallet: parseUseWalletFlag(formData.get("useWallet")),
     items,
   });
 
@@ -1836,24 +1647,6 @@ export async function addCafeItems(
   const paidAmount = parsed.data.paidAmount;
   const paymentMethod =
     paidAmount > 0 ? parsed.data.paymentMethod : undefined;
-
-  let walletDebit = 0;
-  try {
-    walletDebit = resolveWalletDebitAmount({
-      paidAmount,
-      paymentMethod,
-      useWallet: parsed.data.useWallet,
-      availableBalance: customer ? Math.round(customer.balance ?? 0) : 0,
-    });
-  } catch (error) {
-    return failure(
-      error instanceof Error ? error.message : "Invalid wallet amount"
-    );
-  }
-
-  if (walletDebit > 0 && !customer) {
-    return failure("Assign a customer before using wallet");
-  }
 
   const results: NotebookEntryDTO[] = [];
 
@@ -1907,10 +1700,6 @@ export async function addCafeItems(
       const lineStatus = framePaymentStatus(lineAmount, linePaid);
       const linePaymentMethod =
         linePaid > 0 && paymentMethod ? paymentMethod : undefined;
-      const lineWalletAmount =
-        walletDebit > 0 && linePaid > 0
-          ? Math.min(linePaid, walletDebit)
-          : undefined;
 
       // Only merge unpaid identical lines — paid lines stay independent like Frames.
       const canMerge = linePaid === 0;
@@ -1953,9 +1742,26 @@ export async function addCafeItems(
         existing.paidAmount = 0;
         existing.paymentMethod = undefined;
         existing.status = "PENDING";
+        applyCashGpayReceipt(
+          existing,
+          {
+            id: authResult.session.user.id,
+            username: authResult.session.user.username,
+          },
+          undefined,
+          0
+        );
         await existing.save({ session: dbSession ?? undefined });
         results.push(toNotebookEntryDTO(existing));
       } else {
+        const receipt = cashGpayReceiptCreateFields(
+          {
+            id: authResult.session.user.id,
+            username: authResult.session.user.username,
+          },
+          linePaymentMethod,
+          linePaid
+        );
         const [entry] = await NotebookEntry.create(
           [
             {
@@ -1968,9 +1774,7 @@ export async function addCafeItems(
               ...(linePaymentMethod
                 ? { paymentMethod: linePaymentMethod }
                 : {}),
-              ...(lineWalletAmount !== undefined
-                ? { walletAmount: lineWalletAmount }
-                : {}),
+              ...receipt,
               itemNote: item.type === "FOOD" ? item.note?.trim() ?? "" : "",
               ...(isTable
                 ? {
@@ -1996,58 +1800,12 @@ export async function addCafeItems(
     }
   };
 
-  if (walletDebit > 0 && customer) {
-    const dbSession = await mongoose.startSession();
-    try {
-      await dbSession.withTransaction(async () => {
-        const remainderMethod = remainingPaymentMethodForDebit(
-          walletDebit,
-          paidAmount,
-          paymentMethod
-        );
-        const cafeLines = parsed.data.items.map((item) => ({
-          label:
-            item.type === "FOOD" && item.note?.trim()
-              ? item.note.trim()
-              : CAFE_ITEM_TYPE_LABELS[item.type as CafeItemType] ?? item.type,
-          quantity: item.quantity,
-        }));
-        await debitWalletForOperationalPayment({
-          customerId: customer._id.toString(),
-          amount: walletDebit,
-          description: `Cafe items — ₹${walletDebit.toLocaleString("en-IN")}`,
-          staffId: authResult.session.user.id,
-          staffUsername: authResult.session.user.username,
-          dbSession,
-          remainingPaymentMethod: remainderMethod,
-          businessDayId: openDay.businessDayId.toString(),
-          paymentContext: buildWalletPaymentContext({
-            purpose: "CAFE_PAYMENT",
-            billAmount: paidAmount,
-            walletUsed: walletDebit,
-            totalWalletApplied: walletDebit,
-            remainderMethod,
-            lines: cafeLines,
-            businessDayId: openDay.businessDayId.toString(),
-          }),
-        });
-        await createCafeItemEntries(dbSession);
-      });
-    } catch (error) {
-      return failure(
-        error instanceof Error ? error.message : "Wallet payment failed"
-      );
-    } finally {
-      await dbSession.endSession();
-    }
-  } else {
-    try {
-      await createCafeItemEntries();
-    } catch (error) {
-      return failure(
-        error instanceof Error ? error.message : "Failed to add cafe items"
-      );
-    }
+  try {
+    await createCafeItemEntries();
+  } catch (error) {
+    return failure(
+      error instanceof Error ? error.message : "Failed to add cafe items"
+    );
   }
 
   revalidateCounterPaths(customer?._id?.toString());

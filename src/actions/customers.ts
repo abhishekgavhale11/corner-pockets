@@ -10,7 +10,6 @@ import {
   customerSearchSchema,
   updateCustomerDetailsSchema,
   updateStudentStatusSchema,
-  enableWalletMembershipSchema,
 } from "@/lib/validators/customer";
 import {
   createQuickCustomerSchema,
@@ -21,10 +20,7 @@ import {
   normalizeCardId,
   normalizePhone,
 } from "@/lib/utils/phone";
-import {
-  cardIdVerificationSchema,
-  phoneVerificationSchema,
-} from "@/lib/validators/transaction";
+import { phoneVerificationSchema } from "@/lib/validators/customer";
 import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
 import { formatCustomerFullName } from "@/lib/utils/customer-name";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
@@ -208,7 +204,7 @@ export async function getCustomers(
       .sort({ name: 1 })
       .skip(skip)
       .limit(limit)
-      .select("name phone")
+      .select("name phone balance")
       .lean(),
     Customer.countDocuments(listFilter),
     Customer.countDocuments(baseFilter),
@@ -243,30 +239,6 @@ export async function getCustomerById(
   if (!customer) return null;
 
   return toCustomerDTO(customer);
-}
-
-/** Lightweight wallet balance for Counter payment dialogs. */
-export async function getCustomerWalletInfo(
-  customerId: string
-): Promise<{ balance: number; walletEnabled: boolean } | null> {
-  const authResult = await authorizePermission("NOTEBOOK_VIEW");
-  if (!("session" in authResult)) {
-    return null;
-  }
-
-  if (!customerId) return null;
-
-  await connectDB();
-
-  const customer = await Customer.findById(customerId)
-    .select("balance walletEnabled")
-    .lean();
-  if (!customer) return null;
-
-  return {
-    balance: customer.balance ?? 0,
-    walletEnabled: customer.walletEnabled ?? false,
-  };
 }
 
 export async function createCustomer(
@@ -311,8 +283,6 @@ export async function createCustomer(
       name,
       phone,
       isStudent: parsed.data.isStudent ?? false,
-      balance: 0,
-      walletEnabled: true,
     });
 
     revalidatePath("/customers");
@@ -357,7 +327,6 @@ export async function updateStudentStatus(
   await customer.save();
 
   revalidatePath(`/customers/${parsed.data.customerId}`);
-  revalidatePath(`/customers/${parsed.data.customerId}/recharge`);
   revalidatePath("/customers");
 
   return success(toCustomerDTO(customer));
@@ -402,10 +371,6 @@ export async function updateCustomerDetails(
   const currentFirstName = (customer.firstName ?? "").trim();
   const currentLastName = (customer.lastName ?? "").trim();
 
-  if (customer.walletEnabled && !nextCardId) {
-    return failure("Card ID is required for wallet members");
-  }
-
   if (
     customer.name === name &&
     currentFirstName === firstName &&
@@ -426,7 +391,7 @@ export async function updateCustomerDetails(
     }
   }
 
-  if (customer.walletEnabled && nextCardId !== currentCardId) {
+  if (nextCardId !== currentCardId) {
     const existingCard = await Customer.findOne({
       cardId: nextCardId,
       _id: { $ne: customer._id },
@@ -447,7 +412,7 @@ export async function updateCustomerDetails(
     changes.push({ field: "phone", from: customer.phone, to: phone });
   }
 
-  if (customer.walletEnabled && nextCardId !== currentCardId) {
+  if (nextCardId !== currentCardId) {
     changes.push({ field: "cardId", from: currentCardId, to: nextCardId });
   }
 
@@ -455,9 +420,7 @@ export async function updateCustomerDetails(
   customer.lastName = lastName;
   customer.name = name;
   customer.phone = phone;
-  if (customer.walletEnabled) {
-    customer.cardId = nextCardId;
-  }
+  customer.cardId = nextCardId;
   if (changes.length > 0) {
     customer.detailChanges.push({
       changedAt: new Date(),
@@ -468,42 +431,7 @@ export async function updateCustomerDetails(
   await customer.save();
 
   revalidatePath(`/customers/${parsed.data.customerId}`);
-  revalidatePath(`/customers/${parsed.data.customerId}/recharge`);
-  revalidatePath(`/customers/${parsed.data.customerId}/deduct`);
-  revalidatePath(`/customers/${parsed.data.customerId}/transactions`);
   revalidatePath("/customers");
-
-  return success(toCustomerDTO(customer));
-}
-
-export async function verifyCustomerByCardId(
-  formData: FormData
-): Promise<ActionResult<CustomerDTO>> {
-  const authResult = await authorizePermission("CUSTOMER_SEARCH");
-  if (!("session" in authResult)) {
-    return authResult;
-  }
-
-  const parsed = cardIdVerificationSchema.safeParse({
-    cardId: formData.get("cardId"),
-  });
-
-  if (!parsed.success) {
-    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
-  }
-
-  await connectDB();
-
-  const cardId = normalizeCardId(parsed.data.cardId);
-  const customer = await Customer.findOne({
-    cardId,
-    isActive: true,
-    walletEnabled: true,
-  }).lean();
-
-  if (!customer) {
-    return failure("No wallet member found with this Card ID");
-  }
 
   return success(toCustomerDTO(customer));
 }
@@ -581,8 +509,6 @@ export async function createQuickCustomer(
       name,
       ...(phone ? { phone } : {}),
       isStudent: false,
-      balance: 0,
-      walletEnabled: false,
     });
   } catch (error) {
     if (
@@ -643,62 +569,3 @@ export async function updateCustomerNotes(
   return success(toCustomerDTO(customer));
 }
 
-export async function enableWalletMembership(
-  formData: FormData
-): Promise<ActionResult<CustomerDTO>> {
-  const authResult = await authorizePermission("CUSTOMER_REGISTER");
-  if (!("session" in authResult)) {
-    return authResult;
-  }
-
-  const parsed = enableWalletMembershipSchema.safeParse({
-    customerId: formData.get("customerId"),
-    phone: formData.get("phone") || undefined,
-    isStudent: formData.get("isStudent"),
-  });
-
-  if (!parsed.success) {
-    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
-  }
-
-  await connectDB();
-
-  const customer = await Customer.findById(parsed.data.customerId);
-  if (!customer || !customer.isActive) {
-    return failure("Customer not found");
-  }
-
-  if (customer.walletEnabled) {
-    return failure("Customer already has wallet membership");
-  }
-
-  const phone = parsed.data.phone?.trim() || customer.phone.trim();
-  if (!phone) {
-    return failure("Phone number is required for wallet membership");
-  }
-
-  const duplicate = await Customer.findOne({
-    phone,
-    _id: { $ne: customer._id },
-  });
-  if (duplicate) {
-    return failure("A customer with this phone number already exists");
-  }
-
-  customer.phone = phone;
-  if (!customer.cardId?.trim()) {
-    customer.cardId = await generateCardId();
-  }
-  customer.walletEnabled = true;
-  customer.isStudent = parsed.data.isStudent ?? false;
-  if (customer.isStudent) {
-    customer.studentStatusChangedAt = new Date();
-    customer.studentStatusChangedBy = authResult.session.user.username;
-  }
-  await customer.save();
-
-  revalidatePath("/customers");
-  revalidatePath(`/customers/${customer._id.toString()}`);
-
-  return success(toCustomerDTO(customer));
-}

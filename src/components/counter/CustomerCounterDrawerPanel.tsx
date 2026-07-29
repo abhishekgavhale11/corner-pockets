@@ -1,5 +1,15 @@
 "use client";
 
+import { useEffect, useState, useTransition } from "react";
+import {
+  CashGpaySegmentedControl,
+  type PaymentModeOption,
+} from "@/components/ui/CashGpaySegmentedControl";
+import { Button } from "@/components/ui/Button";
+import {
+  markCustomerRemainingAsPaid,
+  type MarkRemainingPaymentInput,
+} from "@/components/counter/mark-customer-remaining-paid";
 import {
   CAFE_ITEM_TYPE_LABELS,
   isQtyCafeItemType,
@@ -9,7 +19,7 @@ import { paymentMethodLabel } from "@/lib/constants/notebook-payments";
 import { sectionLabel } from "@/lib/constants/notebook-sections";
 import { formatCurrency } from "@/lib/utils/format";
 import { getEntryDisplayLabel } from "@/lib/utils/notebook-entry-label";
-import { frameDueAmount, framePaidAmount } from "@/lib/utils/frame-payment";
+import { frameDueFromParts } from "@/lib/utils/frame-payment";
 import type { CafeOrderDTO, CafeOrderItemDTO } from "@/lib/mappers/cafe-order";
 import type { NotebookEntryDTO } from "@/types";
 import type { CustomerCounterDrawerDTO } from "@/types";
@@ -29,14 +39,15 @@ function entryTableLabel(entry: NotebookEntryDTO): string {
 function PaymentStatusCell({
   amount,
   paidAmount,
+  balanceCollectedAmount,
   paymentMethod,
 }: {
   amount: number;
   paidAmount?: number;
-  paymentMethod?: "CASH" | "GPAY" | "WALLET";
+  balanceCollectedAmount?: number;
+  paymentMethod?: "CASH" | "GPAY";
 }) {
-  const paid = framePaidAmount(paidAmount);
-  const due = frameDueAmount(amount, paid);
+  const due = frameDueFromParts(amount, paidAmount, balanceCollectedAmount);
 
   if (due <= 0) {
     if (paymentMethod === "CASH") {
@@ -71,6 +82,7 @@ function lineAmountsForCustomer(
 ): {
   amount: number;
   paidAmount?: number;
+  balanceCollectedAmount?: number;
   paymentMethod?: NotebookEntryDTO["paymentMethod"];
 } {
   const contributor = entry.contributors?.find(
@@ -80,12 +92,14 @@ function lineAmountsForCustomer(
     return {
       amount: contributor.amount,
       paidAmount: contributor.paidAmount,
+      balanceCollectedAmount: contributor.balanceCollectedAmount,
       paymentMethod: contributor.paymentMethod ?? entry.paymentMethod,
     };
   }
   return {
     amount: entry.amount,
     paidAmount: entry.paidAmount,
+    balanceCollectedAmount: entry.balanceCollectedAmount,
     paymentMethod: entry.paymentMethod,
   };
 }
@@ -139,16 +153,48 @@ function CafeOrderRows({ order }: { order: CafeOrderDTO }) {
   );
 }
 
-/**
- * Read-only Counter Customer Drawer — today's activity only.
- * No edit, pay, or payment controls. Totals come from getCustomerCounterDrawer.
- */
 export function CustomerCounterDrawerPanel({
   summary,
+  onPaymentComplete,
 }: {
   summary: CustomerCounterDrawerDTO;
+  onPaymentComplete?: () => void;
 }) {
   const hasCafe = summary.todaysCafeOrders.length > 0;
+  const hasDue = summary.totalDue > 0;
+  const [paymentMode, setPaymentMode] = useState<PaymentModeOption | "">("");
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const canMarkPaid = hasDue && paymentMode !== "" && !isPending;
+
+  useEffect(() => {
+    setPaymentMode("");
+    setError(null);
+  }, [summary.customerId, summary.totalDue]);
+
+  const handlePaymentModeChange = (mode: PaymentModeOption) => {
+    setPaymentMode(mode);
+    setError(null);
+  };
+
+  const handleMarkRemainingAsPaid = () => {
+    if (!canMarkPaid) return;
+
+    const payment: MarkRemainingPaymentInput = {
+      paymentMode,
+    };
+
+    setError(null);
+    startTransition(async () => {
+      const result = await markCustomerRemainingAsPaid(summary, payment);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      onPaymentComplete?.();
+    });
+  };
 
   return (
     <div className="text-left pr-5">
@@ -212,6 +258,7 @@ export function CustomerCounterDrawerPanel({
                       <PaymentStatusCell
                         amount={line.amount}
                         paidAmount={line.paidAmount}
+                        balanceCollectedAmount={line.balanceCollectedAmount}
                         paymentMethod={line.paymentMethod}
                       />
                     </td>
@@ -246,9 +293,34 @@ export function CustomerCounterDrawerPanel({
         )}
       </section>
 
-      <p className="mt-3 text-[11px] text-gray-400">
-        Read only · edit on Counter
-      </p>
+      {hasDue ? (
+        <section className="mt-4 space-y-3 border-t border-gray-200 pt-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              Payment Method
+            </p>
+            <CashGpaySegmentedControl
+              idPrefix="customer-drawer-pay"
+              value={paymentMode}
+              onChange={handlePaymentModeChange}
+              disabled={isPending}
+              size="sm"
+              className="mt-1.5"
+            />
+          </div>
+
+          {error ? <p className="text-xs text-red-600">{error}</p> : null}
+
+          <Button
+            type="button"
+            fullWidth
+            onClick={handleMarkRemainingAsPaid}
+            disabled={!canMarkPaid}
+          >
+            {isPending ? "Applying…" : "Mark Remaining as Paid"}
+          </Button>
+        </section>
+      ) : null}
     </div>
   );
 }

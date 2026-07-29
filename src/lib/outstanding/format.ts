@@ -6,5 +6,6 @@ export function formatOutstandingPublicId(outstandingNumber: number): string {
 export function outstandingSourceLabel(
   sourceType: import("@/lib/constants/outstanding").OutstandingSourceType
 ): string {
+  if (sourceType === "OPENING") return "Opening";
   return sourceType === "FRAME" ? "Frame" : "Cafe";
 }

@@ -18,16 +18,16 @@ export async function openBusinessDay(input: {
   const businessDayNumber = await nextBusinessDayNumberFromDb();
   const openedAt = new Date();
 
-  const [day] = await BusinessDay.create([
-    {
-      businessDayNumber,
-      businessDate: input.businessDate,
-      status: "OPEN",
-      openedAt,
-      openedBy: input.openedBy,
-      openingCash: input.openingCash,
-    },
-  ]);
+  // Single-doc create (not array form) — array create starts a transaction
+  // on replica sets and can hang under MongoMemoryReplSet / flaky RS ready.
+  const day = await BusinessDay.create({
+    businessDayNumber,
+    businessDate: input.businessDate,
+    status: "OPEN",
+    openedAt,
+    openedBy: input.openedBy,
+    openingCash: input.openingCash,
+  });
 
   return toBusinessDayDTO(day);
 }

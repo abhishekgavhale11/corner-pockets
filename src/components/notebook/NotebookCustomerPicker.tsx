@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   createQuickCustomer,
-  verifyCustomerByCardId,
   verifyCustomersByPhone,
 } from "@/actions/customers";
 import type { CustomerDTO } from "@/types";
@@ -22,7 +21,6 @@ export function NotebookCustomerPicker({
   onSelect,
 }: NotebookCustomerPickerProps) {
   const [mode, setMode] = useState<"search" | "create">("search");
-  const [cardId, setCardId] = useState("");
   const [phone, setPhone] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -30,21 +28,6 @@ export function NotebookCustomerPicker({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [phoneMatches, setPhoneMatches] = useState<CustomerDTO[]>([]);
-
-  const handleCardSearch = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    setIsLoading(true);
-    const formData = new FormData();
-    formData.set("cardId", cardId);
-    const result = await verifyCustomerByCardId(formData);
-    setIsLoading(false);
-    if (result.success) {
-      onSelect(result.data);
-      return;
-    }
-    setError(result.error);
-  };
 
   const handlePhoneSearch = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -92,9 +75,6 @@ export function NotebookCustomerPicker({
         <p className="text-sm text-gray-600">
           {selectedCustomer.cardId} · {selectedCustomer.phone}
         </p>
-        <p className="mt-1 text-xs text-gray-500">
-          {selectedCustomer.walletEnabled ? "Wallet enabled" : "Regular customer"}
-        </p>
         <Button
           type="button"
           variant="secondary"
@@ -132,19 +112,7 @@ export function NotebookCustomerPicker({
 
       {mode === "search" ? (
         <div className="space-y-4">
-          <form onSubmit={handleCardSearch} className="space-y-3">
-            <Label htmlFor="nb-card-id">Card ID</Label>
-            <Input
-              id="nb-card-id"
-              value={cardId}
-              onChange={(e) => setCardId(e.target.value.toUpperCase())}
-              placeholder="CP0001"
-            />
-            <Button type="submit" fullWidth disabled={isLoading}>
-              Find by Card ID
-            </Button>
-          </form>
-          <form onSubmit={handlePhoneSearch} className="space-y-3 border-t pt-4">
+          <form onSubmit={handlePhoneSearch} className="space-y-3">
             <Label htmlFor="nb-phone">Phone</Label>
             <Input
               id="nb-phone"
@@ -207,8 +175,7 @@ export function NotebookCustomerPicker({
             />
           </div>
           <p className="text-xs text-gray-500">
-            Saved to the main customer database. Enable wallet from their profile
-            later.
+            Saved to the main customer database for future visits.
           </p>
           <Button type="submit" fullWidth disabled={isLoading}>
             Create & Select

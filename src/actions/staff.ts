@@ -1,8 +1,8 @@
 "use server";
 
-import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/db/connect";
+import { ensureDefaultStaff } from "@/lib/auth/ensure-default-staff";
 import {
   canViewStaffAccount,
   fromProductRole,
@@ -14,7 +14,6 @@ import { authorizePermission, requirePermission } from "@/lib/auth/session";
 import {
   createUserSchema,
   deleteUserSchema,
-  resetUserPasswordSchema,
   updateUserSchema,
 } from "@/lib/validators/staff";
 import Staff from "@/models/Staff";
@@ -24,7 +23,7 @@ import type { StaffAccountDTO } from "@/types";
 type LeanStaff = {
   _id: { toString(): string };
   username: string;
-  name: string;
+  password: string;
   role: StaffRole;
   isActive: boolean;
   createdAt: Date;
@@ -34,7 +33,7 @@ function toStaffAccountDTO(staff: LeanStaff): StaffAccountDTO {
   return {
     id: staff._id.toString(),
     username: staff.username,
-    name: staff.name,
+    password: staff.password,
     role: staff.role,
     isActive: staff.isActive,
     createdAt: staff.createdAt.toISOString(),
@@ -48,7 +47,6 @@ function revalidateUsersPaths() {
   revalidatePath("/admin");
 }
 
-/** Resolve product Admin/Staff to stored role; keep existing Admin tier if still Admin. */
 function resolveStoredRole(
   currentRole: StaffRole,
   productRole: ReturnType<typeof toProductRole>
@@ -56,7 +54,6 @@ function resolveStoredRole(
   if (productRole === "STAFF") {
     return "STAFF";
   }
-  // Keep legacy SUPER_MASTER as Admin; new Admins are stored as MASTER.
   return currentRole === "SUPER_MASTER" ? "SUPER_MASTER" : "MASTER";
 }
 
@@ -83,7 +80,6 @@ async function countActiveAdminsAfterChange(
     count += 1;
   }
 
-  // Target was not an active admin but becomes one.
   const wasActiveAdmin = activeAdmins.some(
     (admin) => admin._id.toString() === targetId
   );
@@ -97,14 +93,24 @@ async function countActiveAdminsAfterChange(
 export async function getManageableStaff(): Promise<StaffAccountDTO[]> {
   const session = await requirePermission("STAFF_VIEW");
   await connectDB();
+  await ensureDefaultStaff();
 
   const actorRole = session.user.role as StaffRole;
   if (!canViewStaffAccount(actorRole)) {
     return [];
   }
 
-  const staffAccounts = await Staff.find().sort({ name: 1 }).lean();
-  return staffAccounts.map((staff) => toStaffAccountDTO(staff));
+  const staffAccounts = await Staff.find().sort({ username: 1 }).lean();
+  return staffAccounts.map((staff) =>
+    toStaffAccountDTO({
+      _id: staff._id,
+      username: staff.username,
+      password: staff.password ?? "",
+      role: staff.role,
+      isActive: staff.isActive,
+      createdAt: staff.createdAt,
+    })
+  );
 }
 
 async function getTargetStaff(
@@ -137,9 +143,8 @@ export async function createUserAction(
   }
 
   const parsed = createUserSchema.safeParse({
-    name: formData.get("name"),
     username: formData.get("username"),
-    password: formData.get("password"),
+    password: formData.get("staffPassword") ?? formData.get("password"),
     role: formData.get("role"),
     isActive: formData.get("isActive") || "true",
   });
@@ -149,20 +154,17 @@ export async function createUserAction(
   }
 
   await connectDB();
+  await ensureDefaultStaff();
 
   const existing = await Staff.findOne({ username: parsed.data.username });
   if (existing) {
     return failure("Username is already taken");
   }
 
-  const role = fromProductRole(parsed.data.role);
-  const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-
   const created = await Staff.create({
-    name: parsed.data.name,
     username: parsed.data.username,
-    passwordHash,
-    role,
+    password: parsed.data.password,
+    role: fromProductRole(parsed.data.role),
     isActive: parsed.data.isActive,
   });
 
@@ -180,8 +182,8 @@ export async function updateUserAction(
 
   const parsed = updateUserSchema.safeParse({
     userId: formData.get("userId"),
-    name: formData.get("name"),
     username: formData.get("username"),
+    password: formData.get("staffPassword") ?? formData.get("password"),
     role: formData.get("role"),
     isActive: formData.get("isActive"),
   });
@@ -191,6 +193,7 @@ export async function updateUserAction(
   }
 
   await connectDB();
+  await ensureDefaultStaff();
 
   const actorRole = authResult.session.user.role as StaffRole;
   const targetResult = await getTargetStaff(
@@ -204,10 +207,7 @@ export async function updateUserAction(
   }
 
   const { target } = targetResult;
-  const resolvedRole = resolveStoredRole(
-    target.role,
-    parsed.data.role
-  );
+  const resolvedRole = resolveStoredRole(target.role, parsed.data.role);
 
   const activeAdminCount = await countActiveAdminsAfterChange(
     target._id.toString(),
@@ -230,51 +230,13 @@ export async function updateUserAction(
     target.username = parsed.data.username;
   }
 
-  target.name = parsed.data.name;
+  target.password = parsed.data.password;
   target.role = resolvedRole;
   target.isActive = parsed.data.isActive;
   await target.save();
 
   revalidateUsersPaths();
   return success(toStaffAccountDTO(target));
-}
-
-export async function resetUserPasswordAction(
-  formData: FormData
-): Promise<ActionResult<void>> {
-  const authResult = await authorizePermission("STAFF_RESET_PASSWORD");
-  if (!("session" in authResult)) {
-    return authResult;
-  }
-
-  const parsed = resetUserPasswordSchema.safeParse({
-    userId: formData.get("userId"),
-    password: formData.get("password"),
-  });
-
-  if (!parsed.success) {
-    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
-  }
-
-  await connectDB();
-
-  const actorRole = authResult.session.user.role as StaffRole;
-  const targetResult = await getTargetStaff(
-    parsed.data.userId,
-    authResult.session.user.id,
-    actorRole
-  );
-
-  if ("error" in targetResult) {
-    return failure(targetResult.error);
-  }
-
-  const { target } = targetResult;
-  target.passwordHash = await bcrypt.hash(parsed.data.password, 12);
-  await target.save();
-
-  revalidateUsersPaths();
-  return success(undefined);
 }
 
 export async function deleteUserAction(
@@ -312,7 +274,6 @@ export async function deleteUserAction(
 
   const { target } = targetResult;
 
-  // Deleting an Active Admin must leave at least one Active Admin.
   const activeAdminCount = await countActiveAdminsAfterChange(
     target._id.toString(),
     "STAFF",

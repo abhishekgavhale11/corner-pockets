@@ -78,6 +78,7 @@ function CustomerDrawerModal({
   visible: boolean;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [epoch, setEpoch] = useState(drawerEpoch);
   const [summary, setSummary] = useState<CustomerCounterDrawerDTO>(() =>
     emptyDrawer(customerId, customerName)
@@ -164,7 +165,13 @@ function CustomerDrawerModal({
         {loading ? (
           <p className="py-8 text-center text-sm text-gray-500">Loading…</p>
         ) : (
-          <CustomerCounterDrawerPanel summary={summary} />
+          <CustomerCounterDrawerPanel
+            summary={summary}
+            onPaymentComplete={() => {
+              invalidateCustomerGlanceCache(customerId);
+              router.refresh();
+            }}
+          />
         )}
       </div>
     </div>,

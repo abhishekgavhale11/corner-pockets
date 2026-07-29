@@ -23,8 +23,6 @@ export interface CustomerDTO {
   studentStatusChangedAt?: string;
   studentStatusChangedBy?: string;
   detailChanges: CustomerDetailChangeDTO[];
-  balance: number;
-  walletEnabled: boolean;
   isActive: boolean;
   createdAt: string;
 }
@@ -62,34 +60,6 @@ export interface ExpenseListResult {
   category: "all" | import("@/lib/constants/expenses").ExpenseCategory;
 }
 
-export interface RechargeAmounts {
-  paidAmount: number;
-  bonusAmount: number;
-  creditedAmount: number;
-}
-
-export interface TransactionDTO {
-  id: string;
-  customerId: string;
-  type: "credit" | "debit";
-  paidAmount?: number;
-  bonusAmount?: number;
-  creditedAmount?: number;
-  amount?: number;
-  balanceAfter: number;
-  description: string;
-  staffUsername: string;
-  isReversal: boolean;
-  reversesTransactionId?: string;
-  reversedAt?: string;
-  reversedBy?: string;
-  reversalReason?: string;
-  reversalTransactionId?: string;
-  verificationMethod?: "CARD" | "PHONE";
-  paymentMethod?: "CASH" | "GPAY";
-  createdAt: string;
-}
-
 export interface CustomerActivityEventDTO {
   id: string;
   kind:
@@ -97,8 +67,6 @@ export interface CustomerActivityEventDTO {
     | "CAFE_ENTRY"
     | "SETTLEMENT"
     | "SETTLEMENT_REVERSAL"
-    | "WALLET_RECHARGE"
-    | "WALLET_DEDUCT"
     | "BALANCE_RECORDED"
     | "NOTE";
   timestamp: string;
@@ -116,8 +84,6 @@ export interface CustomerActivityEventDTO {
   corrections?: NotebookEntryCorrectionDTO[];
   settlementId?: string;
   transactionId?: string;
-  walletRechargeReversed?: boolean;
-  walletTransactionIsReversal?: boolean;
 }
 
 export interface PaginatedResult<T> {
@@ -135,15 +101,15 @@ export interface CustomerListResult extends PaginatedResult<CustomerListRowDTO> 
 }
 
 export interface DashboardStats {
-  todayRecharges: number;
-  todayDeductions: number;
-  todayTransactionCount: number;
+  pendingNotebookAmount: number;
+  paidTodayAmount: number;
+  todayEntryCount: number;
 }
 
 export interface StaffAccountDTO {
   id: string;
   username: string;
-  name: string;
+  password: string;
   role: import("@/lib/auth/roles").StaffRole;
   isActive: boolean;
   createdAt: string;
@@ -165,9 +131,11 @@ export interface NotebookEntryContributorDTO {
   counterBalanceAmount?: number;
   status: "PENDING" | "PAID";
   paymentMethod?: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
-  walletAmount?: number;
   settlementId?: string;
   paidAt?: string;
+  receivedByStaffId?: string;
+  receivedByUsername?: string;
+  receivedAt?: string;
   visitId?: string;
   billId?: string;
 }
@@ -239,6 +207,11 @@ export interface NotebookEntryCorrectionDTO {
   correctionReason: string;
 }
 
+export interface NotebookPaymentAllocationDTO {
+  paymentMethod: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
+  amount: number;
+}
+
 export interface NotebookEntryDTO {
   id: string;
   section: import("@/lib/constants/notebook-sections").NotebookSection;
@@ -254,11 +227,10 @@ export interface NotebookEntryDTO {
   isUnassigned: boolean;
   status: import("@/lib/constants/notebook-payments").NotebookEntryStatus;
   paymentMethod?: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
+  paymentAllocations?: NotebookPaymentAllocationDTO[];
   settlementId?: string;
   paidByName?: string;
   paidByCustomerId?: string;
-  walletTransactionId?: string;
-  walletAmount?: number;
   reversedAt?: string;
   reversedBy?: string;
   reversalReason?: string;
@@ -285,6 +257,9 @@ export interface NotebookEntryDTO {
   billId?: string;
   isLocked?: boolean;
   contributors?: NotebookEntryContributorDTO[];
+  receivedByStaffId?: string;
+  receivedByUsername?: string;
+  receivedAt?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -296,7 +271,6 @@ export interface CustomerOpenTabSummaryDTO {
   customerName: string;
   phoneNumber: string;
   cardId: string;
-  walletEnabled: boolean;
   pendingAmount: number;
   pendingCount: number;
 }
@@ -465,7 +439,6 @@ export interface NotebookSettlementDTO {
   paymentMethod: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
   paidByName: string;
   paidByCustomerId?: string;
-  walletTransactionId?: string;
   contributorPayments?: SettlementContributorPaymentDTO[];
   status: import("@/lib/constants/notebook-payments").NotebookSettlementStatus;
   reversedAt?: string;
@@ -479,7 +452,6 @@ export interface DailyClosingDTO {
   date: string;
   cashCollection: number;
   gpayCollection: number;
-  walletCollection: number;
   pendingAmount: number;
   grandTotal: number;
   sectionSummary: {
@@ -489,12 +461,14 @@ export interface DailyClosingDTO {
 }
 
 export interface CustomerLedgerSummaryDTO {
-  walletBalance: number;
   outstandingAmount: number;
   activeVisitDueAmount: number;
   hasActiveVisitWithDue: boolean;
   openBillsCount: number;
+  /** Distinct closed Business Days the customer participated in. */
   visitCount: number;
+  /** Finalized Cash + GPay payments (excludes recharges). */
+  lifetimePaid: number;
   lastVisitAt: string | null;
   lastPaymentAt: string | null;
   lastPaymentAmount: number | null;
@@ -506,7 +480,6 @@ export type CustomerLedgerEventKind = "charge" | "payment" | "status";
 export type CustomerLedgerPaymentContext =
   | "ACTIVE_VISIT"
   | "OUTSTANDING"
-  | "WALLET"
   | "REFUND";
 
 /** Stable subtype for ledger rows — used for future detail / adjustment / refund flows */
@@ -515,10 +488,7 @@ export type CustomerLedgerEventSubtype =
   | "charge"
   | "payment"
   | "moved_to_outstanding"
-  | "outstanding_paid"
-  | "wallet_recharge"
-  | "wallet_deduct"
-  | "wallet_refund";
+  | "outstanding_paid";
 
 export interface CustomerLedgerLineDTO {
   /** Stable ledger row id for future View Details / Adjustment / Refund actions */
@@ -531,11 +501,9 @@ export interface CustomerLedgerLineDTO {
   eventSubtype?: CustomerLedgerEventSubtype;
   paymentContext?: CustomerLedgerPaymentContext;
   staffUsername: string;
-  walletBalance: number;
   outstandingBalance: number;
   balanceLabel: string;
   transactionId?: string;
-  canReverseRecharge?: boolean;
 }
 
 export interface CustomerOutstandingRowDTO {
@@ -554,26 +522,37 @@ export interface CustomerOutstandingItemDTO {
   id: string;
   publicId: string;
   customerId: string;
-  businessDayId: string;
-  businessDayPublicId: string;
-  businessDate: string;
+  /** Null for Opening Outstanding (no Business Day). */
+  businessDayId: string | null;
+  businessDayPublicId: string | null;
+  businessDate: string | null;
   sourceType: import("@/lib/constants/outstanding").OutstandingSourceType;
-  sourceRecordId: string;
+  /** Null for Opening Outstanding (no Frame/Cafe provenance). */
+  sourceRecordId: string | null;
   originalAmount: number;
   remainingAmount: number;
   status: import("@/lib/constants/outstanding").OutstandingStatus;
   createdAt: string;
   collectedAt: string | null;
   paymentMethod: import("@/lib/constants/outstanding").OutstandingPaymentMethod | null;
+  reason?: string | null;
+  effectiveDate?: string | null;
+  createdBy?: string | null;
 }
 
 export type CustomerActivityEventKind =
   | "BUSINESS_DAY_SUMMARY"
+  | "OPENING_OUTSTANDING"
   | "OUTSTANDING_COLLECTED"
   | "OUTSTANDING_PARTIALLY_COLLECTED"
-  | "WALLET_RECHARGE"
-  | "WALLET_PAYMENT"
   | "LEDGER";
+
+export interface CustomerActivityOpeningOutstandingDTO {
+  amount: number;
+  reason?: string;
+  effectiveDate?: string;
+  createdBy: string;
+}
 
 export interface CustomerActivityCountLineDTO {
   label: string;
@@ -587,6 +566,11 @@ export interface CustomerActivityBusinessDaySummaryDTO {
   todaysBill: number;
   /** Today's Payment (Received). */
   todaysPayment: number;
+  paymentSummary: {
+    cash: number;
+    gpay: number;
+    totalPaid: number;
+  };
   /** Today's Due = Bill − Payment. */
   todaysDue: number;
   /** Outstanding before this Business Day closed. */
@@ -603,40 +587,24 @@ export interface CustomerActivityItemDTO {
   businessDate?: string;
   kind: CustomerActivityEventKind;
   label: string;
-  /** Present on collection / wallet events */
+  /** Present on collection events */
   amount?: number;
-  bonusAmount?: number;
-  creditedAmount?: number;
   paymentMethod?: string;
   paymentMethodLabel?: string;
-  /** Wallet balance after this wallet event. */
-  walletBalanceAfter?: number;
-  /** Cash/GPay used for remainder when Wallet did not cover the full bill. */
-  remainingPaymentMethod?: "CASH" | "GPAY";
-  remainingPaymentMethodLabel?: string;
-  /** Wallet Payment story — purpose + bill breakdown. */
-  walletPayment?: {
-    purpose: string;
-    purposeLabel: string;
-    billAmount: number;
-    walletUsed: number;
-    remainderAmount: number;
-    remainderMethod?: "CASH" | "GPAY";
-    remainderMethodLabel?: string;
-    totalPaid: number;
-    lines?: { label: string; quantity?: number }[];
-    billAmountLabel: string;
-  };
-  /** Who collected / recharged. */
+  /** Who collected (display username). */
   createdBy?: string;
+  receivedByUsername?: string;
+  receivedAt?: string;
   /** Outstanding before this event (Balance History story). */
   previousOutstanding?: number;
   /** Outstanding after this event (Balance History story). */
   outstandingBalance?: number;
-  /** Present on Business Day Closed / Wallet events */
+  /** Present on Business Day Closed events */
   businessDayId?: string;
   businessDayPublicId?: string;
   businessDaySummary?: CustomerActivityBusinessDaySummaryDTO;
+  /** Present on Opening Outstanding events */
+  openingOutstanding?: CustomerActivityOpeningOutstandingDTO;
 }
 
 export interface CustomerBalancePaymentDTO {
@@ -645,7 +613,6 @@ export interface CustomerBalancePaymentDTO {
   amount: number;
   appliedAmount: number;
   paymentMethod: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
-  walletTransactionId?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -672,7 +639,6 @@ export interface BusinessDayCloseCategoryPreviewDTO {
   revenue: number;
   cashCollection: number;
   gpayCollection: number;
-  walletCollection: number;
   outstandingCreated: number;
 }
 
@@ -681,7 +647,6 @@ export interface BusinessDayClosePreviewDTO {
   totalPaid: number;
   cashCollection: number;
   gpayCollection: number;
-  walletCollection: number;
   outstandingAmount: number;
   snooker: BusinessDayCloseCategoryPreviewDTO;
   cafe: BusinessDayCloseCategoryPreviewDTO;
@@ -873,9 +838,52 @@ export interface BusinessDayHistoryListItemDTO {
   businessDate: string;
   openedAt: string;
   closedAt: string;
+  /** Revenue = Games + Cafe bill for that Business Day. */
   todaysBill: number;
+  /** Business Collection = money received against today's Business Day only. */
   totalReceived: number;
   outstandingCreated: number;
+  /**
+   * Outstanding Recovered during this Business Day window
+   * (same formula as History detail Outstanding tab).
+   */
+  outstandingRecovered: number;
+  /**
+   * Club Outstanding (End of Day) = club receivable when this Business Day
+   * closed (as of closedAt). Historical for that day; later collections do
+   * not rewrite this figure. UI label: Club Outstanding (End of Day).
+   */
+  closingOutstanding: number;
+}
+
+/** Customer whose Outstanding increased when this Business Day closed. */
+export interface BusinessDayHistoryOutstandingCreatedRowDTO {
+  customerId: string;
+  customerName: string;
+  amount: number;
+}
+
+/** Outstanding Collection that happened during this Business Day window. */
+export interface BusinessDayHistoryOutstandingRecoveredRowDTO {
+  customerId: string;
+  customerName: string;
+  amount: number;
+  paymentMethod: "Cash" | "GPay" | "—";
+  collectedAt: string;
+}
+
+/**
+ * Outstanding trend for one CLOSED Business Day (History detail tab).
+ * Customer-level only — does not expose Outstanding document internals.
+ */
+export interface BusinessDayHistoryOutstandingTrendDTO {
+  openingOutstanding: number;
+  newOutstandingCreated: number;
+  outstandingRecovered: number;
+  netChange: number;
+  closingOutstanding: number;
+  created: BusinessDayHistoryOutstandingCreatedRowDTO[];
+  recovered: BusinessDayHistoryOutstandingRecoveredRowDTO[];
 }
 
 /** Section rollup for History insight cards (Big Snooker / Pool & Mini / Cafe). */
@@ -884,7 +892,6 @@ export interface BusinessDayHistorySectionSummaryDTO {
   received: number;
   cashCollection: number;
   gpayCollection: number;
-  walletCollection: number;
   outstandingCreated: number;
   /** Frames / games / cafe orders played in this section. */
   gamesPlayed: number;
@@ -897,8 +904,8 @@ export interface BusinessDayHistoryInsightsDTO {
     totalReceived: number;
     cashCollection: number;
     gpayCollection: number;
-    walletCollection: number;
     outstandingCreated: number;
+    outstandingRecovered: number;
   };
   bigSnooker: BusinessDayHistorySectionSummaryDTO;
   poolMini: BusinessDayHistorySectionSummaryDTO;
@@ -906,46 +913,18 @@ export interface BusinessDayHistoryInsightsDTO {
   cafe: BusinessDayHistorySectionSummaryDTO;
 }
 
-/** One Wallet Recharge row for Business Day History (informational, not revenue). */
-export interface BusinessDayHistoryWalletRechargeLineDTO {
-  id: string;
-  customerId: string;
-  customerName: string;
-  /** Real money received for the recharge. */
-  paidAmount: number;
-  /** Promotional credit — kept separate from paidAmount. */
-  bonusAmount: number;
-  /** Amount added to the customer's Wallet (paid + bonus). */
-  walletCredit: number;
-  paymentMethod: "CASH" | "GPAY" | null;
-  createdAt: string;
-  createdBy: string;
-}
-
-/**
- * Wallet Activity audit block for History.
- * Wallet Recharge is NOT Business Revenue — do not fold into summary cards.
- */
-export interface BusinessDayHistoryWalletActivityDTO {
-  totalRecharges: number;
-  /** Sum of Paid Amount (real money). */
-  rechargeReceived: number;
-  /** Sum of Bonus. */
-  bonusIssued: number;
-  /** Sum of Wallet Credit. */
-  walletCreditIssued: number;
-  recharges: BusinessDayHistoryWalletRechargeLineDTO[];
-}
-
 export interface BusinessDayHistorySummaryDTO {
   totalBusinessDays: number;
   totalBill: number;
   totalReceived: number;
   outstandingCreated: number;
+  /**
+   * Legacy rollup field on History list summary (kept for DTO stability).
+   * Outstanding recovery UI lives on History → Outstanding ledger tab.
+   */
+  outstandingRecovered: number;
   /** Richer cards for the History list / range view. */
   insights: BusinessDayHistoryInsightsDTO;
-  /** Informational Wallet Recharge audit for the selected range. */
-  walletActivity: BusinessDayHistoryWalletActivityDTO;
 }
 
 export interface BusinessDayHistoryListResultDTO {
@@ -955,6 +934,35 @@ export interface BusinessDayHistoryListResultDTO {
   summary: BusinessDayHistorySummaryDTO;
 }
 
+/** One OutstandingCollection row for History → Outstanding ledger. */
+export interface OutstandingCollectionLedgerRowDTO {
+  id: string;
+  collectedAt: string;
+  customerId: string;
+  customerName: string;
+  amountCollected: number;
+  paymentMethod: import("@/lib/constants/outstanding").OutstandingPaymentMethod;
+  /** Balance owed immediately before this collection (amount + remainingAfter). */
+  previousOutstanding: number;
+  remainingOutstanding: number;
+  collectedBy: string | null;
+}
+
+export interface OutstandingCollectionLedgerSummaryDTO {
+  /** Live club receivable = Σ customer PENDING outstanding (not date-filtered). */
+  totalClubOutstanding: number;
+  totalOutstandingRecovered: number;
+  collectionCount: number;
+  customersPaidCount: number;
+}
+
+export interface OutstandingCollectionLedgerResultDTO {
+  from: string;
+  to: string;
+  summary: OutstandingCollectionLedgerSummaryDTO;
+  items: OutstandingCollectionLedgerRowDTO[];
+}
+
 export interface BusinessDayHistoryChargeLineDTO {
   entryId: string;
   customerId?: string;
@@ -962,8 +970,9 @@ export interface BusinessDayHistoryChargeLineDTO {
   amount: number;
   paidAmount: number;
   paymentMethod?: import("@/lib/constants/notebook-payments").NotebookPaymentMethod;
-  /** Wallet portion of paidAmount when mixed with Cash/GPay. */
-  walletAmount?: number;
+  paymentAllocations?: NotebookPaymentAllocationDTO[];
+  receivedByUsername?: string;
+  receivedAt?: string;
   createdAt: string;
 }
 
@@ -989,7 +998,6 @@ export interface BusinessDayHistorySettlementRowDTO {
   received: number;
   cashCollection: number;
   gpayCollection: number;
-  walletCollection: number;
   due: number;
 }
 
@@ -999,7 +1007,6 @@ export interface BusinessDayHistoryCategorySummaryDTO {
   received: number;
   cashCollection: number;
   gpayCollection: number;
-  walletCollection: number;
   outstandingCreated: number;
 }
 
@@ -1012,14 +1019,55 @@ export interface BusinessDayHistoryDetailDTO {
     totalReceived: number;
     cashCollection: number;
     gpayCollection: number;
-    walletCollection: number;
     outstandingCreated: number;
+    closingOutstanding: number;
   };
   gamesSummary: BusinessDayHistoryCategorySummaryDTO;
   cafeSummary: BusinessDayHistoryCategorySummaryDTO;
-  /** Informational Wallet Recharge audit — not part of Business Revenue. */
-  walletActivity: BusinessDayHistoryWalletActivityDTO;
+  /** Final Summary section insights — do not re-aggregate from frames. */
+  insights: BusinessDayHistoryInsightsDTO;
+  /** Outstanding opening / created / recovered / closing for this day. */
+  outstandingTrend: BusinessDayHistoryOutstandingTrendDTO;
   settlements: BusinessDayHistorySettlementRowDTO[];
   frames: BusinessDayHistoryFrameLineDTO[];
   cafe: BusinessDayHistoryCafeLineDTO[];
+}
+
+/** Read-only Outstanding ledger integrity (Admin → Data Integrity). */
+export type OutstandingIntegrityFailureReason =
+  | "Ledger identity mismatch"
+  | "remainingAmount < 0"
+  | "remainingAmount > originalAmount"
+  | "COLLECTED status with remainingAmount > 0"
+  | "PENDING status with remainingAmount <= 0";
+
+export interface OutstandingIntegritySummary {
+  customersChecked: number;
+  passed: number;
+  failed: number;
+  totalOutstandingCreated: number;
+  totalOutstandingCollected: number;
+  totalOutstandingRemaining: number;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+}
+
+export interface OutstandingIntegrityCustomerRow {
+  customerId: string;
+  customerName: string;
+  totalCreated: number;
+  totalCollected: number;
+  totalRemaining: number;
+  status: "PASS" | "FAIL";
+  failureReasons: OutstandingIntegrityFailureReason[];
+  /** Present only when status is FAIL. */
+  expectedRemaining?: number;
+  actualRemaining?: number;
+  difference?: number;
+}
+
+export interface OutstandingIntegrityReport {
+  summary: OutstandingIntegritySummary;
+  customers: OutstandingIntegrityCustomerRow[];
 }

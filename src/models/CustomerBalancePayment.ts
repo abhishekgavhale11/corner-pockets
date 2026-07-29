@@ -11,7 +11,6 @@ export interface ICustomerBalancePayment extends Document {
   amount: number;
   appliedAmount: number;
   paymentMethod: NotebookPaymentMethod;
-  walletTransactionId?: mongoose.Types.ObjectId;
   allocations: ICustomerBalancePaymentAllocation[];
   createdBy: string;
   createdByStaffId: mongoose.Types.ObjectId;
@@ -43,12 +42,7 @@ const customerBalancePaymentSchema = new Schema<ICustomerBalancePayment>(
     appliedAmount: { type: Number, required: true, min: 0 },
     paymentMethod: {
       type: String,
-      enum: ["CASH", "GPAY", "WALLET"],
-      required: true,
-    },
-    walletTransactionId: {
-      type: Schema.Types.ObjectId,
-      ref: "Transaction",
+      enum: ["CASH", "GPAY"],
     },
     allocations: {
       type: [customerBalancePaymentAllocationSchema],

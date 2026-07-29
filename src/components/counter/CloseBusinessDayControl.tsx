@@ -8,6 +8,7 @@ import {
   hasOpenBusinessDayAction,
 } from "@/actions/business-day";
 import { CloseBusinessDayConfirmModal } from "@/components/business-day/CloseBusinessDayConfirmModal";
+import { Button } from "@/components/ui/Button";
 import type { BusinessDayClosePreviewDTO } from "@/types";
 
 /**
@@ -69,14 +70,15 @@ export function CloseBusinessDayControl() {
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="danger"
+        size="lg"
         onClick={openConfirm}
         disabled={isPending}
-        className="rounded px-2 py-0.5 text-[10px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
       >
         Close Business Day
-      </button>
+      </Button>
 
       <CloseBusinessDayConfirmModal
         open={confirmOpen}

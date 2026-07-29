@@ -14,6 +14,7 @@ interface MongooseCache {
 declare global {
   var mongooseCache: MongooseCache | undefined;
   var customerIndexesReady: Promise<void> | undefined;
+  var outstandingIndexesReady: Promise<void> | undefined;
 }
 
 const cached: MongooseCache = global.mongooseCache ?? {
@@ -30,7 +31,9 @@ async function ensureCustomerIndexes() {
     global.customerIndexesReady = (async () => {
       try {
         const Customer = (await import("@/models/Customer")).default;
-        await Customer.syncIndexes();
+        if (Customer && typeof Customer.syncIndexes === "function") {
+          await Customer.syncIndexes();
+        }
       } catch (error) {
         console.warn("[corner-pockets] Customer index sync failed:", error);
       }
@@ -38,6 +41,42 @@ async function ensureCustomerIndexes() {
   }
 
   await global.customerIndexesReady;
+}
+
+async function ensureOutstandingIndexes() {
+  if (!global.outstandingIndexesReady) {
+    global.outstandingIndexesReady = (async () => {
+      try {
+        const Outstanding = (await import("@/models/Outstanding")).default;
+        if (!Outstanding || typeof Outstanding.syncIndexes !== "function") {
+          return;
+        }
+
+        // Drop legacy non-partial customerId index that conflicts with
+        // outstanding_opening_customer_unique (same key, different options).
+        try {
+          const indexes = await Outstanding.collection.indexes();
+          const legacy = indexes.find(
+            (idx) =>
+              idx.name === "customerId_1" &&
+              !idx.partialFilterExpression &&
+              JSON.stringify(idx.key) === JSON.stringify({ customerId: 1 })
+          );
+          if (legacy?.name) {
+            await Outstanding.collection.dropIndex(legacy.name);
+          }
+        } catch {
+          // Collection may not exist yet on first boot.
+        }
+
+        await Outstanding.syncIndexes();
+      } catch (error) {
+        console.warn("[corner-pockets] Outstanding index sync failed:", error);
+      }
+    })();
+  }
+
+  await global.outstandingIndexesReady;
 }
 
 export async function connectDB(): Promise<typeof mongoose> {
@@ -68,6 +107,6 @@ export async function connectDB(): Promise<typeof mongoose> {
   }
 
   cached.conn = await cached.promise;
-  await ensureCustomerIndexes();
+  await Promise.all([ensureCustomerIndexes(), ensureOutstandingIndexes()]);
   return cached.conn;
 }

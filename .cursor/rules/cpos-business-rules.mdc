@@ -24,5 +24,10 @@ Key constraints to remember:
 - Outstanding is created only on Business Day close; cashier collects total Outstanding, never individual records.
 - Business Day History is read-only and shows exactly what happened that day.
 - Customer page owns Outstanding, Balance History, and customer info — never edits Frames or Cafe Orders.
+- If two screens display the same financial metric, they must never calculate it independently. They must consume the same shared aggregation service (`src/lib/financial-summary`).
+- Business Day Close is the financial boundary. After close, all financial screens must consume the same finalized financial summaries — no independent aggregation of finalized data.
+- Financial Summary Principle: OPEN day may use temporary operational calculations; CLOSED day financial views must derive Bill / Received / Due / Cash / GPay / Outstanding only from shared Financial Summary calculations.
+- At Close, persist an immutable Business Day Final Summary (`BusinessDayFinalSummary`). Post-close screens read that record for financial totals — never re-aggregate operational collections for finalized money.
+- Game prices live in `src/lib/constants/counter-rates.ts`. Extra Player is never auto-added; staff enter it manually when needed. Stored amounts on historical entries must not change when the rate card updates.
 
 When in doubt, check `docs/00-business-rules.md` before coding.

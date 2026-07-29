@@ -33,10 +33,8 @@ export function SnookerFrameAddRow({ section }: SnookerFrameAddRowProps) {
     setAmount(defaultAmount);
   }, [frameType, playerCount, defaultAmount]);
 
+  // Keep Type, Amount, and Rummy players; only clear ephemeral error.
   const resetForm = () => {
-    setFrameType("");
-    setAmount("");
-    setPlayerCount("4");
     setError(null);
   };
 
@@ -81,7 +79,7 @@ export function SnookerFrameAddRow({ section }: SnookerFrameAddRowProps) {
   };
 
   return (
-    <div className="border-b border-emerald-200/80 bg-gradient-to-b from-emerald-50 to-emerald-50/40 px-3 py-3">
+    <div className="border-b border-gray-100 bg-white px-3 py-2.5">
       <SnookerFrameFields
         frameType={frameType}
         onFrameTypeChange={(type) => {
@@ -109,7 +107,7 @@ export function SnookerFrameAddRow({ section }: SnookerFrameAddRowProps) {
               type="button"
               onClick={submit}
               disabled={isPending || !frameType}
-              className="h-9 whitespace-nowrap rounded-lg bg-emerald-800 px-4 text-[13px] font-bold text-white shadow-sm transition-colors hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-45"
+              className="h-9 whitespace-nowrap rounded-[10px] bg-emerald-800 px-4 text-[13px] font-bold text-white shadow-sm shadow-emerald-900/15 transition-colors hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {isPending ? "Adding…" : "+ Add Frame"}
             </button>

@@ -13,8 +13,6 @@ export function formatLedgerPaymentContextLabel(
       return "Visit";
     case "OUTSTANDING":
       return "Outstanding";
-    case "WALLET":
-      return "Wallet";
     case "REFUND":
       return "Refund";
   }
@@ -30,21 +28,14 @@ export function formatPaymentReceivedDescription(
       return `Cash Received (${contextLabel})`;
     case "GPAY":
       return `GPay Received (${contextLabel})`;
-    case "WALLET":
-      return `Wallet Payment (${contextLabel})`;
   }
 }
 
 export function formatLedgerBalanceLabel(
-  walletBalance: number,
   outstandingBalance: number
 ): string {
   if (outstandingBalance > 0) {
     return `Outstanding ${formatCurrency(outstandingBalance)}`;
-  }
-
-  if (walletBalance > 0) {
-    return `Wallet ${formatCurrency(walletBalance)}`;
   }
 
   return "₹0";

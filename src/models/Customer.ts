@@ -24,8 +24,6 @@ export interface ICustomer extends Document {
   studentStatusChangedAt?: Date;
   studentStatusChangedBy?: string;
   detailChanges: ICustomerDetailChange[];
-  balance: number;
-  walletEnabled: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -61,8 +59,6 @@ const customerSchema = new Schema<ICustomer>(
     studentStatusChangedAt: { type: Date },
     studentStatusChangedBy: { type: String, trim: true },
     detailChanges: { type: [customerDetailChangeSchema], default: [] },
-    balance: { type: Number, required: true, default: 0, min: 0 },
-    walletEnabled: { type: Boolean, default: true },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

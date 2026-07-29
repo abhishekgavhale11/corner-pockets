@@ -51,25 +51,58 @@ Customer Timeline, Outstanding, Balance History, and Business Day summaries on t
 
 The left panel displays a quick summary.
 
-Current fields:
+Customer Details page summary fields:
 
-- Customer Name (Name + Surname)
-- Outstanding
+- Customer Name
 - Phone Number
 - Member Status
 - Last Visit
-
-Future fields:
-
+- Current Outstanding
 - Total Visits
-- Lifetime Spend
-- Favorite Game
-- Membership
-- Wallet
+- Lifetime Paid
 
-Outstanding displayed here is always the customer's current Outstanding balance.
+Current Outstanding come from the Financial Summary Engine.
 
-That figure comes from the Financial Summary Engine.
+Current Outstanding displayed here is always the customer's current Outstanding balance.
+
+Lifetime Paid is hidden by default.
+
+An Eye icon reveals or hides Lifetime Paid.
+
+This is a UI-only feature.
+
+No business logic or financial calculations change.
+
+---
+
+# Total Visits
+
+Total Visits represents the number of unique Business Days on which the customer visited the club.
+
+Rules:
+
+- One Business Day = One Visit.
+- Multiple visits during the same Business Day count as a single visit.
+- Only finalized (closed) Business Days contribute.
+- Display as a whole number.
+
+---
+
+# Lifetime Paid
+
+Lifetime Paid represents the total finalized money received from the customer throughout their relationship with the club.
+
+Include:
+
+- Cash
+- GPay
+
+Exclude:
+- Pending/Open Business Day payments
+- Opening Outstanding
+- Outstanding amounts not yet collected
+
+Lifetime Paid is derived from finalized financial records.
 
 ---
 
@@ -77,11 +110,13 @@ That figure comes from the Financial Summary Engine.
 
 Outstanding represents the amount currently owed by the customer.
 
-Outstanding increases only when a Business Day closes with Due remaining.
+Outstanding increases when a Business Day closes with Due remaining, or when Admin records Opening Outstanding (one-time pre-CPOS migration).
+
+Opening Outstanding does not create a Business Day, Frame, Cafe Order, or Payment. It is a historical baseline only and is never counted as Today's Outstanding Created.
 
 Outstanding decreases only when Outstanding is collected.
 
-Outstanding is never edited manually.
+Outstanding is never edited manually (including Opening Outstanding after creation).
 
 Outstanding is never collected from Checkout.
 
@@ -96,6 +131,30 @@ Outstanding totals come from the Financial Summary Engine.
 Outstanding can only be collected from the Customer page.
 
 Customers with Outstanding are shown via the Outstanding filter on the Customers page.
+
+The Customers page footer displays:
+
+- Total Outstanding
+
+Rules:
+
+- Totals are calculated from the currently visible customer list.
+- Search and filters affect these totals.
+- Hidden by default.
+- One Eye icon reveals or hides both values together.
+- This is a presentation feature only.
+
+The Customers page supports sorting by:
+
+- Customer Name
+- Outstanding
+
+Sorting rules:
+
+- Clicking a column toggles ascending and descending order.
+- Sorting is numeric for monetary values.
+- Sorting never changes business data.
+- Sorting only affects presentation.
 
 It never collects payment.
 
@@ -251,6 +310,7 @@ Show only events that changed the customer's Outstanding.
 
 Includes:
 
+- Opening Outstanding
 - Business Days where Due > ₹0
 - Outstanding Collections
 
@@ -365,6 +425,14 @@ Outstanding Collection cards should be compact.
 
 Visual hierarchy should prioritize information over decoration.
 
+Sensitive financial values may be hidden by default.
+
+The Eye icon is used to reveal or hide sensitive values.
+
+Summary totals always reflect the currently displayed dataset.
+
+UI enhancements must never change business logic or financial calculations.
+
 ---
 
 # Design Principles
@@ -411,11 +479,10 @@ The cashier should understand the customer's relationship with the club within s
 
 The following are intentionally postponed.
 
-- Wallet
 - Membership
 - Customer Notes
 - Customer Tags
-- Lifetime Spend Analytics
+- Lifetime Paid Analytics
 - Favorite Games
 - WhatsApp
 - Loyalty Program
@@ -440,7 +507,7 @@ Did the customer pay in full yesterday?
 
 What did the customer play?
 
-How much did they spend?
+How much has the customer paid over time?
 
 The Customer page should become the customer's passbook.
 

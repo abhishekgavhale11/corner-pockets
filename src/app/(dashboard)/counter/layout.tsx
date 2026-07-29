@@ -4,6 +4,9 @@ import { hasPermission, type StaffRole } from "@/lib/auth/roles";
 import { hasOpenBusinessDay } from "@/lib/business-day/queries";
 import { StartBusinessDayScreen } from "@/components/counter/StartBusinessDayScreen";
 
+/** Always re-check OPEN day — stale layout cache would leave cashiers stuck on the gate. */
+export const dynamic = "force-dynamic";
+
 /**
  * Counter gate: asks Business Day module only whether an OPEN day exists.
  * No close/reopen/validation rules live here.

@@ -8,7 +8,7 @@ import {
   toCafeOrderDTO,
   type CafeOrderDTO,
 } from "@/lib/mappers/cafe-order";
-import { frameDueAmount, framePaidAmount } from "@/lib/utils/frame-payment";
+import { frameDueAmount, frameReceivedAmount } from "@/lib/utils/frame-payment";
 import { CAFE_SECTION } from "@/lib/constants/counter-sections";
 import { CAFE_ITEM_TYPES, type CafeItemType } from "@/lib/constants/cafe";
 import { NOTEBOOK_SECTIONS } from "@/lib/constants/notebook-sections";
@@ -47,7 +47,10 @@ function legacyNotebookCafeToOrderDTO(entry: NotebookEntryDTO): CafeOrderDTO | n
   if (!isCafeItemType(entry.type)) return null;
 
   const amount = entry.amount;
-  const received = framePaidAmount(entry.paidAmount);
+  const received = frameReceivedAmount(
+    entry.paidAmount,
+    entry.balanceCollectedAmount
+  );
   const paymentMethod =
     entry.paymentMethod === "CASH" || entry.paymentMethod === "GPAY"
       ? entry.paymentMethod
@@ -145,9 +148,13 @@ export async function getCustomerCounterDrawer(
   let todaysBill = 0;
   let totalReceived = 0;
 
-  const addToTotals = (amount: number, paidAmount?: number | null) => {
+  const addToTotals = (
+    amount: number,
+    paidAmount?: number | null,
+    balanceCollectedAmount?: number | null
+  ) => {
     todaysBill += amount;
-    totalReceived += framePaidAmount(paidAmount);
+    totalReceived += frameReceivedAmount(paidAmount, balanceCollectedAmount);
   };
 
   for (const raw of entries) {
@@ -157,9 +164,13 @@ export async function getCustomerCounterDrawer(
     );
 
     if (contributor) {
-      addToTotals(contributor.amount, contributor.paidAmount);
+      addToTotals(
+        contributor.amount,
+        contributor.paidAmount,
+        contributor.balanceCollectedAmount
+      );
     } else {
-      addToTotals(raw.amount, raw.paidAmount);
+      addToTotals(raw.amount, raw.paidAmount, raw.balanceCollectedAmount);
     }
 
     if (raw.section === CAFE_SECTION) {

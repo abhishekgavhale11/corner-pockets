@@ -31,7 +31,6 @@ import {
   validateContributorRows,
   type ContributorRow,
 } from "@/components/counter/ContributorsSplitFields";
-import { initialUseWalletFromPayment } from "@/components/counter/EntryPaymentFields";
 import { assignCounterEntryCustomer } from "@/actions/notebook-entries";
 
 interface EntryCorrectionDialogProps {
@@ -69,13 +68,9 @@ export function EntryCorrectionDialog({
         paidAmount: String(contributor.paidAmount ?? 0),
         paymentMethod:
           contributor.paymentMethod === "CASH" ||
-          contributor.paymentMethod === "GPAY" ||
-          contributor.paymentMethod === "WALLET"
+          contributor.paymentMethod === "GPAY"
             ? contributor.paymentMethod
             : "",
-        useWallet: initialUseWalletFromPayment({
-          paymentMethod: contributor.paymentMethod,
-        }),
       })) ?? []
     );
     setSelectedCustomerId(entry.customerId ?? "");

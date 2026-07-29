@@ -36,13 +36,13 @@ function formatDisplayDate(date: string): string {
  */
 function affectsOutstandingBalance(item: CustomerActivityItemDTO): boolean {
   switch (item.kind) {
+    case "OPENING_OUTSTANDING":
     case "OUTSTANDING_COLLECTED":
     case "OUTSTANDING_PARTIALLY_COLLECTED":
       return true;
     case "BUSINESS_DAY_SUMMARY":
       return (item.businessDaySummary?.todaysDue ?? 0) > 0;
     default:
-      // Future balance-changing kinds (reversals, adjustments) go here.
       return false;
   }
 }
@@ -115,20 +115,6 @@ function IconCard({ className }: { className?: string }) {
         strokeWidth="1.5"
       />
       <path d="M2 8h16" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function IconUser({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden>
-      <circle cx="10" cy="7" r="3" stroke="currentColor" strokeWidth="1.5" />
-      <path
-        d="M4 16c1.5-2.5 3.5-3.5 6-3.5s4.5 1 6 3.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
     </svg>
   );
 }
@@ -220,29 +206,93 @@ function BalanceStrip({
   );
 }
 
-function PaidInFullStatus() {
+function TimelineMarker({
+  tone,
+}: {
+  tone: "charge" | "collect" | "outstanding";
+}) {
+  const background =
+    tone === "charge" ? GREEN : tone === "outstanding" ? "#E65100" : BLUE;
+  const showUp = tone === "charge";
   return (
-    <div className="rounded bg-[#E8F5E9] px-2.5 py-1.5 text-[11px] font-semibold text-[#2E7D32]">
-      Status <span className="ml-1">✓ Paid in Full</span>
+    <div className="relative z-[1] flex w-4 shrink-0 justify-center">
+      <div
+        className="flex h-4 w-4 items-center justify-center rounded-full text-white shadow-sm"
+        style={{ backgroundColor: background }}
+      >
+        {showUp ? (
+          <IconArrowUp className="h-2.5 w-2.5" />
+        ) : (
+          <IconArrowDown className="h-2.5 w-2.5" />
+        )}
+      </div>
     </div>
   );
 }
 
-function TimelineMarker({ tone }: { tone: "charge" | "collect" }) {
-  const isCharge = tone === "charge";
+function TimelineMeta({
+  date,
+  caption,
+  time,
+}: {
+  date: string;
+  caption?: string;
+  time?: string;
+}) {
   return (
-    <div className="relative z-[1] flex w-5 shrink-0 justify-center">
-      <div
-        className="flex h-5 w-5 items-center justify-center rounded-full text-white"
-        style={{ backgroundColor: isCharge ? GREEN : BLUE }}
-      >
-        {isCharge ? (
-          <IconArrowUp className="h-3 w-3" />
-        ) : (
-          <IconArrowDown className="h-3 w-3" />
-        )}
-      </div>
+    <div className="w-[5.25rem] shrink-0 pt-0.5 text-right sm:w-[6rem]">
+      <time className="block text-[11px] font-bold uppercase leading-tight tracking-wide text-gray-800">
+        {formatDisplayDate(date)}
+      </time>
+      {caption ? (
+        <p className="mt-0.5 text-[10px] leading-tight text-gray-500">
+          {caption}
+        </p>
+      ) : null}
+      {time ? (
+        <p className="mt-0.5 text-[10px] leading-tight text-gray-400">
+          {formatBusinessDayTime(time)}
+        </p>
+      ) : null}
     </div>
+  );
+}
+
+function DayStatusBadge({
+  paidInFull,
+  todaysDue,
+}: {
+  paidInFull: boolean;
+  todaysDue: number;
+}) {
+  if (paidInFull) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+        <span aria-hidden>✓</span>
+        Paid in Full
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#B71C1C]">
+      <span aria-hidden>⚠</span>
+      Outstanding {formatCurrency(todaysDue)}
+    </span>
+  );
+}
+
+function PaymentMethodDot({
+  kind,
+}: {
+  kind: "cash" | "gpay";
+}) {
+  const className =
+    kind === "gpay" ? "bg-sky-600" : "bg-emerald-600";
+  return (
+    <span
+      className={`inline-block h-2 w-2 shrink-0 rounded-full ${className}`}
+      aria-hidden
+    />
   );
 }
 
@@ -253,67 +303,40 @@ function CollectionCard({ item }: { item: CustomerActivityItemDTO }) {
 
   return (
     <div className="relative flex gap-2.5">
-      <div className="w-[4.75rem] shrink-0 pt-0.5 text-right sm:w-[5.5rem]">
-        <time className="block text-[10px] font-bold uppercase leading-tight tracking-wide text-[#424242]">
-          {formatDisplayDate(item.timestamp)}
-        </time>
-        <p className="mt-0.5 text-[10px] leading-tight text-[#757575]">
-          {formatBusinessDayTime(item.timestamp)}
-        </p>
-      </div>
+      <TimelineMeta date={item.timestamp} time={item.timestamp} />
 
       <TimelineMarker tone="collect" />
 
-      <article className="min-w-0 flex-1 overflow-hidden rounded-md border border-[#BBDEFB] bg-white shadow-sm">
+      <article className="min-w-0 flex-1 overflow-hidden rounded-[10px] border border-sky-200 bg-white shadow-sm shadow-gray-900/5">
         <div className="flex items-center justify-between gap-2 px-3 pt-2">
-          <h3
-            className="text-[11px] font-bold uppercase tracking-wide"
-            style={{ color: BLUE }}
-          >
+          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-sky-800">
             Outstanding Collected
           </h3>
-          <p
-            className="shrink-0 text-xs font-bold tabular-nums"
-            style={{ color: BLUE }}
-          >
+          <p className="shrink-0 text-[13px] font-semibold tabular-nums text-sky-800">
             Collected {formatCurrency(collected)}
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 px-3 py-2" style={{ color: BLUE }}>
+        <div className="grid grid-cols-2 gap-2 px-3 py-2">
           <div className="flex items-start gap-1.5">
-            <IconCash className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <div className="min-w-0 text-[#212121]">
-              <p className="text-[10px] leading-tight text-[#9E9E9E]">
+            <IconCash className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-700" />
+            <div className="min-w-0">
+              <p className="text-[11px] leading-tight text-gray-500">
                 Collected Amount
               </p>
-              <p
-                className="text-xs font-bold tabular-nums"
-                style={{ color: BLUE }}
-              >
+              <p className="text-[13px] font-semibold tabular-nums text-sky-800">
                 − {formatCurrency(collected)}
               </p>
             </div>
           </div>
           <div className="flex items-start gap-1.5">
-            <IconCard className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <div className="min-w-0 text-[#212121]">
-              <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                Payment Mode
+            <IconCard className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-700" />
+            <div className="min-w-0">
+              <p className="text-[11px] leading-tight text-gray-500">
+                Payment Method
               </p>
-              <p className="truncate text-xs font-semibold text-[#212121]">
+              <p className="truncate text-[13px] font-semibold text-gray-900">
                 {item.paymentMethodLabel ?? "—"}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-start gap-1.5">
-            <IconUser className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <div className="min-w-0 text-[#212121]">
-              <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                Collected By
-              </p>
-              <p className="truncate text-xs font-semibold text-[#212121]">
-                {item.createdBy ?? "—"}
               </p>
             </div>
           </div>
@@ -327,220 +350,116 @@ function CollectionCard({ item }: { item: CustomerActivityItemDTO }) {
   );
 }
 
-const WALLET_PURPLE = "#6A1B9A";
+const OPENING_AMBER = "#E65100";
 
-function WalletEventCard({ item }: { item: CustomerActivityItemDTO }) {
-  const isRecharge = item.kind === "WALLET_RECHARGE";
-  const amount = item.amount ?? 0;
-  const bonus = item.bonusAmount ?? 0;
-  const credited = item.creditedAmount ?? amount + bonus;
-  const balanceAfter = item.walletBalanceAfter;
-  const payment = item.walletPayment;
-  const purposeLabel = payment?.purposeLabel ?? item.label;
+function OpeningOutstandingCard({ item }: { item: CustomerActivityItemDTO }) {
+  const opening = item.openingOutstanding;
+  const amount = opening?.amount ?? item.amount ?? 0;
+  const previous = item.previousOutstanding ?? 0;
+  const current = item.outstandingBalance ?? previous + amount;
+  const effectiveDate = opening?.effectiveDate;
+  const reason = opening?.reason;
+  const createdBy = opening?.createdBy ?? item.createdBy ?? "—";
 
   return (
     <div className="relative flex gap-2.5">
-      <div className="w-[4.75rem] shrink-0 pt-0.5 text-right sm:w-[5.5rem]">
-        <time className="block text-[10px] font-bold uppercase leading-tight tracking-wide text-[#424242]">
-          {formatDisplayDate(item.timestamp)}
-        </time>
-        <p className="mt-0.5 text-[10px] leading-tight text-[#757575]">
-          {formatBusinessDayTime(item.timestamp)}
-        </p>
-      </div>
+      <TimelineMeta date={item.timestamp} time={item.timestamp} />
 
-      <TimelineMarker tone={isRecharge ? "charge" : "collect"} />
+      <TimelineMarker tone="outstanding" />
 
-      <article
-        className="min-w-0 flex-1 overflow-hidden rounded-md border bg-white shadow-sm"
-        style={{ borderColor: isRecharge ? "#E1BEE7" : "#D1C4E9" }}
-      >
+      <article className="min-w-0 flex-1 overflow-hidden rounded-[10px] border border-orange-200 bg-white shadow-sm shadow-gray-900/5">
         <div className="flex items-center justify-between gap-2 px-3 pt-2">
-          <div className="min-w-0">
-            <h3
-              className="text-[11px] font-bold uppercase tracking-wide"
-              style={{ color: WALLET_PURPLE }}
-            >
-              {isRecharge ? "Wallet Recharge" : purposeLabel}
-            </h3>
-            {!isRecharge && item.businessDayPublicId ? (
-              <p className="mt-0.5 text-[10px] text-[#757575]">
-                {item.businessDayPublicId}
-                {item.businessDate
-                  ? ` · ${formatDisplayDate(item.businessDate)}`
-                  : null}
-              </p>
-            ) : null}
-          </div>
-          <p
-            className="shrink-0 text-xs font-bold tabular-nums"
-            style={{ color: WALLET_PURPLE }}
+          <h3
+            className="text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: OPENING_AMBER }}
           >
-            {isRecharge ? "+" : "−"}
-            {formatCurrency(isRecharge ? credited : amount)}
+            Opening Outstanding
+          </h3>
+          <p
+            className="shrink-0 text-[13px] font-semibold tabular-nums"
+            style={{ color: OPENING_AMBER }}
+          >
+            +{formatCurrency(amount)}
           </p>
         </div>
 
-        {isRecharge ? (
-          <div className="grid grid-cols-2 gap-2 px-3 py-2 sm:grid-cols-3">
-            <div className="min-w-0">
-              <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                Paid Amount
-              </p>
-              <p className="text-xs font-bold tabular-nums text-[#212121]">
-                {formatCurrency(amount)}
-              </p>
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] leading-tight text-[#9E9E9E]">Bonus</p>
-              <p className="text-xs font-bold tabular-nums text-[#212121]">
-                {bonus > 0 ? `+${formatCurrency(bonus)}` : "—"}
-              </p>
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                Wallet Credit
-              </p>
-              <p className="text-xs font-bold tabular-nums text-[#212121]">
-                {formatCurrency(credited)}
-              </p>
-            </div>
+        <div className="grid grid-cols-2 gap-2 px-3 py-2 sm:grid-cols-3">
+          <div className="min-w-0">
+            <p className="text-[11px] leading-tight text-gray-500">Amount</p>
+            <p
+              className="text-[13px] font-semibold tabular-nums"
+              style={{ color: OPENING_AMBER }}
+            >
+              {formatCurrency(amount)}
+            </p>
           </div>
-        ) : (
-          <div className="space-y-2 px-3 py-2">
-            {payment?.lines && payment.lines.length > 0 ? (
-              <div>
-                <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                  {payment.purpose === "CAFE_PAYMENT" ? "Items" : "Details"}
-                </p>
-                <ul className="mt-0.5 space-y-0.5">
-                  {payment.lines.map((line, index) => (
-                    <li
-                      key={`${line.label}-${index}`}
-                      className="text-xs font-semibold text-[#212121]"
-                    >
-                      {line.label}
-                      {line.quantity && line.quantity > 0
-                        ? ` ×${line.quantity}`
-                        : null}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <div className="min-w-0">
-                <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                  {payment?.billAmountLabel ?? "Bill Amount"}
-                </p>
-                <p className="text-xs font-bold tabular-nums text-[#212121]">
-                  {formatCurrency(payment?.billAmount ?? amount)}
-                </p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                  Wallet Used
-                </p>
-                <p className="text-xs font-bold tabular-nums text-[#212121]">
-                  {formatCurrency(payment?.walletUsed ?? amount)}
-                </p>
-              </div>
-              {(payment?.remainderAmount ?? 0) > 0 &&
-              payment?.remainderMethodLabel ? (
-                <div className="min-w-0">
-                  <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                    {payment.remainderMethodLabel}
-                  </p>
-                  <p className="text-xs font-bold tabular-nums text-[#212121]">
-                    {formatCurrency(payment.remainderAmount)}
-                  </p>
-                </div>
-              ) : payment?.purpose !== "OUTSTANDING_COLLECTION" ? (
-                <div className="min-w-0">
-                  <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                    Total Paid
-                  </p>
-                  <p className="text-xs font-bold tabular-nums text-[#212121]">
-                    {formatCurrency(payment?.totalPaid ?? amount)}
-                  </p>
-                </div>
-              ) : (
-                <div className="min-w-0">
-                  <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                    Balance After
-                  </p>
-                  <p className="text-xs font-bold tabular-nums text-[#212121]">
-                    {balanceAfter !== undefined
-                      ? formatCurrency(balanceAfter)
-                      : "—"}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {(payment?.remainderAmount ?? 0) > 0 ? (
-              <div className="grid grid-cols-2 gap-2 border-t border-[#EDE7F6] pt-2">
-                <div className="min-w-0">
-                  <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                    Total Paid
-                  </p>
-                  <p className="text-xs font-bold tabular-nums text-[#212121]">
-                    {formatCurrency(payment?.totalPaid ?? amount)}
-                  </p>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                    Balance After
-                  </p>
-                  <p className="text-xs font-bold tabular-nums text-[#212121]">
-                    {balanceAfter !== undefined
-                      ? formatCurrency(balanceAfter)
-                      : "—"}
-                  </p>
-                </div>
-              </div>
-            ) : payment?.purpose !== "OUTSTANDING_COLLECTION" ? (
-              <div className="border-t border-[#EDE7F6] pt-2">
-                <p className="text-[10px] leading-tight text-[#9E9E9E]">
-                  Balance After
-                </p>
-                <p className="text-xs font-bold tabular-nums text-[#212121]">
-                  {balanceAfter !== undefined
-                    ? formatCurrency(balanceAfter)
-                    : "—"}
-                </p>
-              </div>
-            ) : null}
+          <div className="min-w-0">
+            <p className="text-[11px] leading-tight text-gray-500">
+              Effective Date
+            </p>
+            <p className="text-[13px] font-semibold text-gray-900">
+              {effectiveDate ? formatDisplayDate(effectiveDate) : "—"}
+            </p>
           </div>
-        )}
+          <div className="min-w-0">
+            <p className="text-[11px] leading-tight text-gray-500">Created By</p>
+            <p className="truncate text-[13px] font-semibold text-gray-900">
+              {createdBy}
+            </p>
+          </div>
+        </div>
 
-        {(isRecharge && balanceAfter !== undefined) ||
-        (!isRecharge && item.createdBy) ||
-        (isRecharge && item.businessDayPublicId) ? (
-          <div className="px-3 pb-2">
-            <div className="rounded bg-[#F3E5F5] px-2.5 py-1.5 text-[11px] text-[#6A1B9A]">
-              {isRecharge ? (
-                <>
-                  Wallet balance{" "}
-                  <span className="font-bold tabular-nums">
-                    {formatCurrency(balanceAfter!)}
-                  </span>
-                  {item.paymentMethodLabel
-                    ? ` · ${item.paymentMethodLabel}`
-                    : null}
-                  {item.createdBy ? ` · By ${item.createdBy}` : null}
-                  {item.businessDayPublicId
-                    ? ` · ${item.businessDayPublicId}`
-                    : null}
-                </>
-              ) : (
-                <>By {item.createdBy}</>
-              )}
-            </div>
+        {reason ? (
+          <div className="px-3 pb-1">
+            <p className="text-[11px] leading-tight text-gray-500">Reason</p>
+            <p className="text-[12px] text-gray-800">{reason}</p>
           </div>
         ) : null}
+
+        <div className="px-3 pb-2">
+          <BalanceStrip previous={previous} current={current} />
+        </div>
       </article>
+    </div>
+  );
+}
+
+function BusinessDayPaymentSummary({
+  summary,
+}: {
+  summary: NonNullable<CustomerActivityItemDTO["businessDaySummary"]>;
+}) {
+  const payment = summary.paymentSummary;
+  const allRows: Array<{
+    key: "cash" | "gpay";
+    label: string;
+    amount: number;
+  }> = [
+    { key: "cash", label: "Cash", amount: payment.cash },
+    { key: "gpay", label: "GPay", amount: payment.gpay },
+  ];
+  const rows = allRows.filter((row) => row.amount > 0);
+
+  if (rows.length === 0) {
+    return (
+      <p className="text-[12px] text-gray-400">No payments recorded</p>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {rows.map((row) => (
+        <div
+          key={row.key}
+          className="flex items-center gap-1.5 text-[15px] font-semibold tabular-nums text-gray-900"
+        >
+          <PaymentMethodDot kind={row.key} />
+          <span>
+            {row.label}{" "}
+            <span className="tabular-nums">{formatCurrency(row.amount)}</span>
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -553,51 +472,49 @@ function BusinessDayClosedCard({ item }: { item: CustomerActivityItemDTO }) {
   const hasGames = summary.games.length > 0;
   const hasCafe = summary.cafe.length > 0;
   const paidInFull = summary.todaysDue <= 0;
+  const paidAmount = summary.todaysPayment;
 
   return (
     <div className="relative flex gap-2.5">
-      <div className="w-[4.75rem] shrink-0 pt-0.5 text-right sm:w-[5.5rem]">
-        <time className="block text-[10px] font-bold uppercase leading-tight tracking-wide text-[#424242]">
-          {formatDisplayDate(displayDate)}
-        </time>
-        <p className="mt-0.5 text-[10px] leading-tight text-[#757575]">
-          Business Day Closed
-        </p>
-      </div>
+      <TimelineMeta
+        date={displayDate}
+        caption="Business Day Closed"
+        time={item.timestamp}
+      />
 
-      <TimelineMarker tone="charge" />
+      <TimelineMarker tone={paidInFull ? "charge" : "outstanding"} />
 
-      <article className="min-w-0 flex-1 overflow-hidden rounded-md border border-[#C8E6C9] bg-white shadow-sm">
-        <div className="flex items-center justify-between gap-2 px-3 pt-2">
-          <h3
-            className="text-[11px] font-bold uppercase tracking-wide"
-            style={{ color: GREEN }}
-          >
+      <article className="min-w-0 flex-1 overflow-hidden rounded-[10px] border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-3 pt-2.5">
+          <span className="inline-flex items-center rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-emerald-800">
             Business Day Closed
-          </h3>
-          <p
-            className="shrink-0 text-xs font-bold tabular-nums"
-            style={{ color: paidInFull ? "#616161" : GREEN }}
-          >
-            {paidInFull
-              ? "Today's Due ₹0"
-              : `Today's Due + ${formatCurrency(summary.todaysDue)}`}
-          </p>
+          </span>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <DayStatusBadge
+              paidInFull={paidInFull}
+              todaysDue={summary.todaysDue}
+            />
+            <Link
+              href={`/business-day/history/${item.businessDayId}`}
+              className="inline-flex shrink-0 items-center gap-1 rounded-[8px] border border-emerald-700/30 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-800 transition-colors hover:bg-emerald-50"
+            >
+              View Business Day
+              <IconExternal className="h-3 w-3" />
+            </Link>
+          </div>
         </div>
 
-        <div
-          className="grid gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
-          style={{ color: GREEN }}
-        >
+        <div className="grid gap-3 px-3 py-2.5 sm:grid-cols-2 md:grid-cols-4">
           <div className="min-w-0">
-            <div className="mb-0.5 flex items-center gap-1">
+            <div className="mb-1 flex items-center gap-1 text-gray-400">
               <IconGames className="h-3.5 w-3.5" />
-              <p className="text-[10px] font-bold uppercase tracking-wide text-[#9E9E9E]">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
                 Games
               </p>
             </div>
             {hasGames ? (
-              <ul className="space-y-0 text-[11px] leading-snug text-[#212121]">
+              <ul className="space-y-0.5 text-[15px] font-semibold leading-snug text-gray-900">
                 {summary.games.map((line) => (
                   <li key={line.label} className="truncate">
                     {formatCountLine(line)}
@@ -605,19 +522,19 @@ function BusinessDayClosedCard({ item }: { item: CustomerActivityItemDTO }) {
                 ))}
               </ul>
             ) : (
-              <p className="text-[11px] text-[#BDBDBD]">—</p>
+              <p className="text-[12px] text-gray-400">No Games</p>
             )}
           </div>
 
           <div className="min-w-0">
-            <div className="mb-0.5 flex items-center gap-1">
+            <div className="mb-1 flex items-center gap-1 text-gray-400">
               <IconCafe className="h-3.5 w-3.5" />
-              <p className="text-[10px] font-bold uppercase tracking-wide text-[#9E9E9E]">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
                 Cafe
               </p>
             </div>
             {hasCafe ? (
-              <ul className="space-y-0 text-[11px] leading-snug text-[#212121]">
+              <ul className="space-y-0.5 text-[15px] font-semibold leading-snug text-gray-900">
                 {summary.cafe.map((line) => (
                   <li key={line.label} className="truncate">
                     {formatCountLine(line)}
@@ -625,56 +542,41 @@ function BusinessDayClosedCard({ item }: { item: CustomerActivityItemDTO }) {
                 ))}
               </ul>
             ) : (
-              <p className="text-[11px] text-[#BDBDBD]">—</p>
+              <p className="text-[12px] text-gray-400">No Cafe Orders</p>
             )}
           </div>
 
-          <div className="rounded border border-[#E0E0E0] bg-[#FAFAFA] px-2 py-1.5 text-[11px] sm:min-w-[9rem]">
-            <div className="flex justify-between gap-3">
-              <span className="text-[#757575]">Today&apos;s Bill</span>
-              <span className="font-semibold tabular-nums text-[#212121]">
+          <div className="min-w-0 space-y-1">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[11px] text-gray-500">Today&apos;s Bill</span>
+              <span className="text-[15px] font-semibold tabular-nums text-gray-900">
                 {formatCurrency(summary.todaysBill)}
               </span>
             </div>
-            <div className="mt-0.5 flex justify-between gap-3">
-              <span className="text-[#757575]">Today&apos;s Payment</span>
-              <span className="font-semibold tabular-nums text-[#212121]">
-                {formatCurrency(summary.todaysPayment)}
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[11px] text-gray-500">Paid</span>
+              <span className="text-[15px] font-semibold tabular-nums text-gray-900">
+                {formatCurrency(paidAmount)}
               </span>
             </div>
-            <div className="mt-0.5 flex justify-between gap-3 border-t border-[#EEEEEE] pt-0.5">
-              <span className="text-[#757575]">Today&apos;s Due</span>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[11px] text-gray-500">Today&apos;s Due</span>
               <span
-                className="font-bold tabular-nums"
-                style={{ color: paidInFull ? "#616161" : GREEN }}
+                className={`text-[15px] font-semibold tabular-nums ${
+                  paidInFull ? "text-gray-900" : "text-[#B71C1C]"
+                }`}
               >
-                {paidInFull
-                  ? formatCurrency(0)
-                  : `+ ${formatCurrency(summary.todaysDue)}`}
+                {formatCurrency(summary.todaysDue)}
               </span>
             </div>
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2 px-3 pb-2">
-          <div className="min-w-0 flex-1">
-            {paidInFull ? (
-              <PaidInFullStatus />
-            ) : (
-              <BalanceStrip
-                previous={summary.previousOutstanding}
-                current={summary.currentOutstanding}
-              />
-            )}
+          <div className="min-w-0">
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+              Payment Summary
+            </p>
+            <BusinessDayPaymentSummary summary={summary} />
           </div>
-          <Link
-            href={`/business-day/history/${item.businessDayId}`}
-            className="inline-flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium hover:bg-[#E8F5E9]"
-            style={{ color: GREEN, borderColor: "#A5D6A7" }}
-          >
-            View Business Day
-            <IconExternal className="h-3 w-3" />
-          </Link>
         </div>
       </article>
     </div>
@@ -698,13 +600,13 @@ export function CustomerActivityTimeline({
   const balanceCount = balanceHistoryItems.length;
 
   return (
-    <div className="flex h-full min-h-[24rem] flex-col border border-[#E0E0E0] bg-white">
-      <div className="border-b border-[#E0E0E0] px-3 py-2">
-        <h2 className="text-xs font-bold uppercase tracking-wide text-[#757575]">
+    <div className="flex h-full min-h-[24rem] flex-col overflow-hidden rounded-[12px] border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
+      <div className="border-b border-gray-100 px-3 pt-3 sm:px-4">
+        <h2 className="text-[13px] font-bold uppercase tracking-wide text-emerald-900">
           Customer Timeline
         </h2>
         <div
-          className="mt-2 flex gap-1 rounded-md bg-[#F5F5F5] p-0.5"
+          className="mt-2 flex gap-4"
           role="tablist"
           aria-label="Timeline mode"
         >
@@ -715,8 +617,8 @@ export function CustomerActivityTimeline({
             onClick={() => setMode("ALL_ACTIVITY")}
             className={
               mode === "ALL_ACTIVITY"
-                ? "flex-1 rounded px-2 py-1.5 text-[11px] font-semibold text-[#212121] bg-white shadow-sm"
-                : "flex-1 rounded px-2 py-1.5 text-[11px] font-medium text-[#757575] hover:text-[#212121]"
+                ? "border-b-2 border-emerald-700 pb-2 text-[13px] font-semibold text-emerald-900"
+                : "border-b-2 border-transparent pb-2 text-[13px] font-medium text-gray-500 hover:text-gray-800"
             }
           >
             All Activity ({allCount})
@@ -728,8 +630,8 @@ export function CustomerActivityTimeline({
             onClick={() => setMode("BALANCE_HISTORY")}
             className={
               mode === "BALANCE_HISTORY"
-                ? "flex-1 rounded px-2 py-1.5 text-[11px] font-semibold text-[#212121] bg-white shadow-sm"
-                : "flex-1 rounded px-2 py-1.5 text-[11px] font-medium text-[#757575] hover:text-[#212121]"
+                ? "border-b-2 border-emerald-700 pb-2 text-[13px] font-semibold text-emerald-900"
+                : "border-b-2 border-transparent pb-2 text-[13px] font-medium text-gray-500 hover:text-gray-800"
             }
           >
             Balance History ({balanceCount})
@@ -737,27 +639,25 @@ export function CustomerActivityTimeline({
         </div>
       </div>
 
-      <div className="relative flex-1 overflow-y-auto px-2 py-2 sm:px-3">
+      <div className="relative flex-1 overflow-y-auto px-2 py-2.5 sm:px-3">
         {visibleItems.length === 0 ? (
-          <p className="py-8 text-center text-sm text-[#9E9E9E]">
+          <p className="py-8 text-center text-sm text-gray-400">
             {mode === "ALL_ACTIVITY"
               ? "No activity yet."
               : "No balance changes yet."}
           </p>
         ) : (
-          <ul className="relative space-y-2.5">
+          <ul className="relative space-y-2">
             <div
-              className="pointer-events-none absolute bottom-3 top-3 w-px bg-[#E0E0E0]"
-              style={{ left: "calc(4.75rem + 0.625rem + 0.625rem - 0.5px)" }}
+              className="pointer-events-none absolute bottom-2 top-2 w-px bg-gray-200 left-[calc(5.25rem+0.625rem+0.5rem)] sm:left-[calc(6rem+0.625rem+0.5rem)]"
               aria-hidden
             />
             {visibleItems.map((item) => (
               <li key={item.id} className="relative">
                 {item.kind === "BUSINESS_DAY_SUMMARY" ? (
                   <BusinessDayClosedCard item={item} />
-                ) : item.kind === "WALLET_RECHARGE" ||
-                  item.kind === "WALLET_PAYMENT" ? (
-                  <WalletEventCard item={item} />
+                ) : item.kind === "OPENING_OUTSTANDING" ? (
+                  <OpeningOutstandingCard item={item} />
                 ) : (
                   <CollectionCard item={item} />
                 )}
@@ -768,10 +668,9 @@ export function CustomerActivityTimeline({
       </div>
 
       {visibleItems.length > 0 && (
-        <div className="flex items-start gap-2 border-t border-[#BBDEFB] bg-[#E3F2FD] px-3 py-1.5 text-[11px] text-[#1565C0]">
+        <div className="flex items-start gap-2 border-t border-sky-100 bg-sky-50/70 px-3 py-1.5 text-[11px] text-sky-800">
           <span
-            className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white"
-            style={{ backgroundColor: BLUE }}
+            className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-sky-600 text-[9px] font-bold text-white"
             aria-hidden
           >
             i

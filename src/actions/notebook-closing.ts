@@ -63,7 +63,6 @@ export async function getDailyClosing(
   // totals are stubbed until OS V2 closing is wired.
   const cashCollection = 0;
   const gpayCollection = 0;
-  const walletCollection = 0;
   const pendingAmount = pendingRow[0]?.total ?? 0;
 
   const sectionSummary = NOTEBOOK_SECTIONS.map((section) => ({
@@ -75,9 +74,8 @@ export async function getDailyClosing(
     date: dateLabel,
     cashCollection,
     gpayCollection,
-    walletCollection,
     pendingAmount,
-    grandTotal: cashCollection + gpayCollection + walletCollection,
+    grandTotal: cashCollection + gpayCollection,
     sectionSummary,
   };
 }

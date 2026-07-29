@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { NotebookSection } from "@/lib/constants/notebook-sections";
 import { sectionLabel } from "@/lib/constants/notebook-sections";
 import type { NotebookEntryDTO } from "@/types";
@@ -14,7 +14,6 @@ import { CounterLedgerTable } from "@/components/counter/CounterLedgerTable";
 import { SnookerFrameAddRow } from "@/components/counter/SnookerFrameAddRow";
 import { SnookerFrameEditDialog } from "@/components/counter/SnookerFrameEditDialog";
 import { PoolMiniAddRow } from "@/components/counter/PoolMiniAddRow";
-import { PoolMiniEditDialog } from "@/components/counter/PoolMiniEditDialog";
 import { RummyEntryDialog } from "@/components/counter/RummyEntryDialog";
 import { EntryCorrectionDialog } from "@/components/counter/EntryCorrectionDialog";
 import { CorrectionHistoryDialog } from "@/components/counter/CorrectionHistoryDialog";
@@ -25,7 +24,10 @@ import {
   RateTypeEntryDialog,
   type RatedEntryPreset,
 } from "@/components/counter/RateTypeEntryDialog";
+import { TableCardOverflowMenu } from "@/components/counter/TableCardOverflowMenu";
+import { summarizeTableLedger } from "@/components/counter/table-card-summary";
 import { isPoolMiniEntry } from "@/lib/utils/pool-mini-entry";
+import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 
 interface CounterSectionColumnProps {
@@ -52,14 +54,21 @@ export function CounterSectionColumn({
   const [editFrameEntry, setEditFrameEntry] = useState<NotebookEntryDTO | null>(
     null
   );
+  const [savedEntryById, setSavedEntryById] = useState<
+    Record<string, NotebookEntryDTO>
+  >({});
   const [deleteFrameEntry, setDeleteFrameEntry] =
     useState<NotebookEntryDTO | null>(null);
-  const [editPoolMiniEntry, setEditPoolMiniEntry] =
-    useState<NotebookEntryDTO | null>(null);
+
+  useEffect(() => {
+    setSavedEntryById({});
+  }, [entries]);
 
   const ledgerEditable = snookerQuick || poolMiniQuick;
   const quickButtons =
     snookerQuick || poolMiniQuick ? [] : getPresetsForSection(section);
+  const tableName = sectionLabel(section);
+  const summary = summarizeTableLedger(entries);
 
   const toRatedPreset = (
     btn: SnookerQuickPreset | NotebookPreset
@@ -96,58 +105,112 @@ export function CounterSectionColumn({
   };
 
   const handleEditEntry = (entry: NotebookEntryDTO) => {
-    if (poolMiniQuick || isPoolMiniEntry(entry)) {
-      setEditPoolMiniEntry(entry);
-      return;
-    }
-    setEditFrameEntry(entry);
+    setEditFrameEntry(savedEntryById[entry.id] ?? entry);
   };
 
-  const column = (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden border border-gray-200 bg-white">
-      <div className="border-b border-gray-200 bg-gray-50 px-2 py-2">
-        <h3 className="text-[14px] font-bold tracking-tight text-gray-900">
-          {sectionLabel(section)}
+  const statusLabel = !summary.isActive
+    ? "Idle"
+    : summary.hasOpenDue
+      ? `Due ${formatCurrency(summary.totalDue)}`
+      : "Paid";
+
+  const stickyChrome = (
+    <>
+      <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2.5">
+        <h3 className="min-w-0 flex-1 truncate text-[15px] font-bold tracking-tight text-gray-900">
+          {tableName}
         </h3>
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+            summary.isActive
+              ? "bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-200"
+              : "bg-gray-50 text-gray-500 ring-1 ring-inset ring-gray-200"
+          )}
+        >
+          {summary.isActive ? "Active" : "Idle"}
+        </span>
+        <TableCardOverflowMenu tableName={tableName} />
       </div>
+
       {quickButtons.length > 0 && (
-        <div className="flex gap-1 border-b border-gray-100 p-1.5">
+        <div className="flex gap-1.5 border-b border-gray-100 px-2.5 py-2">
           {quickButtons.map((btn) => (
             <button
               key={btn.key}
               type="button"
               onClick={() => handleQuickClick(btn)}
-              className="flex-1 rounded-md bg-emerald-800 px-2 py-2 text-[12px] font-bold text-white hover:bg-emerald-900"
+              className="flex-1 rounded-[10px] bg-emerald-800 px-2 py-2 text-[12px] font-bold text-white shadow-sm transition-colors hover:bg-emerald-900"
             >
               + {btn.label}
             </button>
           ))}
         </div>
       )}
-      <CounterLedgerTable
-        toolbar={
-          snookerQuick ? (
-            <SnookerFrameAddRow section={section} />
-          ) : poolMiniQuick ? (
-            <PoolMiniAddRow section={section} />
-          ) : undefined
-        }
-      >
-        {entries.map((entry) => (
-          <CompactLedgerRow
-            key={entry.id}
-            entry={entry}
-            frameEditable={ledgerEditable}
-            allowSplit={!poolMiniQuick}
-            onEditFrame={handleEditEntry}
-            onDeleteFrame={setDeleteFrameEntry}
-            onEditSplit={(row) => setSplitEntry(row)}
-            onUnassignedAction={setUnassignedEntry}
-            onCorrect={setCorrectEntry}
-            onShowCorrectionHistory={setHistoryEntry}
-          />
-        ))}
+
+      {snookerQuick ? (
+        <SnookerFrameAddRow section={section} />
+      ) : poolMiniQuick ? (
+        <PoolMiniAddRow section={section} />
+      ) : null}
+    </>
+  );
+
+  const column = (
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
+      <CounterLedgerTable stickyChrome={stickyChrome}>
+        {entries.length === 0 ? (
+          <tr>
+            <td
+              colSpan={6}
+              className="px-3 py-8 text-center text-[13px] font-medium text-gray-400"
+            >
+              No frames yet
+            </td>
+          </tr>
+        ) : (
+          entries.map((entry) => (
+            <CompactLedgerRow
+              key={entry.id}
+              entry={entry}
+              frameEditable={ledgerEditable}
+              allowSplit={!poolMiniQuick}
+              onEditFrame={handleEditEntry}
+              onDeleteFrame={setDeleteFrameEntry}
+              onEditSplit={(row) => setSplitEntry(row)}
+              onUnassignedAction={setUnassignedEntry}
+              onCorrect={setCorrectEntry}
+              onShowCorrectionHistory={setHistoryEntry}
+            />
+          ))
+        )}
       </CounterLedgerTable>
+
+      <div className="flex items-center justify-between gap-3 rounded-b-xl border-t border-gray-100 bg-gray-50/80 px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            Total
+          </p>
+          <p className="text-[15px] font-bold tabular-nums text-gray-900">
+            {formatCurrency(summary.totalAmount)}
+          </p>
+        </div>
+        <div className="min-w-0 text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+            Status
+          </p>
+          <p
+            className={cn(
+              "text-[13px] font-bold tabular-nums",
+              !summary.isActive && "text-gray-500",
+              summary.isActive && summary.hasOpenDue && "text-orange-700",
+              summary.isActive && !summary.hasOpenDue && "text-emerald-800"
+            )}
+          >
+            {statusLabel}
+          </p>
+        </div>
+      </div>
     </div>
   );
 
@@ -168,10 +231,10 @@ export function CounterSectionColumn({
       <SnookerFrameEditDialog
         entry={editFrameEntry}
         onClose={() => setEditFrameEntry(null)}
-      />
-      <PoolMiniEditDialog
-        entry={editPoolMiniEntry}
-        onClose={() => setEditPoolMiniEntry(null)}
+        onSaved={(updated) =>
+          setSavedEntryById((prev) => ({ ...prev, [updated.id]: updated }))
+        }
+        allowSplit={!poolMiniQuick}
       />
       <DeleteFrameDialog
         entry={deleteFrameEntry}

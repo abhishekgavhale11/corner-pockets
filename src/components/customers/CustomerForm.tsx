@@ -75,7 +75,7 @@ export function CustomerForm() {
               Student Status
             </Label>
             <p className="mt-1 text-sm text-gray-500">
-              Check if this customer qualifies for Student wallet recharge plans.
+              Check if this customer qualifies for student membership pricing.
               Card ID is assigned automatically.
             </p>
           </div>

@@ -1,6 +1,5 @@
 import { getSectionLedger } from "@/actions/notebook-ledger";
 import { CounterGrid } from "@/components/counter/CounterGrid";
-import { CounterWorkspaceTabs } from "@/components/counter/CounterWorkspaceTabs";
 import { POOL_MINI_SECTIONS } from "@/lib/constants/counter-sections";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +15,6 @@ export default async function PoolMiniCounterPage() {
 
   return (
     <div>
-      <CounterWorkspaceTabs />
       <CounterGrid sections={sections} ledgers={ledgers} poolMiniQuick />
     </div>
   );

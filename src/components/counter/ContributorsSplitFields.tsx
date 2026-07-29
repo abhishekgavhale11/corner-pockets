@@ -3,20 +3,19 @@
 import { useState } from "react";
 import { searchNotebookCustomers } from "@/actions/notebook-ledger";
 import type { CustomerDTO } from "@/types";
-import { paymentMethodLabel } from "@/lib/constants/notebook-payments";
 import { formatCurrency } from "@/lib/utils/format";
 import { formatCustomerContactLine } from "@/lib/utils/customer-display";
-import { frameDueAmount } from "@/lib/utils/frame-payment";
-import { computeWalletUsed } from "@/lib/wallet/wallet-payment-math";
+import {
+  frameDueAmount,
+  syncReceivedWithAmountChange,
+} from "@/lib/utils/frame-payment";
 import { cn } from "@/lib/utils/cn";
 import { Input } from "@/components/ui/Input";
-import { Label } from "@/components/ui/Label";
-import {
-  resolveEntryPaymentSubmit,
-  type RemainderPaymentMode,
-} from "@/components/counter/EntryPaymentFields";
+import { CashGpaySegmentedControl } from "@/components/ui/CashGpaySegmentedControl";
+import { DueStatusBadge } from "@/components/counter/DueStatusBadge";
+import { resolveEntryPaymentSubmit } from "@/components/counter/EntryPaymentFields";
 
-export type ContributorPaymentMode = "CASH" | "GPAY" | "WALLET";
+export type ContributorPaymentMode = "CASH" | "GPAY";
 
 /** Frame ownership row — each contributor owns amount, received, and payment mode. */
 export type ContributorRow = {
@@ -26,10 +25,8 @@ export type ContributorRow = {
   paidAmount: string;
   /** Empty when Received = 0 (Unassigned). Required when Received > 0. */
   paymentMethod: ContributorPaymentMode | "";
-  /** When true, wallet is auto-consumed (server computes amount). */
-  useWallet?: boolean;
-  walletBalance?: number;
-  walletEnabled?: boolean;
+  initialPaidAmount?: number;
+  initialPaymentMethod?: ContributorPaymentMode | "";
 };
 
 interface ContributorsSplitFieldsProps {
@@ -43,52 +40,24 @@ interface ContributorsSplitFieldsProps {
   partiallyLocked?: boolean;
 }
 
-function ContributorDueDisplay({
-  amount,
-  paid,
-  paymentMethod,
-  useWallet,
-}: {
-  amount: number;
-  paid: number;
-  paymentMethod: ContributorPaymentMode | "";
-  useWallet?: boolean;
-}) {
-  const due = frameDueAmount(amount, paid);
-
-  if (due <= 0) {
-    if (paymentMethod === "WALLET") {
-      return (
-        <span className="inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold text-violet-800 bg-violet-50">
-          {paymentMethodLabel("WALLET")}
-        </span>
-      );
-    }
-    if (paymentMethod === "CASH") {
-      return (
-        <span className="inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold text-emerald-800 bg-emerald-50">
-          {useWallet ? "Wallet + Cash" : paymentMethodLabel("CASH")}
-        </span>
-      );
-    }
-    if (paymentMethod === "GPAY") {
-      return (
-        <span className="inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold text-blue-800 bg-blue-50">
-          {useWallet ? "Wallet + GPay" : paymentMethodLabel("GPAY")}
-        </span>
-      );
-    }
-    return (
-      <span className="text-[11px] font-bold text-emerald-700">Paid</span>
-    );
-  }
-
-  return (
-    <span className="text-sm font-semibold tabular-nums text-orange-700">
-      {formatCurrency(due)}
-    </span>
-  );
+function customerInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
+
+function normalizePaymentMethod(
+  method: string | undefined | null
+): ContributorPaymentMode | "" {
+  if (method === "CASH" || method === "GPAY") return method;
+  return "";
+}
+
+const fieldLabelClass =
+  "mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-gray-500";
+const moneyInputClass =
+  "h-9 w-full rounded-lg border border-gray-300 bg-white py-1.5 pl-6 pr-2 text-right text-sm font-semibold tabular-nums text-gray-900 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 disabled:opacity-60";
 
 export function ContributorsSplitFields({
   totalAmount,
@@ -124,11 +93,10 @@ export function ContributorsSplitFields({
         customerId: customer.id,
         customerName: customer.name,
         amount: left > 0 ? String(left) : "",
-        paidAmount: "0",
+        paidAmount: left > 0 ? String(left) : "0",
         paymentMethod: "",
-        useWallet: false,
-        walletBalance: customer.balance,
-        walletEnabled: customer.walletEnabled,
+        initialPaidAmount: 0,
+        initialPaymentMethod: "",
       },
     ]);
     setQuery("");
@@ -147,20 +115,8 @@ export function ContributorsSplitFields({
               ...row,
               customerId: customer.id,
               customerName: customer.name,
-              walletBalance: customer.balance,
-              walletEnabled: customer.walletEnabled,
-              useWallet:
-                row.useWallet &&
-                customer.walletEnabled &&
-                (customer.balance ?? 0) > 0
-                  ? true
-                  : false,
-              paymentMethod:
-                row.paymentMethod === "WALLET" &&
-                (customer.balance ?? 0) <
-                  (Number.parseInt(row.paidAmount, 10) || 0)
-                  ? ""
-                  : row.paymentMethod,
+              initialPaidAmount: 0,
+              initialPaymentMethod: "",
             }
           : row
       )
@@ -177,48 +133,69 @@ export function ContributorsSplitFields({
   };
 
   const amountsLocked = partiallyLocked;
-  const remainderModes: RemainderPaymentMode[] = ["CASH", "GPAY"];
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <Label>Contributors</Label>
-        {!partiallyLocked ? (
-          <p className="text-[11px] text-gray-500">
-            Remaining{" "}
-            <span
-              className={
-                remaining === 0
-                  ? "font-semibold text-emerald-700"
-                  : "font-semibold text-amber-700"
-              }
-            >
-              {formatCurrency(remaining)}
-            </span>
-          </p>
-        ) : null}
-      </div>
-
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
       {!partiallyLocked ? (
-        <>
-          <Input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              void searchCustomers(e.target.value);
-            }}
-            onFocus={() => void searchCustomers(query)}
-            placeholder="Search to add contributor"
-            disabled={disabled}
-            className="text-sm"
-          />
-          {results.length > 0 && (
-            <ul className="max-h-28 overflow-y-auto rounded border border-gray-200">
+        <div className="border-b border-gray-100 px-3 py-2.5 sm:px-4">
+          <p className="mb-2 text-xs font-semibold text-gray-800">
+            Contributors
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <div className="relative min-w-0 flex-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  className="h-4 w-4"
+                  aria-hidden
+                >
+                  <circle
+                    cx="8.5"
+                    cy="8.5"
+                    r="5.5"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                  />
+                  <path
+                    d="M12.5 12.5 16 16"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+              <Input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  void searchCustomers(e.target.value);
+                }}
+                onFocus={() => void searchCustomers(query)}
+                placeholder="Search to add contributor"
+                disabled={disabled}
+                className="h-9 pl-9 text-sm"
+              />
+            </div>
+            <p className="shrink-0 text-[11px] text-gray-500 sm:text-right">
+              Remaining to Split:{" "}
+              <span
+                className={cn(
+                  "font-semibold tabular-nums",
+                  remaining === 0 ? "text-emerald-700" : "text-amber-700"
+                )}
+              >
+                {formatCurrency(remaining)}
+              </span>
+            </p>
+          </div>
+          {results.length > 0 ? (
+            <ul className="mt-1.5 max-h-28 overflow-y-auto rounded-lg border border-gray-200 bg-white">
               {results.map((customer) => (
                 <li key={customer.id}>
                   <button
                     type="button"
-                    className="w-full px-2 py-1.5 text-left text-xs hover:bg-emerald-50"
+                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-emerald-50"
                     disabled={disabled}
                     onClick={() => addCustomer(customer)}
                   >
@@ -230,13 +207,17 @@ export function ContributorsSplitFields({
                 </li>
               ))}
             </ul>
-          )}
-        </>
-      ) : null}
+          ) : null}
+        </div>
+      ) : (
+        <div className="border-b border-gray-100 px-3 py-2 sm:px-4">
+          <p className="text-xs font-semibold text-gray-800">Contributors</p>
+        </div>
+      )}
 
-      <div className="space-y-2">
+      <div className="max-h-[min(42vh,320px)] space-y-1.5 overflow-y-auto px-2.5 py-2 sm:px-3">
         {rows.length === 0 ? (
-          <p className="text-xs text-gray-500">
+          <p className="py-4 text-center text-xs text-gray-500">
             Add at least two customers to split this frame.
           </p>
         ) : (
@@ -248,39 +229,25 @@ export function ContributorsSplitFields({
             const isReassigning = reassignIndex === index;
             const rowAmount = Number.parseInt(row.amount, 10) || 0;
             const rowPaid = Number.parseInt(row.paidAmount, 10) || 0;
-            const balance = row.walletBalance ?? 0;
-            const showWallet = Boolean(row.walletEnabled) && balance > 0;
-            const useWallet = Boolean(row.useWallet) && showWallet;
-            const walletUsed = computeWalletUsed({
-              paidAmount: rowPaid,
-              useWallet,
-              availableBalance: balance,
-            });
-            const remainder = Math.max(0, rowPaid - walletUsed);
-            const needsRemainderMethod = rowPaid > 0 && remainder > 0;
-            const fullyCoveredByWallet =
-              rowPaid > 0 && useWallet && remainder === 0;
-            const walletControlsDisabled =
-              disabled || rowLocked || rowPaid <= 0;
 
             return (
               <div
                 key={`${index}-${row.customerId}`}
-                className="space-y-2 rounded-md border border-gray-100 bg-gray-50 px-2.5 py-2.5"
+                className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 shadow-sm"
               >
-                <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">
-                    {row.customerName}
+                <div className="mb-1.5 flex items-center gap-2">
+                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-800">
+                    {customerInitials(row.customerName)}
                   </span>
-                  {row.walletEnabled ? (
-                    <span className="shrink-0 text-[10px] tabular-nums text-gray-500">
-                      Wallet {formatCurrency(balance)}
-                    </span>
-                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold leading-tight text-gray-900">
+                      {row.customerName}
+                    </p>
+                  </div>
                   {canReassign ? (
                     <button
                       type="button"
-                      className="shrink-0 rounded px-2 py-1 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-50"
+                      className="shrink-0 rounded-md px-2 py-1 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-50"
                       disabled={disabled}
                       onClick={() => {
                         setReassignIndex(isReassigning ? null : index);
@@ -295,7 +262,7 @@ export function ContributorsSplitFields({
                       type="button"
                       aria-label={`Remove ${row.customerName}`}
                       disabled={disabled || rowLocked}
-                      className="shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-60"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-red-500 hover:bg-red-50 disabled:opacity-60"
                       onClick={() =>
                         onRowsChange(
                           rows.filter(
@@ -304,17 +271,27 @@ export function ContributorsSplitFields({
                         )
                       }
                     >
-                      ✕
+                      <svg
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        className="h-4 w-4"
+                        aria-hidden
+                      >
+                        <path
+                          d="M4.5 6.5h11M8 6.5V5.2A1.2 1.2 0 0 1 9.2 4h1.6A1.2 1.2 0 0 1 12 5.2V6.5M7.5 6.5v8.2c0 .7.5 1.3 1.2 1.3h2.6c.7 0 1.2-.6 1.2-1.3V6.5"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
+                      </svg>
                     </button>
                   ) : null}
                 </div>
 
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                      Amount
-                    </span>
-                    <div className="relative w-[7.5rem]">
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 sm:grid-cols-4 sm:items-end">
+                  <div className="min-w-0">
+                    <span className={fieldLabelClass}>Amount</span>
+                    <div className="relative">
                       <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">
                         ₹
                       </span>
@@ -327,18 +304,29 @@ export function ContributorsSplitFields({
                         disabled={disabled || amountsLocked || rowLocked}
                         onChange={(e) => {
                           const digits = e.target.value.replace(/\D/g, "");
-                          updateRow(index, { amount: digits });
+                          const previousAmount =
+                            Number.parseInt(row.amount, 10) || 0;
+                          const nextAmount = Number.parseInt(digits, 10) || 0;
+                          const currentReceived =
+                            Number.parseInt(row.paidAmount, 10) || 0;
+                          const synced = syncReceivedWithAmountChange({
+                            previousAmount,
+                            nextAmount,
+                            currentReceived,
+                          });
+                          updateRow(index, {
+                            amount: digits,
+                            ...(synced != null ? { paidAmount: synced } : {}),
+                          });
                         }}
-                        className="w-full rounded-md border border-gray-300 bg-white py-1.5 pl-5 pr-2 text-right text-sm text-gray-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600/20 disabled:opacity-60"
+                        className={moneyInputClass}
                       />
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                      Received
-                    </span>
-                    <div className="relative w-[7.5rem]">
+                  <div className="min-w-0">
+                    <span className={fieldLabelClass}>Received</span>
+                    <div className="relative">
                       <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">
                         ₹
                       </span>
@@ -351,178 +339,50 @@ export function ContributorsSplitFields({
                         onChange={(e) => {
                           const digits = e.target.value.replace(/\D/g, "");
                           const nextPaid = Number.parseInt(digits, 10) || 0;
-                          if (nextPaid <= 0) {
-                            updateRow(index, {
-                              paidAmount: digits,
-                              paymentMethod: "",
-                              useWallet: false,
-                            });
-                            return;
-                          }
-                          const nextUseWallet = Boolean(row.useWallet);
-                          const used = computeWalletUsed({
-                            paidAmount: nextPaid,
-                            useWallet: nextUseWallet && balance > 0,
-                            availableBalance: balance,
-                          });
-                          let nextMethod: ContributorPaymentMode | "" =
-                            row.paymentMethod;
-                          if (nextUseWallet && used >= nextPaid) {
-                            nextMethod = "WALLET";
-                          } else if (row.paymentMethod === "WALLET") {
-                            nextMethod = "";
-                          }
                           updateRow(index, {
                             paidAmount: digits,
-                            paymentMethod: nextMethod,
+                            ...(nextPaid <= 0 ? { paymentMethod: "" } : {}),
                           });
                         }}
-                        className="w-full rounded-md border border-gray-300 bg-white py-1.5 pl-5 pr-2 text-right text-sm text-gray-900 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600/20 disabled:opacity-60"
+                        className={moneyInputClass}
                       />
                     </div>
                   </div>
 
-                  {showWallet ? (
-                    <div className="space-y-1.5 rounded-md border border-gray-200/80 bg-white px-2 py-1.5">
-                      <label
-                        className={cn(
-                          "flex items-center justify-between gap-3 text-xs",
-                          walletControlsDisabled && "opacity-50"
-                        )}
-                      >
-                        <span className="font-medium text-gray-800">
-                          Use Wallet
-                        </span>
-                        <input
-                          type="checkbox"
-                          className="h-3.5 w-3.5 accent-emerald-700"
-                          checked={useWallet}
-                          disabled={walletControlsDisabled}
-                          onChange={(event) => {
-                            const next = event.target.checked;
-                            if (!next) {
-                              updateRow(index, {
-                                useWallet: false,
-                                paymentMethod:
-                                  row.paymentMethod === "WALLET"
-                                    ? ""
-                                    : row.paymentMethod,
-                              });
-                              return;
-                            }
-                            const used = computeWalletUsed({
-                              paidAmount: rowPaid,
-                              useWallet: true,
-                              availableBalance: balance,
-                            });
-                            updateRow(index, {
-                              useWallet: true,
-                              paymentMethod:
-                                used >= rowPaid && rowPaid > 0
-                                  ? "WALLET"
-                                  : row.paymentMethod === "WALLET"
-                                    ? ""
-                                    : row.paymentMethod,
-                            });
-                          }}
-                        />
-                      </label>
-                      {useWallet && rowPaid > 0 ? (
-                        <dl className="grid grid-cols-2 gap-2 border-t border-gray-100 pt-1.5 text-xs">
-                          <div>
-                            <dt className="text-[10px] text-gray-500">
-                              Wallet Used
-                            </dt>
-                            <dd className="font-semibold tabular-nums text-emerald-900">
-                              {formatCurrency(walletUsed)}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-[10px] text-gray-500">
-                              Remaining
-                            </dt>
-                            <dd className="font-semibold tabular-nums text-gray-900">
-                              {formatCurrency(remainder)}
-                            </dd>
-                          </div>
-                        </dl>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                      {fullyCoveredByWallet
-                        ? "Payment Mode"
-                        : useWallet && needsRemainderMethod
-                          ? "Remaining"
-                          : "Payment Mode"}
-                    </span>
+                  <div className="min-w-0">
+                    <span className={fieldLabelClass}>Payment Mode</span>
                     {rowPaid <= 0 ? (
-                      <span className="w-[9.5rem] text-right text-sm text-gray-400">
+                      <div className="flex h-9 items-center rounded-lg border border-dashed border-gray-200 px-2 text-xs text-gray-400">
                         Unassigned
-                      </span>
-                    ) : fullyCoveredByWallet ? (
-                      <span className="w-[9.5rem] rounded-md bg-violet-50 px-2 py-1.5 text-right text-xs font-semibold text-violet-900">
-                        Wallet
-                      </span>
-                    ) : (
-                      <div className="flex w-[9.5rem] gap-1 rounded-md bg-gray-100 p-0.5">
-                        {remainderModes.map((mode) => {
-                          const selected = row.paymentMethod === mode;
-                          return (
-                            <button
-                              key={mode}
-                              type="button"
-                              disabled={disabled || rowLocked}
-                              onClick={() =>
-                                updateRow(index, {
-                                  paymentMethod: mode,
-                                })
-                              }
-                              className={cn(
-                                "flex-1 rounded px-1 py-1.5 text-[10px] font-semibold transition-colors",
-                                selected
-                                  ? mode === "CASH"
-                                    ? "bg-emerald-50 text-emerald-900 shadow-sm"
-                                    : "bg-blue-50 text-blue-900 shadow-sm"
-                                  : "text-gray-600 hover:text-gray-900",
-                                (disabled || rowLocked) &&
-                                  "cursor-not-allowed opacity-50"
-                              )}
-                            >
-                              {mode === "CASH" ? "Cash" : "GPay"}
-                            </button>
-                          );
-                        })}
                       </div>
+                    ) : (
+                      <CashGpaySegmentedControl
+                        size="sm"
+                        className="w-full"
+                        idPrefix={`split-${index}-mode`}
+                        value={normalizePaymentMethod(row.paymentMethod)}
+                        onChange={(mode) => {
+                          updateRow(index, { paymentMethod: mode });
+                        }}
+                        disabled={disabled || rowLocked}
+                        aria-label="Payment mode"
+                      />
                     )}
                   </div>
 
-                  {useWallet && needsRemainderMethod && !row.paymentMethod ? (
-                    <p className="text-[10px] text-amber-700">
-                      Select Cash or GPay for the remaining{" "}
-                      {formatCurrency(remainder)}.
-                    </p>
-                  ) : null}
-
-                  <div className="flex items-center justify-between gap-3 border-t border-gray-200/80 pt-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                      Due
-                    </span>
-                    <div className="flex min-h-[28px] w-[7.5rem] items-center justify-end">
-                      <ContributorDueDisplay
-                        amount={rowAmount}
-                        paid={rowPaid}
-                        paymentMethod={row.paymentMethod}
-                        useWallet={useWallet}
+                  <div className="min-w-0">
+                    <span className={fieldLabelClass}>Due</span>
+                    <div className="flex min-h-9 items-center">
+                      <DueStatusBadge
+                        dueAmount={frameDueAmount(rowAmount, rowPaid)}
+                        paymentMode={normalizePaymentMethod(row.paymentMethod)}
                       />
                     </div>
                   </div>
                 </div>
 
                 {isReassigning ? (
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50/40 p-2">
+                  <div className="mt-1.5 rounded-lg border border-emerald-200 bg-emerald-50/40 p-2">
                     <Input
                       value={query}
                       onChange={(e) => {
@@ -532,7 +392,7 @@ export function ContributorsSplitFields({
                       onFocus={() => void searchCustomers(query)}
                       placeholder="Search new customer"
                       disabled={disabled}
-                      className="text-sm"
+                      className="h-9 text-sm"
                     />
                     {results.length > 0 ? (
                       <ul className="mt-1 max-h-28 overflow-y-auto rounded border border-gray-200 bg-white">
@@ -588,9 +448,7 @@ export function validateContributorRows(
 
     const paymentCheck = resolveEntryPaymentSubmit({
       paidAmount: paid,
-      useWallet: Boolean(row.useWallet),
-      walletBalance: row.walletBalance ?? 0,
-      paymentMode: row.paymentMethod,
+      paymentMode: normalizePaymentMethod(row.paymentMethod),
     });
     if (!paymentCheck.valid) {
       return (
@@ -612,21 +470,17 @@ export function validateContributorRows(
   return null;
 }
 
-/** Payload shape for setEntryContributors — server computes walletAmount. */
 export function contributorRowsToPayload(rows: ContributorRow[]) {
   return rows.map((row) => {
     const paidAmount = Number.parseInt(row.paidAmount || "0", 10) || 0;
     const resolved = resolveEntryPaymentSubmit({
       paidAmount,
-      useWallet: Boolean(row.useWallet),
-      walletBalance: row.walletBalance ?? 0,
-      paymentMode: row.paymentMethod,
+      paymentMode: normalizePaymentMethod(row.paymentMethod),
     });
     return {
       customerId: row.customerId,
       amount: Number.parseInt(row.amount, 10),
       paidAmount,
-      useWallet: resolved.useWallet,
       ...(paidAmount > 0 && resolved.paymentMethod
         ? { paymentMethod: resolved.paymentMethod }
         : {}),

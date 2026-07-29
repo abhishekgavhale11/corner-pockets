@@ -15,10 +15,6 @@ export function DailyClosingView({ closing }: DailyClosingViewProps) {
         <dl className="grid gap-3 sm:grid-cols-2">
           <SummaryItem label="Cash Collection" value={closing.cashCollection} />
           <SummaryItem label="GPay Collection" value={closing.gpayCollection} />
-          <SummaryItem
-            label="Wallet Collection"
-            value={closing.walletCollection}
-          />
           <SummaryItem label="Pending Amount" value={closing.pendingAmount} />
           <div className="sm:col-span-2 border-t pt-3">
             <SummaryItem label="Grand Total" value={closing.grandTotal} bold />

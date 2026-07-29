@@ -1,6 +1,6 @@
 import BusinessDay from "@/models/BusinessDay";
 import { toBusinessDayDTO } from "@/lib/mappers/business-day";
-import { buildBusinessDayCloseSummary } from "@/lib/business-day/close-summary";
+import { buildBusinessDayCloseSummary } from "@/lib/financial-summary";
 import type { BusinessDayClosePreviewDTO, BusinessDayDTO } from "@/types";
 
 export async function getCurrentOpenBusinessDay(): Promise<BusinessDayDTO | null> {

@@ -1,9 +1,14 @@
+"use client";
+
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { BusinessDayHistoryInsightCards } from "@/components/business-day/BusinessDayHistoryInsightCards";
+import { BusinessDayHistoryOutstandingTab } from "@/components/business-day/BusinessDayHistoryOutstandingTab";
 import { BusinessDayHistoryPrintButton } from "@/components/business-day/BusinessDayHistoryPrintButton";
-import { BusinessDayHistoryWalletActivity } from "@/components/business-day/BusinessDayHistoryWalletActivity";
-import { HistoryPaymentStatusCell } from "@/components/business-day/HistoryPaymentStatusCell";
+import {
+  HistoryPaidStatusBadge,
+  HistoryPaymentStatusCell,
+} from "@/components/business-day/HistoryPaymentStatusCell";
 import {
   POOL_MINI_SECTIONS,
   SNOOKER_TABLE_SECTIONS,
@@ -12,7 +17,7 @@ import {
   formatBusinessDayDate,
   formatBusinessDayTime,
 } from "@/lib/business-day/format";
-import { buildDetailHistoryInsights } from "@/lib/business-day/history-insights";
+import { buildDetailHistoryInsights } from "@/lib/business-day/history-insights-display";
 import {
   sectionLabel,
   type NotebookSection,
@@ -134,7 +139,7 @@ function FrameTableColumns({
             return (
               <div
                 key={section}
-                className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-gray-200/80 bg-white shadow-sm transition hover:shadow-md"
+                className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-gray-200/80 bg-white shadow-sm transition hover:shadow-md"
               >
                 <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50/80 px-3 py-2.5">
                   <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-bold text-white">
@@ -148,14 +153,20 @@ function FrameTableColumns({
                 {lines.length === 0 ? (
                   <p className="px-3 py-4 text-xs text-gray-400">No frames</p>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-xs">
+                  <div className="min-w-0">
+                    <table className="w-full table-fixed border-collapse text-[11px]">
+                      <colgroup>
+                        <col className="w-[28%]" />
+                        <col className="w-[18%]" />
+                        <col className="w-[16%]" />
+                        <col className="w-[38%]" />
+                      </colgroup>
                       <thead>
-                        <tr className="border-b border-gray-100 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                          <th className="px-3 py-2 text-left">Customer</th>
-                          <th className="px-2 py-2 text-left">Type</th>
-                          <th className="px-2 py-2 text-right">Amount</th>
-                          <th className="px-3 py-2 text-right">Status</th>
+                        <tr className="border-b border-gray-100 text-[9px] font-bold uppercase tracking-wide text-gray-400">
+                          <th className="px-2 py-2 text-left">Customer</th>
+                          <th className="px-1.5 py-2 text-left">Type</th>
+                          <th className="px-1.5 py-2 text-right">Amount</th>
+                          <th className="px-2 py-2 text-left">Payment</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -164,31 +175,44 @@ function FrameTableColumns({
                             key={`${line.entryId}-${line.customerId ?? line.customerName}`}
                             className="border-b border-gray-50 last:border-0"
                           >
-                            <td className="px-3 py-2.5">
+                            <td className="max-w-0 px-2 py-2 align-top">
                               {line.customerId ? (
                                 <Link
                                   href={`/customers/${line.customerId}`}
-                                  className="font-semibold text-gray-900 hover:text-emerald-800"
+                                  className="block truncate font-semibold text-gray-900 hover:text-emerald-800"
+                                  title={line.customerName}
                                 >
                                   {line.customerName}
                                 </Link>
                               ) : (
-                                <span className="text-gray-500">
+                                <span
+                                  className="block truncate text-gray-500"
+                                  title={line.customerName}
+                                >
                                   {line.customerName}
                                 </span>
                               )}
                             </td>
-                            <td className="px-2 py-2.5 text-gray-700">
-                              {line.gameType}
+                            <td className="max-w-0 px-1.5 py-2 align-top">
+                              <span
+                                className="block truncate text-gray-700"
+                                title={line.gameType}
+                              >
+                                {line.gameType}
+                              </span>
                             </td>
-                            <td className="px-2 py-2.5 text-right tabular-nums font-semibold text-gray-900">
+                            <td className="px-1.5 py-2 text-right align-top tabular-nums font-semibold text-gray-900">
                               {formatCurrency(line.amount)}
                             </td>
-                            <td className="px-3 py-2.5 text-right">
+                            <td className="min-w-0 px-2 py-2 align-top">
                               <HistoryPaymentStatusCell
                                 amount={line.amount}
                                 paidAmount={line.paidAmount}
                                 paymentMethod={line.paymentMethod}
+                                paymentAllocations={line.paymentAllocations}
+                                receivedByUsername={line.receivedByUsername}
+                                receivedAt={line.receivedAt}
+                                compact
                               />
                             </td>
                           </tr>
@@ -196,11 +220,11 @@ function FrameTableColumns({
                         <tr className="bg-gray-50/80">
                           <td
                             colSpan={2}
-                            className="px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-gray-500"
+                            className="px-2 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-500"
                           >
                             Total
                           </td>
-                          <td className="px-2 py-2 text-right text-[12px] font-bold tabular-nums text-gray-900">
+                          <td className="px-1.5 py-2 text-right text-[11px] font-bold tabular-nums text-gray-900">
                             {formatCurrency(tableTotal)}
                           </td>
                           <td />
@@ -299,7 +323,6 @@ function CustomerSettlementSummary({
       bill: acc.bill + row.bill,
       cashCollection: acc.cashCollection + row.cashCollection,
       gpayCollection: acc.gpayCollection + row.gpayCollection,
-      walletCollection: acc.walletCollection + row.walletCollection,
       due: acc.due + row.due,
     }),
     {
@@ -309,7 +332,6 @@ function CustomerSettlementSummary({
       bill: 0,
       cashCollection: 0,
       gpayCollection: 0,
-      walletCollection: 0,
       due: 0,
     }
   );
@@ -352,7 +374,6 @@ function CustomerSettlementSummary({
                 <th className="px-3 py-3 text-right">Pool & Mini</th>
                 <th className="px-3 py-3 text-right">Cafe</th>
                 <th className="px-3 py-3 text-right">Bill</th>
-                <th className="px-3 py-3 text-right">Wallet</th>
                 <th className="px-3 py-3 text-right">GPay</th>
                 <th className="px-3 py-3 text-right">Cash</th>
                 <th className="px-4 py-3 text-right">Due</th>
@@ -389,9 +410,6 @@ function CustomerSettlementSummary({
                   <td className="px-3 py-3 text-right tabular-nums font-semibold text-gray-900">
                     {formatCurrency(row.bill)}
                   </td>
-                  <td className="px-3 py-3 text-right tabular-nums font-semibold text-violet-700">
-                    {formatCurrency(row.walletCollection)}
-                  </td>
                   <td className="px-3 py-3 text-right tabular-nums font-semibold text-sky-700">
                     {formatCurrency(row.gpayCollection)}
                   </td>
@@ -422,9 +440,6 @@ function CustomerSettlementSummary({
                 </td>
                 <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-gray-900">
                   {formatCurrency(totals.bill)}
-                </td>
-                <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-violet-700">
-                  {formatCurrency(totals.walletCollection)}
                 </td>
                 <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-sky-700">
                   {formatCurrency(totals.gpayCollection)}
@@ -486,6 +501,7 @@ function CafeSnapshotSection({
                 <th className="px-4 py-3 text-left">Customer</th>
                 <th className="px-3 py-3 text-left">Item</th>
                 <th className="px-3 py-3 text-right">Amount</th>
+                <th className="px-4 py-3 text-left">Payment</th>
                 <th className="px-4 py-3 text-right">Status</th>
               </tr>
             </thead>
@@ -511,11 +527,20 @@ function CafeSnapshotSection({
                   <td className="px-3 py-3 text-right tabular-nums font-semibold text-gray-900">
                     {formatCurrency(line.amount)}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 align-top">
                     <HistoryPaymentStatusCell
                       amount={line.amount}
                       paidAmount={line.paidAmount}
                       paymentMethod={line.paymentMethod}
+                      paymentAllocations={line.paymentAllocations}
+                      receivedByUsername={line.receivedByUsername}
+                      receivedAt={line.receivedAt}
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-right align-top">
+                    <HistoryPaidStatusBadge
+                      amount={line.amount}
+                      paidAmount={line.paidAmount}
                     />
                   </td>
                 </tr>
@@ -534,6 +559,7 @@ export function BusinessDayHistoryDetail({
   const { day } = detail;
   const insights = buildDetailHistoryInsights(detail);
   const duration = formatDuration(day.openedAt, day.closedAt);
+  const [tab, setTab] = useState<"overview" | "outstanding">("overview");
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 pb-8">
@@ -588,27 +614,64 @@ export function BusinessDayHistoryDetail({
         </div>
       </div>
 
-      <BusinessDayHistoryInsightCards insights={insights} />
-
-      <BusinessDayHistoryWalletActivity activity={detail.walletActivity} />
-
-      <CustomerSettlementSummary settlements={detail.settlements} />
-
-      <CounterSnapshotSection frames={detail.frames} />
-
-      <CafeSnapshotSection cafe={detail.cafe} />
-
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-violet-100 bg-violet-50/80 px-4 py-3 text-xs text-violet-800">
-        <span className="inline-flex items-center gap-2">
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-violet-200 text-[10px] font-bold">
-            i
-          </span>
-          All amounts are final as of the close of Business Day.
-        </span>
-        <span className="font-medium">
-          Figures are locked and cannot be edited.
-        </span>
+      <div
+        className="flex gap-1 rounded-lg bg-gray-100 p-1 print:hidden"
+        role="tablist"
+        aria-label="Business Day History sections"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "overview"}
+          onClick={() => setTab("overview")}
+          className={
+            tab === "overview"
+              ? "flex-1 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm"
+              : "flex-1 rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900"
+          }
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "outstanding"}
+          onClick={() => setTab("outstanding")}
+          className={
+            tab === "outstanding"
+              ? "flex-1 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm"
+              : "flex-1 rounded-md px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900"
+          }
+        >
+          Outstanding
+        </button>
       </div>
+
+      {tab === "outstanding" ? (
+        <BusinessDayHistoryOutstandingTab trend={detail.outstandingTrend} />
+      ) : (
+        <>
+          <BusinessDayHistoryInsightCards insights={insights} />
+
+          <CustomerSettlementSummary settlements={detail.settlements} />
+
+          <CounterSnapshotSection frames={detail.frames} />
+
+          <CafeSnapshotSection cafe={detail.cafe} />
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-violet-100 bg-violet-50/80 px-4 py-3 text-xs text-violet-800">
+            <span className="inline-flex items-center gap-2">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-violet-200 text-[10px] font-bold">
+                i
+              </span>
+              All amounts are final as of the close of Business Day.
+            </span>
+            <span className="font-medium">
+              Figures are locked and cannot be edited.
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }

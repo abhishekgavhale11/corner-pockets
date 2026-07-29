@@ -53,18 +53,9 @@ export const customerSearchSchema = z.object({
 export const customerActivityFilterSchema = z.object({
   customerId: z.string().min(1),
   filter: z
-    .enum([
-      "all",
-      "counter",
-      "cafe",
-      "payments",
-      "wallet",
-      "transactions",
-      "reversals",
-    ])
+    .enum(["all", "counter", "cafe", "payments"])
     .optional()
-    .default("all")
-    .transform((value) => (value === "wallet" ? "transactions" : value)),
+    .default("all"),
 });
 
 export const updateStudentStatusSchema = z.object({
@@ -92,27 +83,10 @@ export type UpdateCustomerDetailsInput = z.infer<
   typeof updateCustomerDetailsSchema
 >;
 
-export const enableWalletMembershipSchema = z
-  .object({
-    customerId: z.string().min(1, "Customer is required"),
-    phone: z.string().optional(),
-    isStudent: z.preprocess(
-      (val) => (val === null || val === undefined ? undefined : val),
-      z
-        .enum(["true", "false", "on", ""])
-        .optional()
-        .transform((val) => val === "true" || val === "on")
-    ),
-  })
-  .superRefine((data, ctx) => {
-    const phone = data.phone?.trim();
-    if (phone && phone.length > 0) {
-      if (phone.length < 10) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Phone number must be at least 10 digits",
-          path: ["phone"],
-        });
-      }
-    }
-  });
+export const phoneVerificationSchema = z.object({
+  phone: z
+    .string()
+    .min(10, "Phone number must be at least 10 digits")
+    .max(15, "Phone number is too long")
+    .regex(/^[+\d\s()-]+$/, "Invalid phone number format"),
+});

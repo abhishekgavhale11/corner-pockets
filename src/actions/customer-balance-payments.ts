@@ -9,8 +9,7 @@ import { entryHasContributors } from "@/lib/utils/entry-contributors";
 import {
   applyBalancePaymentFifo,
   saveBalancePaymentEntries,
-} from "@/lib/wallet/apply-balance-payment";
-import { executeWalletDeduct } from "@/lib/wallet/execute-wallet-deduct";
+} from "@/lib/notebook/apply-balance-payment";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import { revalidateCustomerFinancials } from "@/lib/utils/revalidate-counter";
 import type { CustomerBalancePaymentDTO } from "@/types";
@@ -24,7 +23,6 @@ function toCustomerBalancePaymentDTO(payment: {
   amount: number;
   appliedAmount: number;
   paymentMethod: CustomerBalancePaymentDTO["paymentMethod"];
-  walletTransactionId?: { toString(): string };
   createdBy: string;
   createdAt: Date;
 }): CustomerBalancePaymentDTO {
@@ -34,7 +32,6 @@ function toCustomerBalancePaymentDTO(payment: {
     amount: payment.amount,
     appliedAmount: payment.appliedAmount,
     paymentMethod: payment.paymentMethod,
-    walletTransactionId: payment.walletTransactionId?.toString(),
     createdBy: payment.createdBy,
     createdAt: payment.createdAt.toISOString(),
   };
@@ -79,10 +76,6 @@ export async function recordCustomerBalancePayment(
   const customer = await Customer.findById(parsed.data.customerId);
   if (!customer || !customer.isActive) {
     return failure("Customer not found");
-  }
-
-  if (parsed.data.paymentMethod === "WALLET" && !customer.walletEnabled) {
-    return failure("Wallet is not enabled for this customer");
   }
 
   // Active-visit checkout block removed with Financial Engine V1 (always 0).
@@ -157,21 +150,6 @@ export async function recordCustomerBalancePayment(
       }
       appliedEntryIds = allocations.map((row) => row.entryId);
 
-      let walletTransactionId: string | undefined;
-
-      if (parsed.data.paymentMethod === "WALLET") {
-        const walletResult = await executeWalletDeduct({
-          customerId: parsed.data.customerId,
-          amount: parsed.data.amount,
-          description: `Balance payment — ${parsed.data.amount.toLocaleString("en-IN")}`,
-          verificationMethod: parsed.data.verificationMethod!,
-          staffId: authResult.session.user.id,
-          staffUsername: authResult.session.user.username,
-          dbSession,
-        });
-        walletTransactionId = walletResult.transactionId;
-      }
-
       await saveBalancePaymentEntries(entries, dbSession);
 
       const [payment] = await CustomerBalancePayment.create(
@@ -181,7 +159,6 @@ export async function recordCustomerBalancePayment(
             amount: parsed.data.amount,
             appliedAmount,
             paymentMethod: parsed.data.paymentMethod,
-            walletTransactionId,
             allocations: allocations.map((row) => ({
               entryId: new mongoose.Types.ObjectId(row.entryId),
               amount: row.amount,

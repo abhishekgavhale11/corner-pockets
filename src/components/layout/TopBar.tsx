@@ -12,7 +12,7 @@ export function TopBar({ staffName, staffRole }: TopBarProps) {
   const canCloseBusinessDay = hasPermission(staffRole, "BUSINESS_DAY_MANAGE");
 
   return (
-    <header className="flex h-9 shrink-0 items-center justify-between bg-white px-2">
+    <header className="flex min-h-12 shrink-0 items-center justify-between bg-white px-2 py-1.5">
       <div className="text-[11px] text-gray-500">
         <span className="font-medium text-gray-800">{staffName}</span>
         <span className="mx-1.5 text-gray-300">·</span>

@@ -7,8 +7,10 @@ export interface IOutstandingCollection extends Document {
   paymentMethod: OutstandingPaymentMethod;
   remainingBalanceAfter: number;
   createdBy: string;
-  walletTransactionId?: mongoose.Types.ObjectId;
-  walletAmount?: number;
+  /** Staff who recorded this Cash/GPay collection. */
+  receivedByStaffId?: mongoose.Types.ObjectId;
+  receivedByUsername?: string;
+  receivedAt?: Date;
   createdAt: Date;
 }
 
@@ -23,16 +25,17 @@ const outstandingCollectionSchema = new Schema<IOutstandingCollection>(
     amount: { type: Number, required: true, min: 1 },
     paymentMethod: {
       type: String,
-      enum: ["CASH", "GPAY", "WALLET"],
+      enum: ["CASH", "GPAY"],
       required: true,
     },
     remainingBalanceAfter: { type: Number, required: true, min: 0 },
     createdBy: { type: String, required: true, trim: true },
-    walletTransactionId: {
+    receivedByStaffId: {
       type: Schema.Types.ObjectId,
-      ref: "Transaction",
+      ref: "Staff",
     },
-    walletAmount: { type: Number, min: 0 },
+    receivedByUsername: { type: String, trim: true },
+    receivedAt: { type: Date },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 );

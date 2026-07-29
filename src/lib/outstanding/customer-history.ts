@@ -20,22 +20,31 @@ export async function getCustomerOutstandingHistory(
   }
 
   const businessDayIds = [
-    ...new Set(records.map((record) => record.businessDayId.toString())),
+    ...new Set(
+      records
+        .map((record) => record.businessDayId?.toString())
+        .filter((id): id is string => Boolean(id))
+    ),
   ];
 
-  const days = await BusinessDay.find({
-    _id: { $in: businessDayIds },
-  })
-    .select("_id businessDayNumber")
-    .lean();
+  const days =
+    businessDayIds.length > 0
+      ? await BusinessDay.find({
+          _id: { $in: businessDayIds },
+        })
+          .select("_id businessDayNumber")
+          .lean()
+      : [];
 
   const dayNumberById = new Map(
     days.map((day) => [day._id.toString(), day.businessDayNumber])
   );
 
   return records.map((record) => {
-    const businessDayNumber =
-      dayNumberById.get(record.businessDayId.toString()) ?? 0;
+    const dayId = record.businessDayId?.toString();
+    const businessDayNumber = dayId
+      ? (dayNumberById.get(dayId) ?? null)
+      : null;
     return toCustomerOutstandingItemDTO(record, businessDayNumber);
   });
 }
