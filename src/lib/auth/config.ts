@@ -29,11 +29,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           isActive: true,
         }).lean();
 
+        // TEMPORARY DEBUG LOGGING — remove after investigation.
+        console.log("[auth:debug] username received:", parsed.data.username);
+        console.log("[auth:debug] user found:", !!staff);
+        console.log("[auth:debug] isActive true:", staff?.isActive === true);
+        console.log(
+          "[auth:debug] password field exists:",
+          !!staff && Object.prototype.hasOwnProperty.call(staff, "password")
+        );
+
         if (!staff?.password) {
           return null;
         }
 
-        if (staff.password !== parsed.data.password) {
+        const passwordMatches = staff.password === parsed.data.password;
+        console.log("[auth:debug] password comparison result:", passwordMatches);
+
+        if (!passwordMatches) {
           return null;
         }
 
