@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils/cn";
 const navItems = [
   {
     href: "/counter/big-snooker",
-    label: "Big Snooker",
+    label: "Counter",
     permission: "NOTEBOOK_VIEW" as const,
     icon: "🎱",
     match: (path: string) =>
