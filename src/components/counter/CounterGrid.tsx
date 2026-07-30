@@ -9,6 +9,7 @@ import { CounterSectionColumn } from "@/components/counter/CounterSectionColumn"
 import { CustomerPreviewProvider } from "@/components/counter/CustomerPreviewContext";
 import { CafeNewTabDialog } from "@/components/counter/CafeNewTabDialog";
 import { CounterWorkspaceTabs } from "@/components/counter/CounterWorkspaceTabs";
+import { NewCustomerButton } from "@/components/counter/NewCustomerButton";
 import { cn } from "@/lib/utils/cn";
 
 interface CounterGridProps {
@@ -34,16 +35,7 @@ export function CounterGrid({
       <CounterWorkspaceTabs
         trailing={
           showNewCustomer ? (
-            <button
-              type="button"
-              onClick={() => setNewCustomerOpen(true)}
-              className="inline-flex h-[42px] items-center gap-1.5 rounded-[11px] bg-emerald-800 px-4 text-[13px] font-semibold text-white shadow-sm shadow-emerald-900/20 transition-colors hover:bg-emerald-900"
-            >
-              <span className="text-[16px] font-bold leading-none" aria-hidden>
-                +
-              </span>
-              New Customer
-            </button>
+            <NewCustomerButton onClick={() => setNewCustomerOpen(true)} />
           ) : undefined
         }
       />

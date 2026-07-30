@@ -22,7 +22,7 @@ import {
 } from "@/lib/utils/phone";
 import { phoneVerificationSchema } from "@/lib/validators/customer";
 import { revalidateCounterPaths } from "@/lib/utils/revalidate-counter";
-import { formatCustomerFullName } from "@/lib/utils/customer-name";
+import { formatCustomerFullName, nameMatchRegex } from "@/lib/utils/customer-name";
 import { failure, success, type ActionResult } from "@/lib/utils/action-result";
 import type {
   CustomerDTO,
@@ -32,6 +32,26 @@ import type {
 import Outstanding from "@/models/Outstanding";
 import NotebookEntry from "@/models/NotebookEntry";
 import mongoose from "mongoose";
+
+/**
+ * Same first name is fine; same first name AND same surname (case-insensitive)
+ * on another active customer is not — prevents duplicate customer records.
+ */
+async function findDuplicateNameCustomer(
+  firstName: string,
+  lastName: string,
+  excludeId?: string
+) {
+  const query: Record<string, unknown> = {
+    isActive: true,
+    firstName: nameMatchRegex(firstName),
+    lastName: nameMatchRegex(lastName),
+  };
+  if (excludeId) {
+    query._id = { $ne: excludeId };
+  }
+  return Customer.findOne(query).select("_id").lean();
+}
 
 async function loadOutstandingCustomerIds(): Promise<mongoose.Types.ObjectId[]> {
   const withOutstanding = await Outstanding.aggregate<{
@@ -273,6 +293,11 @@ export async function createCustomer(
     return failure("A customer with this phone number already exists");
   }
 
+  const duplicateName = await findDuplicateNameCustomer(firstName, lastName);
+  if (duplicateName) {
+    return failure("A customer with this name and surname already exists");
+  }
+
   try {
     const cardId = await generateCardId();
 
@@ -391,6 +416,17 @@ export async function updateCustomerDetails(
     }
   }
 
+  if (currentFirstName !== firstName || currentLastName !== lastName) {
+    const duplicateName = await findDuplicateNameCustomer(
+      firstName,
+      lastName,
+      customer._id.toString()
+    );
+    if (duplicateName) {
+      return failure("A customer with this name and surname already exists");
+    }
+  }
+
   if (nextCardId !== currentCardId) {
     const existingCard = await Customer.findOne({
       cardId: nextCardId,
@@ -499,6 +535,11 @@ export async function createQuickCustomer(
     if (existing) {
       return failure("A customer with this phone number already exists");
     }
+  }
+
+  const duplicateName = await findDuplicateNameCustomer(firstName, lastName);
+  if (duplicateName) {
+    return failure("A customer with this name and surname already exists");
   }
 
   let customer;

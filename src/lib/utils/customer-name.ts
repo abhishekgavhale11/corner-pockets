@@ -1,3 +1,14 @@
+/** Escape a string for safe use inside a RegExp pattern. */
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Case-insensitive, whitespace-normalized exact-match regex for a name part. */
+export function nameMatchRegex(value: string): RegExp {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return new RegExp(`^${escapeRegExpLiteral(normalized)}$`, "i");
+}
+
 /** Build display name from first + last. */
 export function formatCustomerFullName(
   firstName: string,

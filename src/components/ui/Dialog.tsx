@@ -49,7 +49,7 @@ export function Dialog({
         "fixed left-1/2 top-1/2 m-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border-0 bg-white p-0 shadow-xl backdrop:bg-black/50",
         "open:animate-in open:fade-in",
         isLg
-          ? "max-h-[min(92vh,760px)] w-[min(calc(100vw-1.5rem),50rem)]"
+          ? "max-h-[min(94vh,860px)] w-[min(calc(100vw-1.5rem),50rem)]"
           : "max-h-[min(90vh,640px)] w-[min(calc(100vw-2rem),28rem)]"
       )}
       onClose={onClose}
@@ -59,7 +59,7 @@ export function Dialog({
         className={cn(
           "overflow-y-auto",
           isLg
-            ? "max-h-[min(92vh,760px)] px-5 py-4 sm:px-6"
+            ? "max-h-[min(94vh,860px)] px-5 py-4 sm:px-6"
             : "max-h-[min(90vh,640px)] p-6"
         )}
       >

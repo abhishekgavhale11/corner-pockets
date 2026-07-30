@@ -62,9 +62,9 @@ export function Sidebar({ role, onHide }: SidebarProps) {
   const visible = navItems.filter((item) => hasPermission(role, item.permission));
 
   return (
-    <aside className="flex w-[272px] shrink-0 flex-col bg-emerald-950 text-white">
-      <div className="border-b border-emerald-900/50 px-5 py-4">
-        <div className="flex items-start justify-between gap-2">
+    <aside className="flex h-full w-[272px] shrink-0 flex-col overflow-y-auto bg-emerald-950 text-white">
+      <div className="sticky top-0 z-10 border-b border-emerald-900/50 bg-emerald-950 px-5 py-4">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-3">
             <ClubLogo size={36} />
             <div className="min-w-0">
@@ -80,7 +80,7 @@ export function Sidebar({ role, onHide }: SidebarProps) {
             <button
               type="button"
               onClick={onHide}
-              className="mt-0.5 rounded p-1.5 text-emerald-200/80 hover:bg-emerald-900 hover:text-white"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-emerald-800/70 bg-emerald-900/50 text-emerald-100 shadow-sm transition-colors hover:border-emerald-700 hover:bg-emerald-800 hover:text-white"
               aria-label="Hide sidebar"
               title="Hide sidebar"
             >

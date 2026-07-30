@@ -44,6 +44,8 @@ import {
   TrashIcon,
 } from "@/components/counter/CafeItemIcons";
 import { CafeNewTabDialog } from "@/components/counter/CafeNewTabDialog";
+import { CounterWorkspaceTabs } from "@/components/counter/CounterWorkspaceTabs";
+import { NewCustomerButton } from "@/components/counter/NewCustomerButton";
 import { CustomerPickerDialog } from "@/components/customers/CustomerPickerDialog";
 
 type DraftItem = {
@@ -869,18 +871,14 @@ export function CafeOrdersWorkspace({
 
   return (
     <CustomerPreviewProvider>
+    <CounterWorkspaceTabs
+      trailing={<NewCustomerButton onClick={() => setNewCustomerOpen(true)} />}
+    />
     <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
       <div className="min-w-0 flex-1">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-bold text-gray-900">Cafe Orders</h2>
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="secondary"
-              className="border-emerald-200 text-emerald-900"
-              onClick={() => setNewCustomerOpen(true)}
-            >
-              + New Customer
-            </Button>
             <Button
               variant="secondary"
               className="border-emerald-700 text-emerald-900"

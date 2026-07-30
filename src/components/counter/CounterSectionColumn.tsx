@@ -27,7 +27,6 @@ import {
 import { TableCardOverflowMenu } from "@/components/counter/TableCardOverflowMenu";
 import { summarizeTableLedger } from "@/components/counter/table-card-summary";
 import { isPoolMiniEntry } from "@/lib/utils/pool-mini-entry";
-import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 
 interface CounterSectionColumnProps {
@@ -108,12 +107,6 @@ export function CounterSectionColumn({
     setEditFrameEntry(savedEntryById[entry.id] ?? entry);
   };
 
-  const statusLabel = !summary.isActive
-    ? "Idle"
-    : summary.hasOpenDue
-      ? `Due ${formatCurrency(summary.totalDue)}`
-      : "Paid";
-
   const stickyChrome = (
     <>
       <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2.5">
@@ -157,7 +150,7 @@ export function CounterSectionColumn({
   );
 
   const column = (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
       <CounterLedgerTable stickyChrome={stickyChrome}>
         {entries.length === 0 ? (
           <tr>
@@ -185,32 +178,6 @@ export function CounterSectionColumn({
           ))
         )}
       </CounterLedgerTable>
-
-      <div className="flex items-center justify-between gap-3 rounded-b-xl border-t border-gray-100 bg-gray-50/80 px-3 py-2.5">
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-            Total
-          </p>
-          <p className="text-[15px] font-bold tabular-nums text-gray-900">
-            {formatCurrency(summary.totalAmount)}
-          </p>
-        </div>
-        <div className="min-w-0 text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-            Status
-          </p>
-          <p
-            className={cn(
-              "text-[13px] font-bold tabular-nums",
-              !summary.isActive && "text-gray-500",
-              summary.isActive && summary.hasOpenDue && "text-orange-700",
-              summary.isActive && !summary.hasOpenDue && "text-emerald-800"
-            )}
-          >
-            {statusLabel}
-          </p>
-        </div>
-      </div>
     </div>
   );
 

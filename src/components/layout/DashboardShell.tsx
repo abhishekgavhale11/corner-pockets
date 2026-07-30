@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { StaffRole } from "@/lib/auth/roles";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { CounterShellSlotContext } from "@/components/layout/CounterShellSlot";
 import { cn } from "@/lib/utils/cn";
 
 const STORAGE_KEY = "cpos-sidebar-open";
@@ -16,6 +17,7 @@ interface DashboardShellProps {
 export function DashboardShell({ role, topBar, children }: DashboardShellProps) {
   const [open, setOpen] = useState(true);
   const [ready, setReady] = useState(false);
+  const [tabsSlot, setTabsSlot] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try {
@@ -38,11 +40,11 @@ export function DashboardShell({ role, topBar, children }: DashboardShellProps) 
   }, [open, ready]);
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="flex h-screen min-h-0 overflow-hidden bg-gray-50">
       {open && <Sidebar role={role} onHide={() => setOpen(false)} />}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-stretch border-b border-gray-200 bg-white">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex shrink-0 items-stretch border-b border-gray-200 bg-white">
           {!open && (
             <button
               type="button"
@@ -59,7 +61,14 @@ export function DashboardShell({ role, topBar, children }: DashboardShellProps) 
           )}
           <div className="min-w-0 flex-1">{topBar}</div>
         </div>
-        <main className="flex-1 overflow-auto p-1.5 sm:p-2">{children}</main>
+        {/* Counter workspace tabs portal here — flush against the header,
+            outside main's padding, so there is never a gap or scroll-through. */}
+        <div ref={setTabsSlot} className="shrink-0 bg-gray-50" />
+        <main className="min-h-0 flex-1 overflow-y-auto p-1.5 sm:p-2">
+          <CounterShellSlotContext.Provider value={tabsSlot}>
+            {children}
+          </CounterShellSlotContext.Provider>
+        </main>
       </div>
     </div>
   );

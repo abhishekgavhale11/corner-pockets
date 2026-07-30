@@ -73,8 +73,6 @@ function CustomerListItem({
 export function UnassignedEntryDialog({
   entry,
   onClose,
-  onSplit,
-  allowSplit = true,
 }: UnassignedEntryDialogProps) {
   const router = useRouter();
   const open = entry !== null;
@@ -134,14 +132,8 @@ export function UnassignedEntryDialog({
     });
   };
 
-  const handleSplit = () => {
-    if (!entry) return;
-    onClose();
-    onSplit(entry);
-  };
-
   return (
-    <Dialog open={open} onClose={onClose} title="Assign Customer">
+    <Dialog open={open} onClose={onClose} title="Assign Customer" size="lg">
       {entry && (
         <div className="flex flex-col gap-4">
           <p className="text-sm text-gray-600">
@@ -161,7 +153,7 @@ export function UnassignedEntryDialog({
               autoFocus
             />
 
-            <div className="mt-2 max-h-72 min-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50/50 p-1">
+            <div className="mt-2 max-h-[36rem] min-h-96 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50/50 p-1">
               {isLoading ? (
                 <p className="px-3 py-3 text-sm text-gray-500">Searching…</p>
               ) : totalCustomers === 0 ? (
@@ -225,23 +217,6 @@ export function UnassignedEntryDialog({
           >
             {isPending ? "Assigning…" : "Assign Customer"}
           </Button>
-
-          {allowSplit ? (
-            <div className="border-t border-gray-200 pt-4">
-              <p className="mb-2 text-center text-xs text-gray-500">
-                Need to split this bill?
-              </p>
-              <Button
-                type="button"
-                variant="secondary"
-                fullWidth
-                onClick={handleSplit}
-                disabled={isPending}
-              >
-                Split Bill
-              </Button>
-            </div>
-          ) : null}
         </div>
       )}
     </Dialog>

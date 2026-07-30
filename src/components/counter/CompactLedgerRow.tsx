@@ -84,7 +84,7 @@ function EditIconButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
       aria-label={label}
       title={title}
     >
@@ -119,7 +119,7 @@ function DeleteIconButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50 hover:text-red-800"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50 hover:text-red-800"
       aria-label={label}
       title={title}
     >
@@ -238,28 +238,29 @@ function SplitContributorRow({
         <>
           <td
             rowSpan={total}
-            className="overflow-visible whitespace-nowrap py-2.5 pl-3 pr-1 align-top"
+            className="overflow-visible whitespace-nowrap px-3 py-3 align-middle"
           >
             <div className="flex flex-col gap-0.5">{timeCell}</div>
           </td>
           <td
             rowSpan={total}
-            className="whitespace-nowrap px-1.5 py-2.5 align-top text-[13px] font-semibold text-gray-800"
+            className="whitespace-nowrap px-3 py-3 align-middle text-[13px] font-semibold text-gray-800"
           >
             {typeCell}
           </td>
         </>
       )}
-      <td className="px-2 py-2.5 align-middle">
+      <td className="min-w-0 px-3 py-3 align-middle">
         <CustomerNameCell
           customerId={contributor.customerId}
           customerName={contributor.customerName}
+          className="block min-w-0 truncate"
         />
       </td>
-      <td className="whitespace-nowrap px-1.5 py-2.5 text-right text-[13px] font-bold tabular-nums text-gray-900">
+      <td className="whitespace-nowrap px-3 py-3 text-right align-middle text-[13px] font-bold tabular-nums text-gray-900">
         {formatCurrency(contributor.amount)}
       </td>
-      <td className="whitespace-nowrap px-1.5 py-2.5 text-right align-middle">
+      <td className="whitespace-nowrap px-3 py-3 text-right align-middle">
         <DueStatusCell
           amount={contributor.amount}
           paidAmount={contributor.paidAmount}
@@ -268,10 +269,10 @@ function SplitContributorRow({
           status={entry.status}
         />
       </td>
-      <td className="py-2.5 pl-1 pr-3 text-right align-middle">
-        <div className="flex flex-col items-end gap-1">
+      <td className="px-3 py-3 align-middle text-right">
+        <div className="flex flex-col items-end gap-1.5">
           {index === 0 ? (
-            <div className="flex items-center gap-0.5">
+            <div className="flex flex-nowrap items-center justify-end gap-2">
               {editFrameButton}
               {deleteFrameButton}
             </div>
@@ -376,7 +377,7 @@ export function CompactLedgerRow({
     <button
       type="button"
       onClick={handleUnassignedClick}
-      className="w-full text-left text-[13px] font-semibold text-gray-400 hover:text-emerald-800"
+      className="block w-full min-w-0 truncate text-left text-[13px] font-semibold text-gray-400 hover:text-emerald-800"
     >
       Unassigned
     </button>
@@ -384,7 +385,7 @@ export function CompactLedgerRow({
     <CustomerNameCell
       customerId={entry.customerId}
       customerName={entry.customerName ?? "Customer"}
-      className="w-full"
+      className="block w-full min-w-0 truncate"
     />
   ) : (
     <span className="block min-w-0 truncate text-left text-[14px] font-bold leading-snug text-gray-900">
@@ -445,21 +446,21 @@ export function CompactLedgerRow({
       onClick={rowPreview.handleRowClick}
       onDoubleClick={rowPreview.handleRowDoubleClick}
     >
-      <td className="py-2.5 pl-3 pr-1 align-top">
+      <td className="px-3 py-3 align-middle">
         <div className="flex flex-col gap-0.5">{timeCell}</div>
       </td>
-      <td className="whitespace-nowrap px-1.5 py-2.5 align-top text-[13px] font-semibold text-gray-800">
+      <td className="whitespace-nowrap px-3 py-3 align-middle text-[13px] font-semibold text-gray-800">
         {typeCell}
       </td>
-      <td className="px-2 py-2.5 align-top">
+      <td className="min-w-0 px-3 py-3 align-middle">
         <FieldCell correction={byField.customer}>{nameCell}</FieldCell>
       </td>
-      <td className="whitespace-nowrap px-1.5 py-2.5 pr-1 align-top text-right text-[13px] font-bold tabular-nums text-gray-900">
+      <td className="whitespace-nowrap px-3 py-3 text-right align-middle text-[13px] font-bold tabular-nums text-gray-900">
         <FieldCell correction={byField.amount}>
           {formatCurrency(entry.amount)}
         </FieldCell>
       </td>
-      <td className="whitespace-nowrap px-1.5 py-2.5 text-right align-top">
+      <td className="whitespace-nowrap px-3 py-3 text-right align-middle">
         <DueStatusCell
           amount={entry.amount}
           paidAmount={entry.paidAmount}
@@ -468,9 +469,9 @@ export function CompactLedgerRow({
           status={entry.status}
         />
       </td>
-      <td className="py-2.5 pl-1 pr-3 align-top text-right">
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-0.5">
+      <td className="px-3 py-3 align-middle text-right">
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex flex-nowrap items-center justify-end gap-2">
             {editFrameButton}
             {deleteFrameButton}
           </div>
