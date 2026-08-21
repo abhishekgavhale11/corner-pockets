@@ -175,10 +175,9 @@ export function SnookerFrameEditDialog({
             customerId: contributor.customerId,
             customerName: contributor.customerName,
             amount: String(contributor.amount),
-            paidAmount: defaultReceivedForEdit(
-              contributor.amount,
-              contributor.paidAmount
-            ),
+            // Use stored Received only — do not pre-fill unpaid contributors to
+            // Amount (that forced Payment Mode on untouched split partners).
+            paidAmount: String(contributor.paidAmount ?? 0),
             paymentMethod:
               contributor.paymentMethod === "CASH" ||
               contributor.paymentMethod === "GPAY"

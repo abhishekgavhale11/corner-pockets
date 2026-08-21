@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   CashGpaySegmentedControl,
   type PaymentModeOption,
@@ -17,9 +17,10 @@ import {
 } from "@/lib/constants/cafe";
 import { paymentMethodLabel } from "@/lib/constants/notebook-payments";
 import { sectionLabel } from "@/lib/constants/notebook-sections";
+import { attributePaymentCollections } from "@/lib/business-day/payment-collections";
 import { formatCurrency } from "@/lib/utils/format";
 import { getEntryDisplayLabel } from "@/lib/utils/notebook-entry-label";
-import { frameDueFromParts } from "@/lib/utils/frame-payment";
+import { frameDueFromParts, framePaidAmount } from "@/lib/utils/frame-payment";
 import type { CafeOrderDTO, CafeOrderItemDTO } from "@/lib/mappers/cafe-order";
 import type { NotebookEntryDTO } from "@/types";
 import type { CustomerCounterDrawerDTO } from "@/types";
@@ -104,6 +105,70 @@ function lineAmountsForCustomer(
   };
 }
 
+/**
+ * Display-only Cash / GPay totals from existing allocation fields on today's
+ * frames and cafe orders. Ignores Wallet / balanceCollected. Does not change
+ * Total Received math.
+ */
+function cashGpayReceivedBreakdown(summary: CustomerCounterDrawerDTO): {
+  cash: number;
+  gpay: number;
+} {
+  let cash = 0;
+  let gpay = 0;
+
+  for (const entry of summary.todaysFrames) {
+    const contributor = entry.contributors?.find(
+      (row) => row.customerId === summary.customerId
+    );
+    const portion = attributePaymentCollections({
+      paidAmount: framePaidAmount(
+        contributor ? contributor.paidAmount : entry.paidAmount
+      ),
+      paymentMethod: contributor
+        ? contributor.paymentMethod ?? entry.paymentMethod
+        : entry.paymentMethod,
+      paymentAllocations: contributor ? undefined : entry.paymentAllocations,
+    });
+    cash += portion.cash;
+    gpay += portion.gpay;
+  }
+
+  for (const order of summary.todaysCafeOrders) {
+    const portion = attributePaymentCollections({
+      paidAmount: framePaidAmount(order.received),
+      paymentMethod: order.paymentMethod,
+    });
+    cash += portion.cash;
+    gpay += portion.gpay;
+  }
+
+  return { cash, gpay };
+}
+
+function CashGpayReceivedLine({
+  cash,
+  gpay,
+}: {
+  cash: number;
+  gpay: number;
+}) {
+  const parts: string[] = [];
+  if (cash > 0) {
+    parts.push(`${paymentMethodLabel("CASH")} ${formatCurrency(cash)}`);
+  }
+  if (gpay > 0) {
+    parts.push(`${paymentMethodLabel("GPAY")} ${formatCurrency(gpay)}`);
+  }
+  if (parts.length === 0) return null;
+
+  return (
+    <p className="pl-2 text-[11px] font-medium leading-snug tabular-nums text-gray-500">
+      {parts.join(" · ")}
+    </p>
+  );
+}
+
 /** Same labels as Cafe Counter item cards. */
 function cafeOrderItemLabel(item: CafeOrderItemDTO): string {
   const type = item.type as CafeItemType;
@@ -165,6 +230,10 @@ export function CustomerCounterDrawerPanel({
   const [paymentMode, setPaymentMode] = useState<PaymentModeOption | "">("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const receivedBreakdown = useMemo(
+    () => cashGpayReceivedBreakdown(summary),
+    [summary]
+  );
 
   const canMarkPaid = hasDue && paymentMode !== "" && !isPending;
 
@@ -212,11 +281,17 @@ export function CustomerCounterDrawerPanel({
             {formatCurrency(summary.todaysBill)}
           </dd>
         </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-gray-500">Total Received</dt>
-          <dd className="font-semibold tabular-nums text-emerald-800">
-            {formatCurrency(summary.totalReceived)}
-          </dd>
+        <div className="space-y-0.5">
+          <div className="flex justify-between gap-3">
+            <dt className="text-gray-500">Total Received</dt>
+            <dd className="font-semibold tabular-nums text-emerald-800">
+              {formatCurrency(summary.totalReceived)}
+            </dd>
+          </div>
+          <CashGpayReceivedLine
+            cash={receivedBreakdown.cash}
+            gpay={receivedBreakdown.gpay}
+          />
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-gray-500">Total Due</dt>

@@ -32,6 +32,8 @@ interface CompactLedgerRowProps {
   frameEditable?: boolean;
   /** When false, Split affordances are hidden (Pool & Mini). Default true. */
   allowSplit?: boolean;
+  /** Big Snooker keeps Type; Pool & Mini hides it (card header identifies the table). */
+  showTypeColumn?: boolean;
   onUnassignedAction?: (entry: NotebookEntryDTO) => void;
   onEditFrame?: (entry: NotebookEntryDTO) => void;
   onDeleteFrame?: (entry: NotebookEntryDTO) => void;
@@ -205,6 +207,7 @@ function SplitContributorRow({
   total,
   timeCell,
   typeCell,
+  showTypeColumn,
   editFrameButton,
   deleteFrameButton,
   correctionButton,
@@ -215,6 +218,7 @@ function SplitContributorRow({
   total: number;
   timeCell: ReactNode;
   typeCell: ReactNode;
+  showTypeColumn: boolean;
   editFrameButton: ReactNode;
   deleteFrameButton: ReactNode;
   correctionButton: ReactNode;
@@ -242,15 +246,17 @@ function SplitContributorRow({
           >
             <div className="flex flex-col gap-0.5">{timeCell}</div>
           </td>
-          <td
-            rowSpan={total}
-            className="whitespace-nowrap px-3 py-3 align-middle text-[13px] font-semibold text-gray-800"
-          >
-            {typeCell}
-          </td>
+          {showTypeColumn ? (
+            <td
+              rowSpan={total}
+              className="whitespace-nowrap px-3 py-3 align-middle text-[13px] font-semibold text-gray-800"
+            >
+              {typeCell}
+            </td>
+          ) : null}
         </>
       )}
-      <td className="min-w-0 px-3 py-3 align-middle">
+      <td className="min-w-0 max-w-0 overflow-hidden px-3 py-3 align-middle">
         <CustomerNameCell
           customerId={contributor.customerId}
           customerName={contributor.customerName}
@@ -288,6 +294,7 @@ export function CompactLedgerRow({
   entry,
   frameEditable = false,
   allowSplit = true,
+  showTypeColumn = true,
   onUnassignedAction,
   onEditFrame,
   onDeleteFrame,
@@ -425,6 +432,7 @@ export function CompactLedgerRow({
             total={contributors.length}
             timeCell={timeCell}
             typeCell={typeCell}
+            showTypeColumn={showTypeColumn}
             editFrameButton={editFrameButton}
             deleteFrameButton={deleteFrameButton}
             correctionButton={correctionButton}
@@ -447,10 +455,12 @@ export function CompactLedgerRow({
       <td className="px-3 py-3 align-middle">
         <div className="flex flex-col gap-0.5">{timeCell}</div>
       </td>
-      <td className="whitespace-nowrap px-3 py-3 align-middle text-[13px] font-semibold text-gray-800">
-        {typeCell}
-      </td>
-      <td className="min-w-0 px-3 py-3 align-middle">
+      {showTypeColumn ? (
+        <td className="whitespace-nowrap px-3 py-3 align-middle text-[13px] font-semibold text-gray-800">
+          {typeCell}
+        </td>
+      ) : null}
+      <td className="min-w-0 max-w-0 overflow-hidden px-3 py-3 align-middle">
         <FieldCell correction={byField.customer}>{nameCell}</FieldCell>
       </td>
       <td className="whitespace-nowrap px-3 py-3 text-right align-middle text-[13px] font-bold tabular-nums text-gray-900">

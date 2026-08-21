@@ -10,7 +10,10 @@ import {
 } from "@/lib/constants/notebook-presets";
 import type { SnookerQuickPreset } from "@/lib/constants/counter-sections";
 import { CompactLedgerRow } from "@/components/counter/CompactLedgerRow";
-import { CounterLedgerTable } from "@/components/counter/CounterLedgerTable";
+import {
+  CounterLedgerTable,
+  counterLedgerColSpan,
+} from "@/components/counter/CounterLedgerTable";
 import { SnookerFrameAddRow } from "@/components/counter/SnookerFrameAddRow";
 import { SnookerFrameEditDialog } from "@/components/counter/SnookerFrameEditDialog";
 import { PoolMiniAddRow } from "@/components/counter/PoolMiniAddRow";
@@ -64,6 +67,8 @@ export function CounterSectionColumn({
   }, [entries]);
 
   const ledgerEditable = snookerQuick || poolMiniQuick;
+  /** Pool & Mini: Type is redundant — the card header already names the table. */
+  const showTypeColumn = !poolMiniQuick;
   const quickButtons =
     snookerQuick || poolMiniQuick ? [] : getPresetsForSection(section);
   const tableName = sectionLabel(section);
@@ -151,11 +156,14 @@ export function CounterSectionColumn({
 
   const column = (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
-      <CounterLedgerTable stickyChrome={stickyChrome}>
+      <CounterLedgerTable
+        stickyChrome={stickyChrome}
+        showTypeColumn={showTypeColumn}
+      >
         {entries.length === 0 ? (
           <tr>
             <td
-              colSpan={6}
+              colSpan={counterLedgerColSpan(showTypeColumn)}
               className="px-3 py-8 text-center text-[13px] font-medium text-gray-400"
             >
               No frames yet
@@ -168,6 +176,7 @@ export function CounterSectionColumn({
               entry={entry}
               frameEditable={ledgerEditable}
               allowSplit={!poolMiniQuick}
+              showTypeColumn={showTypeColumn}
               onEditFrame={handleEditEntry}
               onDeleteFrame={setDeleteFrameEntry}
               onEditSplit={(row) => setSplitEntry(row)}
