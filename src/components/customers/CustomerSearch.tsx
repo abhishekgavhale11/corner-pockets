@@ -17,6 +17,8 @@ export function CustomerSearch() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (debouncedQuery !== query) return;
+
     const trimmed = debouncedQuery.trim();
     const currentQ = searchParams.get("q") ?? "";
     if (trimmed === currentQ) return;
@@ -33,7 +35,7 @@ export function CustomerSearch() {
     startTransition(() => {
       router.replace(qs ? `/customers?${qs}` : "/customers");
     });
-  }, [debouncedQuery, router, searchParams]);
+  }, [debouncedQuery, query, router, searchParams]);
 
   return (
     <div className="relative min-w-0 flex-1">

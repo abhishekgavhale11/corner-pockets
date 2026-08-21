@@ -14,21 +14,25 @@ export function CustomerFilters({
 }: CustomerFiltersProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const active = searchParams.get("filter") ?? "all";
+  const rawFilter = searchParams.get("filter");
+  const active =
+    rawFilter === "all" || rawFilter === "outstanding" ? rawFilter : "none";
 
   const setFilter = (filter: string) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (filter === "all") {
+    if (filter === "none") {
       params.delete("filter");
     } else {
       params.set("filter", filter);
     }
+    params.delete("q");
     params.delete("page");
     const qs = params.toString();
     router.replace(qs ? `/customers?${qs}` : "/customers");
   };
 
   const filters = [
+    { id: "none", label: "None" },
     { id: "all", label: "All", count: allCount },
     { id: "outstanding", label: "Outstanding", count: outstandingCount },
   ] as const;
@@ -49,21 +53,26 @@ export function CustomerFilters({
             aria-selected={isActive}
             onClick={() => setFilter(filter.id)}
             className={cn(
-              "inline-flex items-center rounded-[9px] px-3.5 text-[13px] font-semibold transition-all duration-150",
+              "inline-flex items-center rounded-[9px] px-3.5 text-[13px] transition-all duration-150",
+              filter.id === "none" ? "font-medium" : "font-semibold",
               isActive
                 ? "bg-white text-gray-900 shadow-sm shadow-gray-900/10"
-                : "text-gray-500 hover:bg-white/70 hover:text-gray-800"
+                : filter.id === "none"
+                  ? "text-gray-400 hover:bg-white/70 hover:text-gray-600"
+                  : "text-gray-500 hover:bg-white/70 hover:text-gray-800"
             )}
           >
             {filter.label}
-            <span
-              className={cn(
-                "ml-1.5 tabular-nums",
-                isActive ? "text-emerald-700" : "text-gray-400"
-              )}
-            >
-              ({filter.count})
-            </span>
+            {"count" in filter ? (
+              <span
+                className={cn(
+                  "ml-1.5 tabular-nums",
+                  isActive ? "text-emerald-700" : "text-gray-400"
+                )}
+              >
+                ({filter.count})
+              </span>
+            ) : null}
           </button>
         );
       })}

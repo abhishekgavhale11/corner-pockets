@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:low-mem": "NODE_OPTIONS=--max-old-space-size=2048 next build",
     "start": "next start",
     "lint": "eslint",
     "seed:sample": "tsx scripts/seed-sample-data.ts",

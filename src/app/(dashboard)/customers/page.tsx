@@ -5,7 +5,10 @@ import { CustomerFilters } from "@/components/customers/CustomerFilters";
 import { CustomerList } from "@/components/customers/CustomerList";
 import { CustomersOverview } from "@/components/customers/CustomersOverview";
 import { NewCustomerButton } from "@/components/customers/NewCustomerDrawer";
-import { HistoryPageLayout } from "@/components/business-day/history";
+import {
+  HistoryEmptyState,
+  HistoryPageLayout,
+} from "@/components/business-day/history";
 import { Pagination } from "@/components/ui/Pagination";
 
 interface CustomersPageProps {
@@ -22,11 +25,8 @@ export default async function CustomersPage({
     typeof params.filter === "string" ? params.filter : undefined;
   const autoOpenRegister = params.register === "1";
   const isOutstanding = filter === "outstanding";
-
-  const pageOutstanding = result.items.reduce(
-    (sum, row) => sum + row.outstandingAmount,
-    0
-  );
+  const showList =
+    Boolean(query?.trim()) || filter === "all" || filter === "outstanding";
 
   return (
     <HistoryPageLayout
@@ -55,29 +55,31 @@ export default async function CustomersPage({
         </div>
       }
     >
-      <CustomersOverview
-        totalCustomers={result.allCount}
-        customersWithOutstanding={result.outstandingCount}
-        totalOutstanding={pageOutstanding}
-      />
+      <CustomersOverview totalCustomers={result.allCount} />
 
-      <CustomerList
-        customers={result.items}
-        emptyMessage={
-          isOutstanding
-            ? "No customers with outstanding balances."
-            : "No customers found."
-        }
-      />
+      {showList ? (
+        <>
+          <CustomerList
+            customers={result.items}
+            emptyMessage={
+              isOutstanding
+                ? "No customers with outstanding balances."
+                : "No customers found."
+            }
+          />
 
-      <Pagination
-        page={result.page}
-        totalPages={result.totalPages}
-        total={result.total}
-        limit={result.limit}
-        query={query}
-        filter={filter}
-      />
+          <Pagination
+            page={result.page}
+            totalPages={result.totalPages}
+            total={result.total}
+            limit={result.limit}
+            query={query}
+            filter={filter}
+          />
+        </>
+      ) : (
+        <HistoryEmptyState message="Search for a customer to view details" />
+      )}
     </HistoryPageLayout>
   );
 }
