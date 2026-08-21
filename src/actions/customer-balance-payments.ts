@@ -83,7 +83,6 @@ export async function recordCustomerBalancePayment(
   const dbSession = await mongoose.startSession();
   let paymentDoc: Parameters<typeof toCustomerBalancePaymentDTO>[0] | null =
     null;
-  let appliedEntryIds: string[] = [];
 
   try {
     await dbSession.withTransaction(async () => {
@@ -148,8 +147,6 @@ export async function recordCustomerBalancePayment(
           "Amount exceeds outstanding balance for this customer."
         );
       }
-      appliedEntryIds = allocations.map((row) => row.entryId);
-
       await saveBalancePaymentEntries(entries, dbSession);
 
       const [payment] = await CustomerBalancePayment.create(

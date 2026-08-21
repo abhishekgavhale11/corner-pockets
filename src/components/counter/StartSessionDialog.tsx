@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
 import { counterRateTypeSuffix } from "@/lib/constants/counter-rates";
 import { getRateOptionsForPreset } from "@/lib/constants/counter-rates";
 import { poolMiniGameType, type PoolMiniTableId } from "@/lib/constants/table-sessions";

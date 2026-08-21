@@ -23,8 +23,7 @@ import { getOpenBusinessDayContext } from "@/lib/business-day/require-open-busin
 import type { CustomerDTO, NotebookEntryDTO, TableSessionDTO } from "@/types";
 
 export async function getSectionLedger(
-  section: NotebookSection,
-  _dateInput?: string
+  section: NotebookSection
 ): Promise<NotebookEntryDTO[]> {
   const authResult = await authorizePermission("NOTEBOOK_VIEW");
   if (!("session" in authResult)) {

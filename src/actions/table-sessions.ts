@@ -33,7 +33,6 @@ import {
   startBigSnookerSessionSchema,
   tableSessionActionSchema,
   assignTableSessionCustomersSchema,
-  updateSessionGameAmountSchema,
   updateSessionBillAmountsSchema,
   setBigSnookerSessionGameSchema,
 } from "@/lib/validators/table-sessions";

@@ -30,8 +30,8 @@ function contributorTotalSettled(
 function applyPaymentToEntry(
   entry: INotebookEntry,
   applied: number,
-  paymentMethod: NotebookPaymentMethod,
-  paidAt: Date
+  _paymentMethod: NotebookPaymentMethod,
+  _paidAt: Date
 ) {
   entry.balanceCollectedAmount = (entry.balanceCollectedAmount ?? 0) + applied;
 

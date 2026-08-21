@@ -102,7 +102,6 @@ export async function validateBusinessDayCloseOutstandingProof(
   // Exactly one Outstanding candidate per customer with Due > 0
   for (const [customerId, list] of candidatesByCustomer) {
     if (list.length <= 1) continue;
-    const sample = list[0];
     issues.push({
       validation: "NO_DUPLICATE_CANDIDATES",
       expected: 1,

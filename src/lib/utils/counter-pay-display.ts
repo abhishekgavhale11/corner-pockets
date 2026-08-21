@@ -64,7 +64,6 @@ export function getCounterPayDisplay(
   }
 
   if (entry.checkoutDismissedAt) {
-    const paidAmount = entryTotalPaidAmount(entry);
     const balanceAmount =
       entry.counterBalanceAmount ?? entryAmountRemaining(entry);
     return {

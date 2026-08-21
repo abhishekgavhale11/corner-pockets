@@ -925,8 +925,6 @@ export function MiniSessionBoard({
           ) : (
             items.map((item) => {
               const id = sessionItemId(item);
-              const rowSession =
-                item.kind !== "history" ? item.session : null;
               return (
                 <MiniSessionLedgerRow
                   key={id}

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CAFE_ITEM_TYPES, CAFE_PAYMENT_METHODS } from "@/lib/constants/cafe";
+import { CAFE_PAYMENT_METHODS } from "@/lib/constants/cafe";
 
 const qtyItemSchema = z.object({
   type: z.enum(["CIGARETTE", "WATER"]),

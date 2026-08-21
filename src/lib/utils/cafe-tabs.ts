@@ -1,5 +1,4 @@
 import type { CafeTableId } from "@/lib/constants/counter-sections";
-import { CAFE_TABLE_IDS } from "@/lib/constants/counter-sections";
 import type { TableSessionDTO } from "@/types";
 import { calculateGameChargeFromActiveMs } from "@/lib/utils/session-billing";
 import { computeActivePlayMs } from "@/lib/utils/session-timer";

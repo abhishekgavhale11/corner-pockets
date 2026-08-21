@@ -1134,7 +1134,6 @@ export async function setEntryContributors(
     const paidAmount = row.paidAmount ?? 0;
     totalPaid += paidAmount;
 
-    const customerIdStr = customer._id.toString();
     const method =
       paidAmount > 0 && row.paymentMethod ? row.paymentMethod : undefined;
     const contributorDoc: (typeof contributorDocs)[number] = {
@@ -1180,7 +1179,7 @@ export async function setEntryContributors(
 }
 
 export async function getOpenTabs(
-  _searchParams: Record<string, string | string[] | undefined> = {}
+  _searchParams?: Record<string, string | string[] | undefined>
 ): Promise<OpenTabSummaryDTO[]> {
   const authResult = await authorizePermission("NOTEBOOK_VIEW");
   if (!("session" in authResult)) {

@@ -195,6 +195,8 @@ export function SnookerFrameEditDialog({
     setCustomerResults([]);
     setError(null);
     setSkipAmountReset(true);
+    // Hydrate once when the dialog opens / the selected entry changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid resetting while the cashier is editing
   }, [open, entry?.id, entryPaymentLoadKey]);
 
   useEffect(() => {

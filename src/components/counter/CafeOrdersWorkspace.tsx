@@ -438,6 +438,8 @@ function CafeOrderPanel({
     setShowAddItem(false);
     setEditingManual(null);
     setConfirmRemoveKey(null);
+    // Reset when the selected order or panel mode changes, not on every order field update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- order fields are copied once per open/switch
   }, [order?.id, mode]);
 
   const cafeTotal = items.reduce((sum, item) => sum + draftAmount(item), 0);

@@ -78,8 +78,7 @@ function usePaymentRowsState(props: EntryPaymentFieldsProps) {
 function rowDuePaymentMode(
   row: PaymentRowInput,
   rows: PaymentRowInput[],
-  frameAmount: number,
-  paymentDisabled: boolean
+  frameAmount: number
 ): RemainderPaymentMode | "" {
   const resolved = resolveEntryPayments({ frameAmount, rows });
   const rowReceived = Number.parseInt(row.received, 10) || 0;
@@ -219,7 +218,7 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
     const rowReceived = Number.parseInt(row.received, 10) || 0;
     const showLabels = index === 0;
     const showAddLink = index === 0 && rows.length === 1;
-    const dueMode = rowDuePaymentMode(row, rows, amount, paymentDisabled);
+    const dueMode = rowDuePaymentMode(row, rows, amount);
 
     if (layout === "row") {
       return (

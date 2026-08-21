@@ -142,7 +142,6 @@ export async function closeBusinessDay(input: {
 
   // --- Transaction ---
   const dbSession = await mongoose.startSession();
-  let closedDayDto = toBusinessDayDTO(openDay);
 
   try {
     await dbSession.withTransaction(async () => {
@@ -203,8 +202,6 @@ export async function closeBusinessDay(input: {
         },
         session: dbSession,
       });
-
-      closedDayDto = toBusinessDayDTO(day);
     });
   } catch (error) {
     const message =

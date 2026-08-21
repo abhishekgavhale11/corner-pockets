@@ -31,13 +31,6 @@ function paymentMethodLabel(
   return method ? String(method) : "—";
 }
 
-function sameCustomerId(
-  left: string | undefined | null,
-  right: string
-): boolean {
-  return Boolean(left) && String(left) === String(right);
-}
-
 function customerShare(
   entry: NotebookEntryDTO,
   customerId: string

@@ -291,8 +291,6 @@ export function CompactLedgerRow({
   onUnassignedAction,
   onEditFrame,
   onDeleteFrame,
-  onEditSplit: _onEditSplit,
-  onCorrect: _onCorrect,
   onShowCorrectionHistory,
 }: CompactLedgerRowProps) {
   const corrections = getAggregatedCorrections(entry);

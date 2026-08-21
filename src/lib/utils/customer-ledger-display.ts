@@ -80,7 +80,7 @@ export function ledgerEventKindLabel(kind: CustomerLedgerEventKind): string {
 
 export function ledgerLineAmountClass(
   kind: CustomerLedgerEventKind,
-  amount: number
+  _amount: number
 ): string {
   if (kind === "charge") return "text-red-700";
   if (kind === "payment") return "text-emerald-700";

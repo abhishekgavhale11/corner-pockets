@@ -100,24 +100,6 @@ function IconCoins({ className }: { className?: string }) {
   );
 }
 
-function IconBadge({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="9" r="5" />
-      <path d="M8.5 13.5 7 21l5-2.5L17 21l-1.5-7.5" />
-    </svg>
-  );
-}
-
 function IconCalendar({ className }: { className?: string }) {
   return (
     <svg
