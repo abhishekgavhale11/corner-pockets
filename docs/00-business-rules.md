@@ -229,7 +229,7 @@ Base rates (₹):
 
 • Big Snooker Per Frame (Singles): Regular 160 · Happy Hour 130
 
-• Big Snooker Individual: Regular 190 · Happy Hour 160
+• Big Snooker Individual: Regular 190 · Happy Hour 150
 
 • Shuffle: Regular 120 · Happy Hour 100
 

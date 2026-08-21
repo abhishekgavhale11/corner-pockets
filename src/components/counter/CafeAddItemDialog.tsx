@@ -262,7 +262,7 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
                 : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
             )}
           >
-            Food
+            Food & Beverages
           </button>
         </div>
 

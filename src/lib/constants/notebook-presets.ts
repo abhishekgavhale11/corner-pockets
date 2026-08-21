@@ -126,7 +126,7 @@ export const NOTEBOOK_SECTION_PRESETS: Record<NotebookSection, NotebookPreset[]>
       },
       {
         key: "cafe-food",
-        label: "Food",
+        label: "Food & Beverages",
         section: "CAFE",
         type: "FOOD",
       },

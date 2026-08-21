@@ -350,8 +350,8 @@ test.describe("CPOS cashier workflows", () => {
       addCigarette: true,
       removeLastItem: true,
     });
-    // Water 20 → qty 2 = 40; + Cigarette 20 = 60; remove last (Cigarette) → 40
-    expect(cafeBill).toBe(40);
+    // Water 10 → qty 2 = 20; + Cigarette 30 = 50; remove last (Cigarette) → 20
+    expect(cafeBill).toBe(20);
 
     const expectedBill = editedFrame + cafeBill;
     await uiGoToBigSnooker(page);

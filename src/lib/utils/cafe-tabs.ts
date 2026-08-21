@@ -58,7 +58,8 @@ const CAFE_SHORT_LABELS: Partial<Record<NotebookEntryType, string>> = {
   CIGARETTE: "Cig",
   WATER: "Water",
   COFFEE: "Coffee",
-  FOOD: "Food",
+  FOOD: "F&B",
+  COLD_DRINK: "F&B",
 };
 
 function isOpenCafeEntry(entry: NotebookEntryDTO): boolean {
@@ -70,7 +71,7 @@ export function isCafeItemType(type: NotebookEntryType): boolean {
 }
 
 function cafeLineKey(entry: NotebookEntryDTO): string {
-  if (entry.type === "FOOD") {
+  if (entry.type === "FOOD" || entry.type === "COLD_DRINK") {
     const note = entry.itemNote?.trim() ?? "";
     const price = entry.unitPrice ?? entry.amount;
     return `FOOD:${note}:${price}`;
@@ -113,7 +114,7 @@ export function buildLinesFromEntries(
 
 export function formatCafeLineCompact(line: CafeTabLine): string {
   const short = CAFE_SHORT_LABELS[line.type] ?? line.label;
-  if (line.type === "FOOD") {
+  if (line.type === "FOOD" || line.type === "COLD_DRINK") {
     return short;
   }
   if (line.quantity > 1) {
@@ -127,8 +128,10 @@ export function formatCafeTabSummary(lines: CafeTabLine[]): string {
 }
 
 export function formatCafeLineExpanded(line: CafeTabLine): string {
-  if (line.type === "FOOD") {
-    return line.itemNote ? `Food · ${line.itemNote}` : "Food";
+  if (line.type === "FOOD" || line.type === "COLD_DRINK") {
+    return line.itemNote
+      ? `Food & Beverages · ${line.itemNote}`
+      : "Food & Beverages";
   }
   const label = entryTypeLabel(line.type);
   if (line.quantity > 1) {

@@ -34,15 +34,15 @@ const COL_GROUP_WITHOUT_TYPE = (
 function HeaderRow({ showTypeColumn }: { showTypeColumn: boolean }) {
   return (
     <tr className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-      <th className="px-3 py-2.5 text-left font-semibold">Time</th>
+      <th className="px-3 py-2 text-left font-semibold">Time</th>
       {showTypeColumn ? (
-        <th className="px-3 py-2.5 text-left font-semibold">Type</th>
+        <th className="px-3 py-2 text-left font-semibold">Type</th>
       ) : null}
-      <th className="min-w-0 px-3 py-2.5 text-left font-semibold">Customer</th>
-      <th className="px-3 py-2.5 text-right font-semibold">Amount</th>
-      <th className="px-3 py-2.5 text-right font-semibold">Due</th>
+      <th className="min-w-0 px-3 py-2 text-left font-semibold">Customer</th>
+      <th className="px-3 py-2 text-right font-semibold">Amount</th>
+      <th className="px-3 py-2 text-right font-semibold">Due</th>
       <th
-        className="px-3 py-2.5 text-right font-semibold"
+        className="px-3 py-2 text-right font-semibold"
         style={{ minWidth: ACTIONS_COL_WIDTH }}
       >
         Actions

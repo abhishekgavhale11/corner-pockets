@@ -82,10 +82,10 @@ export const SNOOKER_QUICK_PRESETS: SnookerQuickPreset[] = [
 ];
 
 export const CAFE_QUICK_ITEMS = [
-  { key: "cigarette", label: "Cigarette", type: "CIGARETTE" as const, unitPrice: 20 },
+  { key: "cigarette", label: "Cigarette", type: "CIGARETTE" as const, unitPrice: 30 },
   { key: "water", label: "Water", type: "WATER" as const, unitPrice: 10 },
   { key: "coffee", label: "Coffee", type: "COFFEE" as const, unitPrice: 25 },
-  { key: "food", label: "Food", type: "FOOD" as const },
+  { key: "food", label: "Food & Beverages", type: "FOOD" as const },
 ] as const;
 
 export function isCafeSection(section: string): boolean {

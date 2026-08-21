@@ -629,7 +629,7 @@ export async function uiCollectOutstanding(
 
 /**
  * Edit an open cafe order: bump Water qty, optionally add Cigarette, remove one item.
- * Returns expected cafe bill after edits (Water ₹20, Cigarette ₹20).
+ * Returns expected cafe bill after edits (Water ₹10, Cigarette ₹30).
  */
 export async function uiEditCafeOrderBill(
   page: Page,
@@ -676,12 +676,14 @@ export async function uiEditCafeOrderBill(
     timeout: 20_000,
   });
 
-  // Baseline: helper starts from one Water (₹20). Qty increases add ₹20 each.
-  // Cigarette adds ₹20. Removing last item subtracts ₹20 (unit defaults).
-  let bill = 20;
-  bill += increaseBy * 20;
-  if (options.addCigarette) bill += 20;
-  if (options.removeLastItem) bill = Math.max(0, bill - 20);
+  // Baseline: helper starts from one Water (₹10). Qty increases add ₹10 each.
+  // Cigarette adds ₹30. Removing last item subtracts that item's unit default.
+  let bill = 10;
+  bill += increaseBy * 10;
+  if (options.addCigarette) bill += 30;
+  if (options.removeLastItem) {
+    bill = Math.max(0, bill - (options.addCigarette ? 30 : 10));
+  }
   return bill;
 }
 

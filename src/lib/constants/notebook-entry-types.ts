@@ -26,9 +26,9 @@ export const NOTEBOOK_ENTRY_TYPE_LABELS: Record<NotebookEntryType, string> = {
   TEA: "Tea",
   COFFEE: "Coffee",
   WATER: "Water",
-  COLD_DRINK: "Cold Drink",
+  COLD_DRINK: "Food & Beverages",
   TEA_COFFEE: "Tea / Coffee",
-  FOOD: "Food",
+  FOOD: "Food & Beverages",
   OTHER: "Other",
 };
 

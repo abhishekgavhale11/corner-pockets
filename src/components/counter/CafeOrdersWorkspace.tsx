@@ -9,6 +9,7 @@ import {
   updateCafeOrderAction,
 } from "@/actions/cafe-orders";
 import {
+  CAFE_ADD_ITEM_CATEGORIES,
   CAFE_DEFAULT_UNIT_PRICE,
   CAFE_ITEM_TYPE_LABELS,
   cafeItemLineAmount,
@@ -233,25 +234,23 @@ function CafeAddItemModal({
   return (
     <Dialog open={open} onClose={handleClose} title="Add Cafe Item">
       <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          {(Object.keys(CAFE_ITEM_TYPE_LABELS) as CafeItemType[]).map(
-            (itemType) => (
-              <button
-                key={itemType}
-                type="button"
-                onClick={() => handleTypeChange(itemType)}
-                className={cn(
-                  "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm font-semibold transition-colors",
-                  type === itemType
-                    ? "border-emerald-700 bg-emerald-50 text-emerald-900"
-                    : "border-gray-200 text-gray-700 hover:bg-gray-50"
-                )}
-              >
-                <CafeItemTypeIcon type={itemType} className="h-9 w-9" />
-                {CAFE_ITEM_TYPE_LABELS[itemType]}
-              </button>
-            )
-          )}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {CAFE_ADD_ITEM_CATEGORIES.map(({ type: itemType, label }) => (
+            <button
+              key={itemType}
+              type="button"
+              onClick={() => handleTypeChange(itemType)}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm font-semibold transition-colors",
+                type === itemType
+                  ? "border-emerald-700 bg-emerald-50 text-emerald-900"
+                  : "border-gray-200 text-gray-700 hover:bg-gray-50"
+              )}
+            >
+              <CafeItemTypeIcon type={itemType} className="h-9 w-9" />
+              {label}
+            </button>
+          ))}
         </div>
 
         {isQtyCafeItemType(type) ? (
@@ -290,9 +289,7 @@ function CafeAddItemModal({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="mt-1"
-                placeholder={
-                  type === "FOOD" ? "Chicken Fried Rice" : "Coca-Cola 750ml"
-                }
+                placeholder="e.g. Sandwich, Maggi, Coca-Cola"
               />
             </div>
             <div>

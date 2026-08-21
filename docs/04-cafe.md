@@ -67,7 +67,7 @@ If a feature slows down the cashier without significant business value, it shoul
 Cafe Items
 ----------------------------------------------------------
 
-Cafe supports only four item types.
+Cafe supports three item categories.
 
 1.
 
@@ -86,11 +86,11 @@ Quantity
 
 Unit Price
 
-₹20
+₹30
 
 Total
 
-₹60
+₹90
 
 ----------------------------------------------------------
 
@@ -111,17 +111,17 @@ Quantity
 
 Unit Price
 
-₹20
+₹10
 
 Total
 
-₹40
+₹20
 
 ----------------------------------------------------------
 
 3.
 
-Cold Drink
+Food & Beverages
 
 Manual Entry
 
@@ -134,40 +134,17 @@ Example
 
 Description
 
-Coca-Cola 750ml
+Sandwich / Maggi / Coca-Cola 750ml
 
 Amount
 
 ₹80
 
-The system should not maintain a Cold Drink menu.
+The system should not maintain a Food & Beverages menu.
 
 The cashier simply enters the description and amount.
 
-----------------------------------------------------------
-
-4.
-
-Food
-
-Manual Entry
-
-Input
-
-- Description
-- Amount
-
-Example
-
-Description
-
-Chicken Fried Rice
-
-Amount
-
-₹180
-
-The system should not maintain a food menu.
+Historical records may still store internal types FOOD or COLD_DRINK; staff UI and Business Summary present both as Food & Beverages.
 
 ----------------------------------------------------------
 Cafe Orders
