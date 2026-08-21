@@ -77,6 +77,91 @@ function toDraftItems(items: CafeOrderItemDTO[]): DraftItem[] {
   }));
 }
 
+/** Display-only grouping of identical qty lines (same type + unit price). No @ price line. */
+type OrderSummaryLine = {
+  key: string;
+  title: string;
+  total: number;
+};
+
+function buildOrderSummaryLines(items: DraftItem[]): OrderSummaryLine[] {
+  const qtyMap = new Map<
+    string,
+    { type: CafeItemType; qty: number; unitPrice: number; total: number }
+  >();
+  const manual: OrderSummaryLine[] = [];
+
+  for (const item of items) {
+    if (isQtyCafeItemType(item.type)) {
+      const unitPrice = item.unitPrice ?? 0;
+      const key = `${item.type}:${unitPrice}`;
+      const qty = item.quantity ?? 0;
+      const prev = qtyMap.get(key);
+      if (prev) {
+        prev.qty += qty;
+        prev.total += draftAmount(item);
+      } else {
+        qtyMap.set(key, {
+          type: item.type,
+          qty,
+          unitPrice,
+          total: draftAmount(item),
+        });
+      }
+    } else {
+      manual.push({
+        key: item.key,
+        title: item.description?.trim() || CAFE_ITEM_TYPE_LABELS[item.type],
+        total: item.amount,
+      });
+    }
+  }
+
+  const qtyLines: OrderSummaryLine[] = [...qtyMap.entries()].map(
+    ([key, row]) => ({
+      key,
+      title: `${CAFE_ITEM_TYPE_LABELS[row.type]} × ${row.qty}`,
+      total: row.total,
+    })
+  );
+
+  return [...qtyLines, ...manual];
+}
+
+/** Draft-only consolidate of same type + unit price for Edit Order. Totals unchanged. */
+function consolidateDraftItems(items: DraftItem[]): DraftItem[] {
+  const qtyMap = new Map<string, DraftItem>();
+  const manual: DraftItem[] = [];
+
+  for (const item of items) {
+    if (isQtyCafeItemType(item.type)) {
+      const unitPrice = item.unitPrice ?? 0;
+      const mapKey = `${item.type}:${unitPrice}`;
+      const existing = qtyMap.get(mapKey);
+      if (existing) {
+        const quantity = (existing.quantity ?? 0) + (item.quantity ?? 0);
+        qtyMap.set(mapKey, {
+          ...existing,
+          quantity,
+          amount: quantity * unitPrice,
+        });
+      } else {
+        qtyMap.set(mapKey, {
+          ...item,
+          key: `group-${mapKey}`,
+          unitPrice,
+          quantity: item.quantity ?? 0,
+          amount: draftAmount(item),
+        });
+      }
+    } else {
+      manual.push(item);
+    }
+  }
+
+  return [...qtyMap.values(), ...manual];
+}
+
 function statusDotClass(due: number, received: number, hasCustomer: boolean) {
   if (!hasCustomer) return "bg-gray-400";
   if (due <= 0) return "bg-emerald-600";
@@ -142,181 +227,6 @@ function CafeDueDisplay({
     >
       {formatCurrency(due)}
     </span>
-  );
-}
-
-function CafeAddItemModal({
-  open,
-  onClose,
-  onAdd,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onAdd: (item: DraftItem) => void;
-}) {
-  const [type, setType] = useState<CafeItemType>("CIGARETTE");
-  const [quantity, setQuantity] = useState("1");
-  const [unitPrice, setUnitPrice] = useState(
-    String(CAFE_DEFAULT_UNIT_PRICE.CIGARETTE)
-  );
-  const [description, setDescription] = useState("");
-  const [amount, setAmount] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const reset = () => {
-    setType("CIGARETTE");
-    setQuantity("1");
-    setUnitPrice(String(CAFE_DEFAULT_UNIT_PRICE.CIGARETTE));
-    setDescription("");
-    setAmount("");
-    setError(null);
-  };
-
-  const handleClose = () => {
-    reset();
-    onClose();
-  };
-
-  const handleTypeChange = (next: CafeItemType) => {
-    setType(next);
-    setError(null);
-    if (next === "CIGARETTE" || next === "WATER") {
-      setQuantity("1");
-      setUnitPrice(String(CAFE_DEFAULT_UNIT_PRICE[next]));
-    } else {
-      setDescription("");
-      setAmount("");
-    }
-  };
-
-  const handleAdd = () => {
-    if (type === "CIGARETTE" || type === "WATER") {
-      const qty = Number.parseInt(quantity, 10);
-      const price = Number.parseInt(unitPrice, 10);
-      if (!Number.isFinite(qty) || qty < 1) {
-        setError("Quantity must be at least 1");
-        return;
-      }
-      if (!Number.isFinite(price) || price < 1) {
-        setError("Unit price must be at least ₹1");
-        return;
-      }
-      onAdd({
-        key: `${type}-${Date.now()}`,
-        type,
-        quantity: qty,
-        unitPrice: price,
-        amount: qty * price,
-      });
-      handleClose();
-      return;
-    }
-
-    const desc = description.trim();
-    const amt = Number.parseInt(amount, 10);
-    if (!desc) {
-      setError("Description is required");
-      return;
-    }
-    if (!Number.isFinite(amt) || amt < 1) {
-      setError("Amount must be at least ₹1");
-      return;
-    }
-    onAdd({
-      key: `${type}-${Date.now()}`,
-      type,
-      description: desc,
-      amount: amt,
-    });
-    handleClose();
-  };
-
-  return (
-    <Dialog open={open} onClose={handleClose} title="Add Cafe Item">
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {CAFE_ADD_ITEM_CATEGORIES.map(({ type: itemType, label }) => (
-            <button
-              key={itemType}
-              type="button"
-              onClick={() => handleTypeChange(itemType)}
-              className={cn(
-                "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm font-semibold transition-colors",
-                type === itemType
-                  ? "border-emerald-700 bg-emerald-50 text-emerald-900"
-                  : "border-gray-200 text-gray-700 hover:bg-gray-50"
-              )}
-            >
-              <CafeItemTypeIcon type={itemType} className="h-9 w-9" />
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {isQtyCafeItemType(type) ? (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label htmlFor="cafe-qty">Quantity</Label>
-              <Input
-                id="cafe-qty"
-                inputMode="numeric"
-                value={quantity}
-                onChange={(e) =>
-                  setQuantity(e.target.value.replace(/[^\d]/g, ""))
-                }
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cafe-rate">Unit Price</Label>
-              <Input
-                id="cafe-rate"
-                inputMode="numeric"
-                value={unitPrice}
-                onChange={(e) =>
-                  setUnitPrice(e.target.value.replace(/[^\d]/g, ""))
-                }
-                className="mt-1"
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="cafe-desc">Description</Label>
-              <Input
-                id="cafe-desc"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="mt-1"
-                placeholder="e.g. Sandwich, Maggi, Coca-Cola"
-              />
-            </div>
-            <div>
-              <Label htmlFor="cafe-amt">Amount</Label>
-              <Input
-                id="cafe-amt"
-                inputMode="numeric"
-                value={amount}
-                onChange={(e) =>
-                  setAmount(e.target.value.replace(/[^\d]/g, ""))
-                }
-                className="mt-1"
-              />
-            </div>
-          </div>
-        )}
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="secondary" onClick={handleClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleAdd}>Add</Button>
-        </div>
-      </div>
-    </Dialog>
   );
 }
 
@@ -410,10 +320,34 @@ function CafeOrderPanel({
   const [paidAmount, setPaidAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<EntryPaymentMode | "">("");
   const [error, setError] = useState<string | null>(null);
-  const [showAddItem, setShowAddItem] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<CafeItemType | null>(
+    null
+  );
+  const [quantity, setQuantity] = useState("1");
+  const [unitPrice, setUnitPrice] = useState(
+    String(CAFE_DEFAULT_UNIT_PRICE.CIGARETTE)
+  );
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
   const [editingManual, setEditingManual] = useState<DraftItem | null>(null);
+  const [isEditingOrder, setIsEditingOrder] = useState(false);
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
-  const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
+
+  const resetAddFields = (category: CafeItemType | null) => {
+    setAddError(null);
+    if (category && isQtyCafeItemType(category)) {
+      setQuantity("1");
+      setUnitPrice(String(CAFE_DEFAULT_UNIT_PRICE[category]));
+      setDescription("");
+      setAmount("");
+      return;
+    }
+    setQuantity("1");
+    setUnitPrice(String(CAFE_DEFAULT_UNIT_PRICE.CIGARETTE));
+    setDescription("");
+    setAmount("");
+  };
 
   useEffect(() => {
     setCustomer(
@@ -432,9 +366,10 @@ function CafeOrderPanel({
         : ""
     );
     setError(null);
-    setShowAddItem(false);
+    setActiveCategory(null);
+    resetAddFields(null);
     setEditingManual(null);
-    setConfirmRemoveKey(null);
+    setIsEditingOrder(false);
     // Reset when the selected order or panel mode changes, not on every order field update.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- order fields are copied once per open/switch
   }, [order?.id, mode]);
@@ -442,25 +377,95 @@ function CafeOrderPanel({
   const cafeTotal = items.reduce((sum, item) => sum + draftAmount(item), 0);
   const received = Number.parseInt(paidAmount, 10) || 0;
   const due = frameDueAmount(cafeTotal, received);
+  const summaryLines = useMemo(() => buildOrderSummaryLines(items), [items]);
 
-  const bumpQty = (key: string, delta: number) => {
-    setItems((prev) => {
-      const next = prev.map((item) => {
-        if (item.key !== key || !isQtyCafeItemType(item.type)) return item;
-        const quantity = Math.max(0, (item.quantity ?? 0) + delta);
-        return {
-          ...item,
-          quantity,
-          amount: quantity * (item.unitPrice ?? 0),
-        };
-      });
-      const target = next.find((item) => item.key === key);
-      if (target && (target.quantity ?? 0) === 0) {
-        setConfirmRemoveKey(key);
-        return prev;
+  const enterEditOrder = () => {
+    setItems((prev) => consolidateDraftItems(prev));
+    setIsEditingOrder(true);
+    setEditingManual(null);
+  };
+
+  const finishEditOrder = () => {
+    setIsEditingOrder(false);
+    setEditingManual(null);
+  };
+
+  const bumpEditQty = (key: string, delta: number) => {
+    setItems((prev) =>
+      prev
+        .map((item) => {
+          if (item.key !== key || !isQtyCafeItemType(item.type)) return item;
+          const quantity = Math.max(0, (item.quantity ?? 0) + delta);
+          return {
+            ...item,
+            quantity,
+            amount: quantity * (item.unitPrice ?? 0),
+          };
+        })
+        .filter((item) =>
+          isQtyCafeItemType(item.type) ? (item.quantity ?? 0) > 0 : true
+        )
+    );
+  };
+
+  const selectCategory = (next: CafeItemType) => {
+    setActiveCategory(next);
+    resetAddFields(next);
+  };
+
+  const handleInlineAdd = () => {
+    if (!activeCategory) {
+      setAddError("Select a category");
+      return;
+    }
+
+    if (isQtyCafeItemType(activeCategory)) {
+      const qty = Number.parseInt(quantity, 10);
+      const price = Number.parseInt(unitPrice, 10);
+      if (!Number.isFinite(qty) || qty < 1) {
+        setAddError("Quantity must be at least 1");
+        return;
       }
-      return next;
-    });
+      if (!Number.isFinite(price) || price < 1) {
+        setAddError("Unit price must be at least ₹1");
+        return;
+      }
+      setItems((prev) => [
+        ...prev,
+        {
+          key: `${activeCategory}-${Date.now()}`,
+          type: activeCategory,
+          quantity: qty,
+          unitPrice: price,
+          amount: qty * price,
+        },
+      ]);
+      resetAddFields(activeCategory);
+      setError(null);
+      return;
+    }
+
+    const desc = description.trim();
+    const amt = Number.parseInt(amount, 10);
+    if (!desc) {
+      setAddError("Description is required");
+      return;
+    }
+    if (!Number.isFinite(amt) || amt < 1) {
+      setAddError("Amount must be at least ₹1");
+      return;
+    }
+    setItems((prev) => [
+      ...prev,
+      {
+        key: `${activeCategory}-${Date.now()}`,
+        type: activeCategory,
+        description: desc,
+        amount: amt,
+      },
+    ]);
+    resetAddFields(activeCategory);
+    setError(null);
   };
 
   const handleSave = () => {
@@ -528,9 +533,9 @@ function CafeOrderPanel({
   };
 
   return (
-    <aside className="flex h-[calc(100vh-11rem)] min-h-[28rem] w-full max-w-md shrink-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm lg:sticky lg:top-3">
-      <div className="flex items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
-        <div>
+    <aside className="flex max-h-[min(calc(100vh-8.5rem),calc(100dvh-7rem))] min-h-0 w-full max-w-md shrink-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5 lg:sticky lg:top-3">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
+        <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             {customer ? (
               <CustomerPreviewNameButton
@@ -551,7 +556,7 @@ function CafeOrderPanel({
             <button
               type="button"
               onClick={() => setShowCustomerPicker(true)}
-              className="mt-1 text-xs font-medium text-emerald-800 hover:underline"
+              className="mt-1 text-xs font-semibold text-emerald-800 hover:underline"
             >
               Assign Customer
             </button>
@@ -560,153 +565,301 @@ function CafeOrderPanel({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
           aria-label="Close panel"
         >
           ✕
         </button>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
-        <div className="space-y-2.5">
-          {items.map((item) => (
-            <div
-              key={item.key}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-3 shadow-sm"
-            >
-              {isQtyCafeItemType(item.type) ? (
-                <div className="flex items-center gap-3">
-                  <CafeItemTypeIcon type={item.type} />
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-4 py-3">
+        <section className="shrink-0 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            Add Item
+          </p>
+          <div className="grid grid-cols-3 gap-1.5">
+            {CAFE_ADD_ITEM_CATEGORIES.map(({ type: itemType, label }) => (
+              <button
+                key={itemType}
+                type="button"
+                onClick={() => selectCategory(itemType)}
+                className={cn(
+                  "flex min-w-0 items-center justify-center gap-1.5 rounded-lg border px-1.5 py-2 text-center text-xs font-semibold leading-snug transition-colors",
+                  activeCategory === itemType
+                    ? "border-emerald-700 bg-emerald-50 text-emerald-900 shadow-sm shadow-emerald-900/5"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                )}
+              >
+                <CafeItemTypeIcon type={itemType} className="h-5 w-5 shrink-0" />
+                <span className="min-w-0 text-balance">{label}</span>
+              </button>
+            ))}
+          </div>
+
+          {activeCategory ? (
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-2">
+              {isQtyCafeItemType(activeCategory) ? (
+                <div className="flex flex-wrap items-end gap-2">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-gray-900">
-                      {CAFE_ITEM_TYPE_LABELS[item.type]}
-                    </p>
-                    <p className="mt-0.5 text-xs text-gray-500">
-                      Qty: {item.quantity ?? 0} · Rate:{" "}
-                      {formatCurrency(item.unitPrice ?? 0)}
-                    </p>
+                    <Label htmlFor="cafe-inline-qty" className="text-[11px]">
+                      Qty
+                    </Label>
+                    <Input
+                      id="cafe-inline-qty"
+                      inputMode="numeric"
+                      value={quantity}
+                      onChange={(e) =>
+                        setQuantity(e.target.value.replace(/[^\d]/g, ""))
+                      }
+                      className="mt-1 h-9"
+                    />
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-base font-bold text-gray-700 hover:bg-gray-100"
-                      onClick={() => bumpQty(item.key, -1)}
-                      aria-label="Decrease quantity"
-                    >
-                      −
-                    </button>
-                    <span className="w-6 text-center text-sm font-bold tabular-nums text-gray-900">
-                      {item.quantity ?? 0}
-                    </span>
-                    <button
-                      type="button"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-base font-bold text-gray-700 hover:bg-gray-100"
-                      onClick={() => bumpQty(item.key, 1)}
-                      aria-label="Increase quantity"
-                    >
-                      +
-                    </button>
+                  <div className="min-w-0 flex-1">
+                    <Label htmlFor="cafe-inline-rate" className="text-[11px]">
+                      Price
+                    </Label>
+                    <div className="relative mt-1">
+                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400">
+                        ₹
+                      </span>
+                      <Input
+                        id="cafe-inline-rate"
+                        inputMode="numeric"
+                        value={unitPrice}
+                        onChange={(e) =>
+                          setUnitPrice(e.target.value.replace(/[^\d]/g, ""))
+                        }
+                        className="h-9 pl-6"
+                      />
+                    </div>
                   </div>
-                  <span className="w-14 text-right text-sm font-bold tabular-nums text-gray-900">
-                    {formatCurrency(draftAmount(item))}
-                  </span>
-                  <button
+                  <Button
                     type="button"
-                    className="rounded-lg p-1.5 text-red-500 hover:bg-red-50"
-                    onClick={() =>
-                      setItems((prev) =>
-                        prev.filter((row) => row.key !== item.key)
-                      )
-                    }
-                    aria-label="Delete item"
+                    className="h-9 shrink-0 bg-[#2E7D32] px-3 text-xs hover:bg-[#1B5E20]"
+                    onClick={handleInlineAdd}
                   >
-                    <TrashIcon />
-                  </button>
+                    Add to Order
+                  </Button>
                 </div>
               ) : (
-                <div className="flex items-center gap-3">
-                  <CafeItemTypeIcon type={item.type} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-gray-900">
-                      {item.description}
-                    </p>
-                    <p className="mt-0.5 text-xs text-gray-500">
-                      {CAFE_ITEM_TYPE_LABELS[item.type]} · Amount:{" "}
-                      {formatCurrency(item.amount)}
-                    </p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-0 flex-[1.6]">
+                    <Label htmlFor="cafe-inline-desc" className="text-[11px]">
+                      Description
+                    </Label>
+                    <Input
+                      id="cafe-inline-desc"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      className="mt-1 h-9"
+                      placeholder="e.g. Maggi, Sandwich, Cold Drink"
+                    />
                   </div>
-                  <span className="text-sm font-bold tabular-nums text-gray-900">
-                    {formatCurrency(item.amount)}
-                  </span>
-                  <div className="flex items-center gap-0.5">
-                    <button
-                      type="button"
-                      className="rounded-lg p-1.5 text-emerald-700 hover:bg-emerald-50"
-                      onClick={() => setEditingManual(item)}
-                      aria-label="Edit item"
-                    >
-                      <PencilIcon />
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg p-1.5 text-red-500 hover:bg-red-50"
-                      onClick={() =>
-                        setItems((prev) =>
-                          prev.filter((row) => row.key !== item.key)
-                        )
-                      }
-                      aria-label="Delete item"
-                    >
-                      <TrashIcon />
-                    </button>
+                  <div className="min-w-[5rem] flex-1">
+                    <Label htmlFor="cafe-inline-amt" className="text-[11px]">
+                      Amount
+                    </Label>
+                    <div className="relative mt-1">
+                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-gray-400">
+                        ₹
+                      </span>
+                      <Input
+                        id="cafe-inline-amt"
+                        inputMode="numeric"
+                        value={amount}
+                        onChange={(e) =>
+                          setAmount(e.target.value.replace(/[^\d]/g, ""))
+                        }
+                        className="h-9 pl-6"
+                      />
+                    </div>
                   </div>
+                  <Button
+                    type="button"
+                    className="h-9 shrink-0 bg-[#2E7D32] px-3 text-xs hover:bg-[#1B5E20]"
+                    onClick={handleInlineAdd}
+                  >
+                    Add to Order
+                  </Button>
                 </div>
               )}
+              {addError ? (
+                <p className="mt-1.5 text-xs text-red-600">{addError}</p>
+              ) : null}
             </div>
-          ))}
-        </div>
+          ) : null}
+        </section>
 
-        <Button
-          variant="secondary"
-          className="w-full border-dashed border-gray-300"
-          onClick={() => setShowAddItem(true)}
-        >
-          + Add Item
-        </Button>
+        <section className="shrink-0 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              Current Order
+            </p>
+            {items.length > 0 && !isEditingOrder ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-7 shrink-0 gap-1 px-2.5 text-[11px] font-semibold"
+                onClick={enterEditOrder}
+              >
+                <PencilIcon className="h-3.5 w-3.5 text-emerald-700" />
+                Edit Order
+              </Button>
+            ) : null}
+          </div>
 
-        <div className="space-y-1.5 rounded-xl border border-gray-100 bg-gray-50 px-3.5 py-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-500">Cafe Total</span>
-            <span className="font-semibold tabular-nums">
+          {items.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-gray-200 px-3 py-3 text-center text-xs text-gray-400">
+              No items yet — select a category above
+            </p>
+          ) : isEditingOrder ? (
+            <div className="space-y-2">
+              <ul className="max-h-40 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-emerald-200 bg-emerald-50/30 shadow-sm shadow-gray-900/5">
+                {items.map((item) => (
+                  <li key={item.key} className="px-2.5 py-1.5">
+                    {isQtyCafeItemType(item.type) ? (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">
+                          {CAFE_ITEM_TYPE_LABELS[item.type]}
+                        </p>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-sm font-bold text-gray-700 hover:bg-gray-50"
+                            onClick={() => bumpEditQty(item.key, -1)}
+                            aria-label="Decrease quantity"
+                          >
+                            −
+                          </button>
+                          <span className="w-6 text-center text-xs font-bold tabular-nums text-gray-900">
+                            {item.quantity ?? 0}
+                          </span>
+                          <button
+                            type="button"
+                            className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-sm font-bold text-gray-700 hover:bg-gray-50"
+                            onClick={() => bumpEditQty(item.key, 1)}
+                            aria-label="Increase quantity"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <span className="w-14 shrink-0 text-right text-sm font-bold tabular-nums text-gray-900">
+                          {formatCurrency(draftAmount(item))}
+                        </span>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md p-1 text-red-500 hover:bg-red-50"
+                          onClick={() =>
+                            setItems((prev) =>
+                              prev.filter((row) => row.key !== item.key)
+                            )
+                          }
+                          aria-label="Delete item"
+                        >
+                          <TrashIcon />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">
+                          {item.description ||
+                            CAFE_ITEM_TYPE_LABELS[item.type]}
+                        </p>
+                        <span className="w-14 shrink-0 text-right text-sm font-bold tabular-nums text-gray-900">
+                          {formatCurrency(item.amount)}
+                        </span>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => setEditingManual(item)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-red-600 hover:bg-red-50"
+                          onClick={() =>
+                            setItems((prev) =>
+                              prev.filter((row) => row.key !== item.key)
+                            )
+                          }
+                          aria-label="Delete item"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-8 w-full text-xs"
+                onClick={finishEditOrder}
+              >
+                Done Editing
+              </Button>
+            </div>
+          ) : (
+            <ul className="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
+              {summaryLines.map((line) => (
+                <li
+                  key={line.key}
+                  className="flex min-w-0 items-center justify-between gap-3 px-3 py-2"
+                >
+                  <p className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">
+                    {line.title}
+                  </p>
+                  <span className="shrink-0 text-sm font-bold tabular-nums text-gray-900">
+                    {formatCurrency(line.total)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <div className="grid shrink-0 grid-cols-3 overflow-hidden rounded-xl border border-gray-200 bg-emerald-50/40 text-center shadow-sm shadow-gray-900/5">
+          <div className="min-w-0 border-r border-gray-200 px-2 py-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              Cafe Total
+            </p>
+            <p className="mt-0.5 truncate text-sm font-bold tabular-nums text-gray-900">
               {formatCurrency(cafeTotal)}
-            </span>
+            </p>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Received</span>
-            <span className="font-semibold tabular-nums">
+          <div className="min-w-0 border-r border-gray-200 px-2 py-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              Received
+            </p>
+            <p className="mt-0.5 truncate text-sm font-bold tabular-nums text-gray-900">
               {formatCurrency(received)}
-            </span>
+            </p>
           </div>
-          <div className="flex justify-between border-t border-gray-200 pt-1.5">
-            <span className="text-gray-500">Due</span>
-            <CafeDueDisplay
-              due={due}
-              paymentMethod={
-                paymentMode === "CASH" || paymentMode === "GPAY"
-                  ? paymentMode
-                  : order?.paymentMethod === "CASH" ||
-                      order?.paymentMethod === "GPAY"
-                    ? order.paymentMethod
-                    : undefined
-              }
-            />
+          <div className="min-w-0 px-2 py-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              Due
+            </p>
+            <div className="mt-0.5 flex justify-center">
+              <CafeDueDisplay
+                due={due}
+                className="text-sm font-bold"
+                paymentMethod={
+                  paymentMode === "CASH" || paymentMode === "GPAY"
+                    ? paymentMode
+                    : order?.paymentMethod === "CASH" ||
+                        order?.paymentMethod === "GPAY"
+                      ? order.paymentMethod
+                      : undefined
+                }
+              />
+            </div>
           </div>
         </div>
 
-        <div>
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">
-            Payment Received
-          </p>
+        <div className="shrink-0 space-y-2.5">
           <EntryPaymentFields
             amount={cafeTotal}
             paidAmount={paidAmount}
@@ -714,57 +867,30 @@ function CafeOrderPanel({
             onPaidAmountChange={setPaidAmount}
             onPaymentModeChange={setPaymentMode}
             idPrefix="cafe-order"
+            compact
           />
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <div className="flex gap-2 border-t border-gray-200 pt-3">
+            <Button
+              variant="secondary"
+              className="h-10 flex-1"
+              onClick={onClose}
+              disabled={isPending}
+            >
+              Close
+            </Button>
+            <Button
+              className="h-10 flex-1 bg-[#2E7D32] hover:bg-[#1B5E20]"
+              onClick={handleSave}
+              disabled={isPending}
+            >
+              {isPending ? "Saving…" : "Save Changes"}
+            </Button>
+          </div>
         </div>
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
-
-      <div className="flex gap-2 border-t border-gray-200 px-4 py-3">
-        <Button
-          variant="secondary"
-          className="flex-1"
-          onClick={onClose}
-          disabled={isPending}
-        >
-          Close
-        </Button>
-        <Button
-          className="flex-1 bg-[#2E7D32] hover:bg-[#1B5E20]"
-          onClick={handleSave}
-          disabled={isPending}
-        >
-          {isPending ? "Saving…" : "Save Changes"}
-        </Button>
-      </div>
-
-      <CafeAddItemModal
-        open={showAddItem}
-        onClose={() => setShowAddItem(false)}
-        onAdd={(item) => {
-          setItems((prev) => {
-            if (isQtyCafeItemType(item.type)) {
-              const existing = prev.find((row) => row.type === item.type);
-              if (existing) {
-                const quantity =
-                  (existing.quantity ?? 0) + (item.quantity ?? 0);
-                const unitPrice = item.unitPrice ?? existing.unitPrice ?? 0;
-                return prev.map((row) =>
-                  row.key === existing.key
-                    ? {
-                        ...row,
-                        quantity,
-                        unitPrice,
-                        amount: quantity * unitPrice,
-                      }
-                    : row
-                );
-              }
-            }
-            return [...prev, item];
-          });
-        }}
-      />
 
       {editingManual && (
         <ManualItemEditDialog
@@ -791,33 +917,6 @@ function CafeOrderPanel({
         }}
         title="Assign Customer"
       />
-
-      <Dialog
-        open={confirmRemoveKey !== null}
-        onClose={() => setConfirmRemoveKey(null)}
-        title="Remove item?"
-      >
-        <p className="text-sm text-gray-600">
-          Quantity is zero. Remove this item from the order?
-        </p>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setConfirmRemoveKey(null)}>
-            Keep
-          </Button>
-          <Button
-            onClick={() => {
-              if (confirmRemoveKey) {
-                setItems((prev) =>
-                  prev.filter((row) => row.key !== confirmRemoveKey)
-                );
-              }
-              setConfirmRemoveKey(null);
-            }}
-          >
-            Remove
-          </Button>
-        </div>
-      </Dialog>
     </aside>
   );
 }

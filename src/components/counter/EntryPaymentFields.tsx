@@ -30,6 +30,8 @@ interface EntryPaymentFieldsProps {
   paymentDisabled?: boolean;
   idPrefix?: string;
   layout?: "stack" | "row";
+  /** UI-only denser controls (e.g. Cafe side panel). */
+  compact?: boolean;
   allowMultiplePaymentMethods?: boolean;
   maxPaymentRows?: number;
   paymentRows?: PaymentRowInput[];
@@ -46,6 +48,12 @@ const posLabelClass =
 
 const moneyInputClass =
   "h-[46px] w-full rounded-[11px] border border-gray-200 bg-white py-2 pl-8 pr-3 text-right text-[20px] font-bold tabular-nums text-gray-900 shadow-sm shadow-gray-900/5 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 disabled:opacity-60";
+
+const moneyInputCompactClass =
+  "h-9 w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-7 pr-2.5 text-right text-sm font-semibold tabular-nums text-gray-900 shadow-sm shadow-gray-900/5 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 disabled:opacity-60";
+
+const posLabelCompactClass =
+  "mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500";
 
 function usePaymentRowsState(props: EntryPaymentFieldsProps) {
   const isControlledRows =
@@ -96,9 +104,16 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
     paymentDisabled = false,
     idPrefix = "entry",
     layout = "stack",
+    compact = false,
     allowMultiplePaymentMethods = false,
     maxPaymentRows = 2,
   } = props;
+
+  const labelClass = compact ? posLabelCompactClass : posLabelClass;
+  const moneyClass = compact ? moneyInputCompactClass : moneyInputClass;
+  const controlHeight = compact ? "h-9" : "h-[46px]";
+  const dueBadgeSize = compact ? "sm" : "md";
+  const modeSize = compact ? "sm" : "md";
 
   const { rows: rawRows, setRows, isMultiRowCapable } = usePaymentRowsState(props);
   const rows = rawRows ?? defaultPaymentRows();
@@ -171,19 +186,27 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
 
     if (rowReceived <= 0) {
       return layout === "row" ? (
-        <div className="flex h-[46px] items-center rounded-[11px] border border-dashed border-gray-200 bg-gray-50 px-3 text-[13px] font-medium text-gray-400">
+        <div
+          className={cn(
+            "flex items-center rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 font-medium text-gray-400",
+            controlHeight,
+            compact ? "text-xs" : "rounded-[11px] text-[13px]"
+          )}
+        >
           Unassigned
         </div>
       ) : (
-        <p className="mt-1 text-xs text-gray-500">Unassigned</p>
+        <p className={cn("mt-1 text-gray-500", compact ? "text-[11px]" : "text-xs")}>
+          Unassigned
+        </p>
       );
     }
 
     return (
-      <div className={cn("space-y-1.5", layout === "stack" && index === 0 && "mt-1")}>
+      <div className={cn("space-y-1", layout === "stack" && index === 0 && !compact && "mt-1")}>
         <CashGpaySegmentedControl
           className={layout === "row" ? "w-full" : undefined}
-          size={layout === "row" ? "lg" : "md"}
+          size={layout === "row" ? (compact ? "sm" : "lg") : modeSize}
           idPrefix={`${idPrefix}-mode-${index}`}
           value={row.paymentMode}
           onChange={(mode) => handlePaymentModeChange(index, mode)}
@@ -226,6 +249,7 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
           key={index}
           className={cn(
             "grid grid-cols-1 gap-4 sm:grid-cols-3 sm:items-start",
+            compact && "gap-2",
             index > 0 && "pt-0"
           )}
         >
@@ -233,17 +257,22 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
             {showLabels ? (
               <label
                 htmlFor={`${idPrefix}-received-${index}`}
-                className={posLabelClass}
+                className={labelClass}
               >
                 Received
               </label>
             ) : (
-              <span className={cn(posLabelClass, "invisible")} aria-hidden>
+              <span className={cn(labelClass, "invisible")} aria-hidden>
                 Received
               </span>
             )}
             <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[15px] font-semibold text-gray-400">
+              <span
+                className={cn(
+                  "pointer-events-none absolute top-1/2 -translate-y-1/2 font-semibold text-gray-400",
+                  compact ? "left-2 text-xs" : "left-3 text-[15px]"
+                )}
+              >
                 ₹
               </span>
               <input
@@ -256,7 +285,7 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
                 }
                 disabled={fieldsDisabled}
                 className={cn(
-                  moneyInputClass,
+                  moneyClass,
                   rowReceived > 0 &&
                     "border-emerald-700 focus:border-emerald-700"
                 )}
@@ -266,9 +295,9 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
 
           <div className="min-w-0">
             {showLabels ? (
-              <span className={posLabelClass}>Payment Mode</span>
+              <span className={labelClass}>Payment Mode</span>
             ) : (
-              <span className={cn(posLabelClass, "invisible")} aria-hidden>
+              <span className={cn(labelClass, "invisible")} aria-hidden>
                 Payment Mode
               </span>
             )}
@@ -277,18 +306,18 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
 
           <div className="min-w-0">
             {showLabels ? (
-              <span className={posLabelClass}>Due</span>
+              <span className={labelClass}>Due</span>
             ) : (
-              <span className={cn(posLabelClass, "invisible")} aria-hidden>
+              <span className={cn(labelClass, "invisible")} aria-hidden>
                 Due
               </span>
             )}
-            <div className="flex h-[46px] items-center">
+            <div className={cn("flex items-center", controlHeight)}>
               <DueStatusBadge
                 dueAmount={frameDue}
                 paymentMode={dueMode}
                 allowPaidStatus={!paymentDisabled}
-                size="md"
+                size={dueBadgeSize}
               />
             </div>
           </div>
@@ -299,59 +328,86 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
     return (
       <div key={index} className={cn(index > 0 && "pt-0")}>
         <div>
-          <Label htmlFor={`${idPrefix}-received-${index}`}>Received Amount</Label>
-          <Input
-            id={`${idPrefix}-received-${index}`}
-            inputMode="numeric"
-            value={row.received}
-            onChange={(event) =>
-              handleReceivedChange(index, event.target.value)
-            }
-            disabled={fieldsDisabled}
-            className="mt-1 h-10"
-          />
+          <Label
+            htmlFor={`${idPrefix}-received-${index}`}
+            className={compact ? labelClass : undefined}
+          >
+            Received Amount
+          </Label>
+          {compact ? (
+            <div className="relative">
+              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-400">
+                ₹
+              </span>
+              <input
+                id={`${idPrefix}-received-${index}`}
+                type="text"
+                inputMode="numeric"
+                value={row.received}
+                onChange={(event) =>
+                  handleReceivedChange(index, event.target.value)
+                }
+                disabled={fieldsDisabled}
+                className={moneyClass}
+              />
+            </div>
+          ) : (
+            <Input
+              id={`${idPrefix}-received-${index}`}
+              inputMode="numeric"
+              value={row.received}
+              onChange={(event) =>
+                handleReceivedChange(index, event.target.value)
+              }
+              disabled={fieldsDisabled}
+              className="mt-1 h-10"
+            />
+          )}
         </div>
-        <div className="mt-3">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+        <div className={compact ? "mt-2.5" : "mt-3"}>
+          <p className={compact ? labelClass : "text-[11px] font-bold uppercase tracking-wide text-gray-500"}>
             Payment Mode
           </p>
           {renderPaymentModeCell(row, index, showAddLink)}
         </div>
-        <div className="mt-3 flex items-baseline justify-between gap-3 rounded border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
-          <span className="text-gray-500">Due</span>
-          <span
-            className={cn(
-              "font-bold tabular-nums",
-              frameDue > 0
-                ? "text-orange-700"
+        {!compact ? (
+          <div className="mt-3 flex items-baseline justify-between gap-3 rounded border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
+            <span className="text-gray-500">Due</span>
+            <span
+              className={cn(
+                "font-bold tabular-nums",
+                frameDue > 0
+                  ? "text-orange-700"
+                  : paymentDisabled
+                    ? "text-gray-500"
+                    : paymentResolved.valid || isPaymentModeSelected(dueMode)
+                      ? "text-emerald-800"
+                      : "text-orange-800"
+              )}
+            >
+              {frameDue > 0
+                ? formatCurrency(frameDue)
                 : paymentDisabled
-                  ? "text-gray-500"
+                  ? "—"
                   : paymentResolved.valid || isPaymentModeSelected(dueMode)
-                    ? "text-emerald-800"
-                    : "text-orange-800"
-            )}
-          >
-            {frameDue > 0
-              ? formatCurrency(frameDue)
-              : paymentDisabled
-                ? "—"
-                : paymentResolved.valid || isPaymentModeSelected(dueMode)
-                  ? "Paid"
-                  : "Select Payment Mode"}
-          </span>
-        </div>
+                    ? "Paid"
+                    : "Select Payment Mode"}
+            </span>
+          </div>
+        ) : null}
       </div>
     );
   };
 
   if (layout === "row") {
     return (
-      <div className="space-y-3.5">
+      <div className={cn(compact ? "space-y-2" : "space-y-3.5")}>
         {rows.map((row, index) => renderRow(row, index))}
         {multiRow && frameRemaining !== 0 ? (
           <p
             className={cn(
-              "text-[13px] font-medium",
+              "font-medium",
+              compact ? "text-xs" : "text-[13px]",
               frameRemaining > 0 ? "text-amber-700" : "text-red-700"
             )}
           >
@@ -365,12 +421,13 @@ export function EntryPaymentFields(props: EntryPaymentFieldsProps) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className={cn(compact ? "space-y-1.5" : "space-y-3")}>
       {rows.map((row, index) => renderRow(row, index))}
       {multiRow && frameRemaining !== 0 ? (
         <p
           className={cn(
-            "text-sm font-medium",
+            "font-medium",
+            compact ? "text-xs" : "text-sm",
             frameRemaining > 0 ? "text-amber-700" : "text-red-700"
           )}
         >

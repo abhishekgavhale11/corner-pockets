@@ -307,13 +307,9 @@ export async function uiAddCafeOrderWithWater(
     .first()
     .click();
 
-  await page.getByRole("button", { name: "+ Add Item" }).click();
-  await expect(page.getByRole("heading", { name: "Add Cafe Item" })).toBeVisible();
   await page.getByRole("button", { name: "Water", exact: true }).click();
-  await page.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Add Cafe Item" })).toBeHidden({
-    timeout: 15_000,
-  });
+  await page.getByRole("button", { name: "Add to Order", exact: true }).click();
+  await expect(page.getByText("Current Order")).toBeVisible();
 
   if (received > 0) {
     const receivedInput = page.getByLabel("Received Amount");
@@ -646,29 +642,23 @@ export async function uiEditCafeOrderBill(
   // Order panel is open for this customer after click / existing save path.
   const increaseBy = options.increaseWaterBy ?? 0;
   for (let i = 0; i < increaseBy; i += 1) {
-    await page.getByLabel("Increase quantity").first().click();
+    await page.getByRole("button", { name: "Water", exact: true }).click();
+    await page.getByRole("button", { name: "Add to Order", exact: true }).click();
   }
 
   if (options.addCigarette) {
-    await page.getByRole("button", { name: "+ Add Item" }).click();
-    await expect(page.getByRole("heading", { name: "Add Cafe Item" })).toBeVisible();
     await page.getByRole("button", { name: "Cigarette", exact: true }).click();
-    await page.getByRole("button", { name: "Add", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Add Cafe Item" })).toBeHidden({
-      timeout: 15_000,
-    });
+    await page.getByRole("button", { name: "Add to Order", exact: true }).click();
   }
 
   if (options.removeLastItem) {
+    await page.getByRole("button", { name: "Edit Order", exact: true }).click();
     const deleteButtons = page.getByLabel("Delete item");
     const count = await deleteButtons.count();
     if (count > 0) {
       await deleteButtons.last().click();
-      const confirm = page.getByRole("heading", { name: "Remove item?" });
-      if (await confirm.isVisible().catch(() => false)) {
-        await page.getByRole("button", { name: "Remove", exact: true }).click();
-      }
     }
+    await page.getByRole("button", { name: "Done Editing", exact: true }).click();
   }
 
   await page.getByRole("button", { name: "Save Changes" }).click();
