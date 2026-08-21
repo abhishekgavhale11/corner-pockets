@@ -120,7 +120,7 @@ function buildOrderSummaryLines(items: DraftItem[]): OrderSummaryLine[] {
   const qtyLines: OrderSummaryLine[] = [...qtyMap.entries()].map(
     ([key, row]) => ({
       key,
-      title: `${CAFE_ITEM_TYPE_LABELS[row.type]} × ${row.qty}`,
+      title: `${row.qty}×${CAFE_ITEM_TYPE_LABELS[row.type]}`,
       total: row.total,
     })
   );
@@ -178,11 +178,36 @@ function itemDisplayName(
   return item.description?.trim() || CAFE_ITEM_TYPE_LABELS[item.type];
 }
 
+/** Compact qty list for cafe tables, e.g. `2*Cigarette, 1*Water, 1*Sandwich`. */
 function orderItemsSummary(order: CafeOrderDTO): string {
-  const names = order.items.map(itemDisplayName);
-  const countLabel = `${order.itemCount} ${order.itemCount === 1 ? "Item" : "Items"}`;
-  if (names.length === 0) return countLabel;
-  return `${countLabel}: ${names.join(", ")}`;
+  const qtyMap = new Map<string, { label: string; qty: number }>();
+  const manual: string[] = [];
+
+  for (const item of order.items) {
+    if (isQtyCafeItemType(item.type)) {
+      const label = CAFE_ITEM_TYPE_LABELS[item.type];
+      const key = item.type;
+      const qty = item.quantity ?? 0;
+      const prev = qtyMap.get(key);
+      if (prev) {
+        prev.qty += qty;
+      } else {
+        qtyMap.set(key, { label, qty });
+      }
+    } else {
+      const label = itemDisplayName(item);
+      manual.push(`1×${label}`);
+    }
+  }
+
+  const parts = [
+    ...[...qtyMap.values()]
+      .filter((row) => row.qty > 0)
+      .map((row) => `${row.qty}×${row.label}`),
+    ...manual,
+  ];
+
+  return parts.length > 0 ? parts.join(", ") : "No items";
 }
 
 /** Due column: "Paid" (or payment mode) when settled — never ₹0. */
@@ -533,7 +558,7 @@ function CafeOrderPanel({
   };
 
   return (
-    <aside className="flex max-h-[min(calc(100vh-8.5rem),calc(100dvh-7rem))] min-h-0 w-full max-w-md shrink-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5 lg:sticky lg:top-3">
+    <aside className="flex max-h-[min(calc(100vh-8.5rem),calc(100dvh-7rem))] min-h-0 w-full max-w-md shrink-0 flex-col self-start overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5 lg:sticky lg:top-3">
       <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -572,7 +597,7 @@ function CafeOrderPanel({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-4 py-3">
+      <div className="min-h-0 space-y-[18px] overflow-y-auto px-4 py-3">
         <section className="shrink-0 space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
             Add Item
@@ -859,7 +884,7 @@ function CafeOrderPanel({
           </div>
         </div>
 
-        <div className="shrink-0 space-y-2.5">
+        <div className="shrink-0">
           <EntryPaymentFields
             amount={cafeTotal}
             paidAmount={paidAmount}
@@ -870,9 +895,9 @@ function CafeOrderPanel({
             compact
           />
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
-          <div className="flex gap-2 border-t border-gray-200 pt-3">
+          <div className="mt-2.5 flex gap-2 border-t border-gray-200 pt-3">
             <Button
               variant="secondary"
               className="h-10 flex-1"
