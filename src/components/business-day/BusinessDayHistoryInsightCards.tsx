@@ -447,6 +447,27 @@ export function BusinessDayHistoryInsightCards({
               {cafe.gamesPlayed}
             </span>
           </div>
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+              Cafe Sales Breakdown
+            </p>
+            <dl>
+              <MetricRow
+                label="Cigarette"
+                value={formatCurrency(insights.cafeSalesBreakdown.cigarette)}
+              />
+              <MetricRow
+                label="Water"
+                value={formatCurrency(insights.cafeSalesBreakdown.water)}
+              />
+              <MetricRow
+                label="Food & Beverages"
+                value={formatCurrency(
+                  insights.cafeSalesBreakdown.foodAndBeverages
+                )}
+              />
+            </dl>
+          </div>
         </section>
       </div>
     </div>

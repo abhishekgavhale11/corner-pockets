@@ -47,7 +47,7 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
   const [qty, setQty] = useState(1);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
-  const [paidAmount, setPaidAmount] = useState("0");
+  const [paidAmount, setPaidAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<EntryPaymentMode | "">("");
   const [previousSessionId, setPreviousSessionId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +72,7 @@ export function CafeAddItemDialog({ target, onClose }: CafeAddItemDialogProps) {
       setQty(1);
       setAmount("");
       setNote("");
-      setPaidAmount("0");
+      setPaidAmount("");
       setPaymentMode("");
       setPreviousSessionId("");
       setError(null);

@@ -897,6 +897,13 @@ export interface BusinessDayHistorySectionSummaryDTO {
   gamesPlayed: number;
 }
 
+/** Cafe sales grouped for History Cafe Summary display only. */
+export interface CafeSalesBreakdownDTO {
+  cigarette: number;
+  water: number;
+  foodAndBeverages: number;
+}
+
 /** Presentation insights shared by single-day and range History views. */
 export interface BusinessDayHistoryInsightsDTO {
   overall: {
@@ -911,6 +918,7 @@ export interface BusinessDayHistoryInsightsDTO {
   poolMini: BusinessDayHistorySectionSummaryDTO;
   totalSnooker: BusinessDayHistorySectionSummaryDTO;
   cafe: BusinessDayHistorySectionSummaryDTO;
+  cafeSalesBreakdown: CafeSalesBreakdownDTO;
 }
 
 export interface BusinessDayHistorySummaryDTO {

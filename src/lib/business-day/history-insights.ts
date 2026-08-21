@@ -9,6 +9,7 @@ import type {
   BusinessDayHistoryFrameLineDTO,
   BusinessDayHistoryInsightsDTO,
   BusinessDayHistorySectionSummaryDTO,
+  CafeSalesBreakdownDTO,
 } from "@/types";
 
 /**
@@ -56,6 +57,34 @@ export function emptySectionSummary(): BusinessDayHistorySectionSummaryDTO {
   };
 }
 
+export function emptyCafeSalesBreakdown(): CafeSalesBreakdownDTO {
+  return {
+    cigarette: 0,
+    water: 0,
+    foodAndBeverages: 0,
+  };
+}
+
+/** Presentation grouping of existing CafeOrder item amounts. Not a financial engine. */
+export function addCafeItemSaleToBreakdown(
+  breakdown: CafeSalesBreakdownDTO,
+  itemType: string,
+  amount: number
+): void {
+  const sale = Math.max(0, amount);
+  if (itemType === "CIGARETTE") {
+    breakdown.cigarette += sale;
+    return;
+  }
+  if (itemType === "WATER") {
+    breakdown.water += sale;
+    return;
+  }
+  if (itemType === "FOOD" || itemType === "COLD_DRINK") {
+    breakdown.foodAndBeverages += sale;
+  }
+}
+
 export function emptyHistoryInsights(): BusinessDayHistoryInsightsDTO {
   return {
     overall: {
@@ -70,6 +99,7 @@ export function emptyHistoryInsights(): BusinessDayHistoryInsightsDTO {
     poolMini: emptySectionSummary(),
     totalSnooker: emptySectionSummary(),
     cafe: emptySectionSummary(),
+    cafeSalesBreakdown: emptyCafeSalesBreakdown(),
   };
 }
 

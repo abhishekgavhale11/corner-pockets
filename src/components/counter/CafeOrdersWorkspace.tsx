@@ -17,7 +17,7 @@ import {
 } from "@/lib/constants/cafe";
 import { paymentMethodLabel } from "@/lib/constants/notebook-payments";
 import type { CafeOrderDTO, CafeOrderItemDTO } from "@/lib/mappers/cafe-order";
-import { defaultReceivedForEdit, frameDueAmount } from "@/lib/utils/frame-payment";
+import { cafeReceivedInput, frameDueAmount } from "@/lib/utils/frame-payment";
 import { formatCurrency } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 import type { CustomerDTO } from "@/types";
@@ -428,11 +428,7 @@ function CafeOrderPanel({
         : null
     );
     setItems(order ? toDraftItems(order.items) : []);
-    setPaidAmount(
-      order
-        ? defaultReceivedForEdit(order.amount, order.received)
-        : ""
-    );
+    setPaidAmount(order ? cafeReceivedInput(order.received) : "");
     setPaymentMode(
       order?.paymentMethod === "CASH" || order?.paymentMethod === "GPAY"
         ? order.paymentMethod

@@ -28,6 +28,15 @@ export function defaultReceivedForEdit(
 }
 
 /**
+ * Cafe Received is always typed by the cashier.
+ * Do not pre-fill from Amount — items can still be added (e.g. cigarette +).
+ */
+export function cafeReceivedInput(paidAmount?: number | null): string {
+  const paid = framePaidAmount(paidAmount);
+  return paid > 0 ? String(paid) : "";
+}
+
+/**
  * When Amount changes, keep Received in sync if it still matched the previous Amount
  * (full-payment default), so Quick amount changes stay one-tap friendly.
  */

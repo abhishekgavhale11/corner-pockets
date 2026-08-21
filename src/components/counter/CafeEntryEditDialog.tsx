@@ -17,7 +17,7 @@ import {
 } from "@/components/counter/EntryPaymentFields";
 import { formatCorrectionHistoryEntry } from "@/lib/utils/entry-corrections";
 import { formatCurrency } from "@/lib/utils/format";
-import { framePaidAmount } from "@/lib/utils/frame-payment";
+import { cafeReceivedInput } from "@/lib/utils/frame-payment";
 
 interface CafeEntryEditDialogProps {
   entry: NotebookEntryDTO | null;
@@ -29,7 +29,7 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
   const [quantity, setQuantity] = useState("");
   const [amount, setAmount] = useState("");
   const [itemNote, setItemNote] = useState("");
-  const [paidAmount, setPaidAmount] = useState("0");
+  const [paidAmount, setPaidAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<EntryPaymentMode | "">("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export function CafeEntryEditDialog({ entry, onClose }: CafeEntryEditDialogProps
     setQuantity(String(entry.quantity ?? 1));
     setAmount(String(entry.amount));
     setItemNote(entry.itemNote ?? "");
-    setPaidAmount(String(framePaidAmount(entry.paidAmount)));
+    setPaidAmount(cafeReceivedInput(entry.paidAmount));
     setPaymentMode(
       entry.paymentMethod === "CASH" || entry.paymentMethod === "GPAY"
         ? entry.paymentMethod

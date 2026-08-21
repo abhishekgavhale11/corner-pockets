@@ -27,7 +27,9 @@ import {
   getEntryDisplayLabel,
 } from "@/lib/utils/notebook-entry-label";
 import {
+  addCafeItemSaleToBreakdown,
   addSectionSummaries,
+  emptyCafeSalesBreakdown,
   emptyHistoryInsights,
 } from "@/lib/business-day/history-insights";
 import {
@@ -42,6 +44,7 @@ import type {
   BusinessDayHistoryListResultDTO,
   BusinessDayHistorySettlementRowDTO,
   BusinessDayHistorySummaryDTO,
+  CafeSalesBreakdownDTO,
   NotebookEntryDTO,
 } from "@/types";
 import type { Types } from "mongoose";
@@ -183,6 +186,36 @@ type LeanCafeOrder = {
     amount: number;
   }>;
 };
+
+async function loadCafeSalesBreakdown(
+  businessDayIds: Types.ObjectId[]
+): Promise<CafeSalesBreakdownDTO> {
+  const breakdown = emptyCafeSalesBreakdown();
+  if (businessDayIds.length === 0) {
+    return breakdown;
+  }
+
+  const orders = (await CafeOrder.find({
+    businessDayId: { $in: businessDayIds },
+    status: "OPEN",
+  })
+    .select("items.type items.amount")
+    .lean()) as Array<{
+    items?: Array<{ type?: string; amount?: number }>;
+  }>;
+
+  for (const order of orders) {
+    for (const item of order.items ?? []) {
+      addCafeItemSaleToBreakdown(
+        breakdown,
+        item.type ?? "",
+        item.amount ?? 0
+      );
+    }
+  }
+
+  return breakdown;
+}
 
 function settlementsFromFinalSummary(
   summary: BusinessDayFinalSummaryPayload
@@ -330,11 +363,14 @@ export async function getClosedBusinessDayHistoryList(
 
   const items: BusinessDayHistoryListItemDTO[] = [];
   let insights = emptyHistoryInsights();
+  const includedDayIds: Types.ObjectId[] = [];
 
   for (const day of matchedDays) {
     const dayId = day._id.toString();
     const finalSummary = finalById.get(dayId);
     if (!finalSummary) continue;
+
+    includedDayIds.push(day._id);
 
     items.push({
       id: dayId,
@@ -374,8 +410,14 @@ export async function getClosedBusinessDayHistoryList(
         finalSummary.snooker
       ),
       cafe: addSectionSummaries(insights.cafe, finalSummary.cafe),
+      cafeSalesBreakdown: insights.cafeSalesBreakdown,
     };
   }
+
+  insights = {
+    ...insights,
+    cafeSalesBreakdown: await loadCafeSalesBreakdown(includedDayIds),
+  };
 
   const listSummary: BusinessDayHistorySummaryDTO = {
     totalBusinessDays: items.length,
@@ -460,6 +502,7 @@ export async function getBusinessDayHistoryDetail(
       poolMini: finalSummary.poolMini,
       totalSnooker: finalSummary.snooker,
       cafe: finalSummary.cafe,
+      cafeSalesBreakdown: await loadCafeSalesBreakdown([day._id]),
     },
     outstandingTrend,
     settlements,
