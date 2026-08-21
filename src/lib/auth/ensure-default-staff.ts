@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { connectDB } from "@/lib/db/connect";
-import { normalizePassword } from "@/lib/auth/credentials";
+import { normalizePassword, normalizeUsername } from "@/lib/auth/credentials";
 import type { StaffRole } from "@/lib/auth/roles";
 import Staff from "@/models/Staff";
 
@@ -89,6 +89,20 @@ export async function migrateLegacyPasswordStorage(): Promise<void> {
   }
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function findExistingAccount(username: string) {
+  const normalized = normalizeUsername(username);
+  return Staff.collection.findOne({
+    username: {
+      $regex: `^${escapeRegex(normalized)}$`,
+      $options: "i",
+    },
+  });
+}
+
 export async function ensureDefaultStaff(): Promise<void> {
   await connectDB();
   await migrateLegacyPasswordStorage();
@@ -99,29 +113,24 @@ export async function ensureDefaultStaff(): Promise<void> {
   );
 
   for (const account of REQUIRED_ACCOUNTS) {
-    const existing = await Staff.findOne({ username: account.username });
+    const username = normalizeUsername(account.username);
+    const existing = await findExistingAccount(username);
 
+    // Never overwrite an account that already exists (including Admin-set roles).
     if (existing) {
-      if (existing.role !== account.role) {
-        existing.role = account.role;
-        await existing.save();
-        console.log(
-          `[corner-pockets] Updated staff account ${account.username}`
-        );
-      }
       continue;
     }
 
     try {
       await Staff.create({
-        username: account.username,
+        username,
         password: DEFAULT_PASSWORD,
         role: account.role,
         isActive: true,
       });
 
       console.log(
-        `[corner-pockets] Created staff account ${account.username} (${account.role})`
+        `[corner-pockets] Created staff account ${username} (${account.role})`
       );
     } catch (error) {
       const mongoError = error as { code?: number };

@@ -93,7 +93,6 @@ async function countActiveAdminsAfterChange(
 export async function getManageableStaff(): Promise<StaffAccountDTO[]> {
   const session = await requirePermission("STAFF_VIEW");
   await connectDB();
-  await ensureDefaultStaff();
 
   const actorRole = session.user.role as StaffRole;
   if (!canViewStaffAccount(actorRole)) {
@@ -193,7 +192,6 @@ export async function updateUserAction(
   }
 
   await connectDB();
-  await ensureDefaultStaff();
 
   const actorRole = authResult.session.user.role as StaffRole;
   const targetResult = await getTargetStaff(
@@ -207,7 +205,8 @@ export async function updateUserAction(
   }
 
   const { target } = targetResult;
-  const resolvedRole = resolveStoredRole(target.role, parsed.data.role);
+  const previousRole = target.role;
+  const resolvedRole = resolveStoredRole(previousRole, parsed.data.role);
 
   const activeAdminCount = await countActiveAdminsAfterChange(
     target._id.toString(),

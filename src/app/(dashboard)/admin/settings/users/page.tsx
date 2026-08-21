@@ -5,6 +5,8 @@ import { hasPermission, type StaffRole } from "@/lib/auth/roles";
 import { getManageableStaff } from "@/actions/staff";
 import { UsersManagement } from "@/components/users/UsersManagement";
 
+export const dynamic = "force-dynamic";
+
 export default async function UsersSettingsPage() {
   const session = await auth();
   const role = session?.user?.role as StaffRole | undefined;

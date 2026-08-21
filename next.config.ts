@@ -7,11 +7,22 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  webpack: (config) => {
+  webpack: (config, { dev }) => {
     config.ignoreWarnings = [
       ...(Array.isArray(config.ignoreWarnings) ? config.ignoreWarnings : []),
       { module: /node_modules[\\/]jose[\\/]/ },
     ];
+    if (dev) {
+      config.watchOptions = {
+        ...config.watchOptions,
+        ignored: [
+          "**/node_modules/**",
+          "**/.git/**",
+          "**/.cursor/**",
+          "**/debug-*.log",
+        ],
+      };
+    }
     return config;
   },
 };
