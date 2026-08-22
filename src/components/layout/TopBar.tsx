@@ -1,6 +1,7 @@
 import { signOut } from "@/lib/auth/config";
 import { hasPermission, roleLabel, type StaffRole } from "@/lib/auth/roles";
 import { CloseBusinessDayControl } from "@/components/counter/CloseBusinessDayControl";
+import { Button } from "@/components/ui/Button";
 
 interface TopBarProps {
   staffName: string;
@@ -11,14 +12,14 @@ export function TopBar({ staffName, staffRole }: TopBarProps) {
   const canCloseBusinessDay = hasPermission(staffRole, "BUSINESS_DAY_MANAGE");
 
   return (
-    <header className="flex min-h-12 shrink-0 items-center justify-between bg-white px-2 py-1.5">
-      <div className="text-[11px] text-gray-500">
-        <span className="font-medium text-gray-800">{staffName}</span>
-        <span className="mx-1.5 text-gray-300">·</span>
-        <span>{roleLabel(staffRole)}</span>
+    <header className="flex min-h-14 shrink-0 items-center justify-between bg-white px-3 py-2">
+      <div className="min-w-0 text-sm text-gray-600">
+        <span className="font-semibold text-gray-900">{staffName}</span>
+        <span className="mx-2 text-gray-300">·</span>
+        <span className="text-gray-500">{roleLabel(staffRole)}</span>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2.5">
         {canCloseBusinessDay ? <CloseBusinessDayControl /> : null}
         <form
           action={async () => {
@@ -26,13 +27,15 @@ export function TopBar({ staffName, staffRole }: TopBarProps) {
             await signOut({ redirectTo: "/login" });
           }}
         >
-          <button
+          <Button
             type="submit"
-            className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 shadow-sm transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+            variant="secondary"
+            size="md"
+            className="gap-2 border-red-300 bg-red-50 font-semibold text-red-700 shadow-sm hover:border-red-400 hover:bg-red-100 hover:text-red-800 focus-visible:ring-red-400"
           >
-            <LogoutIcon className="h-3.5 w-3.5" />
+            <LogoutIcon className="h-4 w-4 shrink-0" />
             Sign out
-          </button>
+          </Button>
         </form>
       </div>
     </header>

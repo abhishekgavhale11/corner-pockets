@@ -1,9 +1,7 @@
 import { notFound } from "next/navigation";
-import { auth } from "@/lib/auth/config";
 import { getCustomerById } from "@/actions/customers";
 import { getCustomerFinancials } from "@/actions/customer-ledger";
 import { CustomerDetailView } from "@/components/customers/CustomerDetailView";
-import { isAdminRole, type StaffRole } from "@/lib/auth/roles";
 import { isEligibleForOpeningOutstandingFromFinancials } from "@/lib/outstanding/opening-eligibility";
 
 export const dynamic = "force-dynamic";
@@ -30,12 +28,10 @@ export default async function CustomerDetailPage({
 
   const { summary, activityItems } = financials;
 
-  const session = await auth();
-  const role = session?.user?.role as StaffRole | undefined;
-  const isAdmin = role ? isAdminRole(role) : false;
-  const canAddOpeningOutstanding =
-    isAdmin &&
-    isEligibleForOpeningOutstandingFromFinancials(summary, activityItems);
+  const canAddOpeningOutstanding = isEligibleForOpeningOutstandingFromFinancials(
+    summary,
+    activityItems
+  );
 
   return (
     <CustomerDetailView

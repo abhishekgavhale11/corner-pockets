@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { authorizePermission, requireStaff } from "@/lib/auth/session";
-import { isAdminRole, type StaffRole } from "@/lib/auth/roles";
 import { connectDB } from "@/lib/db/connect";
 import { collectOutstandingForCustomer } from "@/lib/outstanding/collect-for-customer";
 import {
@@ -82,7 +81,7 @@ export async function customerHasOpeningOutstandingAction(
   return customerHasOpeningOutstanding(customerId);
 }
 
-/** Admin UI / callers: brand-new customer eligibility for Opening Outstanding. */
+/** Brand-new customer eligibility for Opening Outstanding. */
 export async function customerIsEligibleForOpeningOutstandingAction(
   customerId: string
 ): Promise<boolean> {
@@ -100,10 +99,6 @@ export async function createOpeningOutstandingAction(
 ): Promise<ActionResult<{ outstandingId: string }>> {
   try {
     const session = await requireStaff();
-    if (!isAdminRole(session.user.role as StaffRole)) {
-      return failure("Only Admin can add Opening Outstanding.");
-    }
-
     await connectDB();
 
     const parsed = createOpeningOutstandingSchema.safeParse({

@@ -147,7 +147,7 @@ function MetricIcon({
 interface CustomerSummaryCardProps {
   customer: CustomerDTO;
   summary: CustomerLedgerSummaryDTO;
-  /** Admin-only: show Add Opening Outstanding for brand-new customers only. */
+  /** Show Add Opening Outstanding for brand-new customers only. */
   canAddOpeningOutstanding?: boolean;
 }
 

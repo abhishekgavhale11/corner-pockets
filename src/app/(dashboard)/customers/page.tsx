@@ -26,7 +26,10 @@ export default async function CustomersPage({
   const autoOpenRegister = params.register === "1";
   const isOutstanding = filter === "outstanding";
   const showList =
-    Boolean(query?.trim()) || filter === "all" || filter === "outstanding";
+    Boolean(query?.trim()) ||
+    filter === "all" ||
+    filter === "outstanding" ||
+    (result.page > 1 && result.items.length > 0);
 
   return (
     <HistoryPageLayout

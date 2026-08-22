@@ -18,7 +18,7 @@ function buildHref(
 ) {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  if (filter && filter !== "all") params.set("filter", filter);
+  if (filter) params.set("filter", filter);
   if (limit && limit !== 10) params.set("limit", String(limit));
   if (page > 1) params.set("page", String(page));
   const qs = params.toString();
