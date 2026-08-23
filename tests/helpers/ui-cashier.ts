@@ -514,7 +514,7 @@ export async function uiOpenClosePreview(page: Page): Promise<Locator> {
   return dialog;
 }
 
-/** Assert Cash / GPay / Total Collection / Outstanding Created on Close preview. */
+/** Assert Cash / GPay / Received / Outstanding Created on Close preview. */
 export async function uiExpectClosePreviewTotals(
   page: Page,
   expected: {
@@ -530,15 +530,14 @@ export async function uiExpectClosePreviewTotals(
   await expect(heading).toBeVisible();
 
   const panel = page.locator("div").filter({ has: heading }).last();
+  await expect(panel.getByText("TOTAL", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Received", { exact: true })).toBeVisible();
   await expect(panel.getByText(uiCurrency(expected.cash)).first()).toBeVisible({
     timeout: 20_000,
   });
   await expect(panel.getByText(uiCurrency(expected.gpay)).first()).toBeVisible();
   await expect(
     panel.getByText(uiCurrency(expected.totalPaid)).first()
-  ).toBeVisible();
-  await expect(
-    panel.getByText("Total Outstanding Created")
   ).toBeVisible();
   await expect(
     panel.getByText(uiCurrency(expected.outstandingCreated)).first()

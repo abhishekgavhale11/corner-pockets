@@ -15,6 +15,7 @@ import {
   sectionLedgerSchema,
 } from "@/lib/validators/notebook";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
+import { withLiveCustomerNamesOnNotebookEntries } from "@/lib/counter/live-customer-names";
 import { toCustomerDTO } from "@/lib/mappers";
 import Customer from "@/models/Customer";
 import NotebookEntry from "@/models/NotebookEntry";
@@ -50,7 +51,9 @@ export async function getSectionLedger(
     .sort({ createdAt: 1 })
     .lean();
 
-  return entries.map((entry) => toNotebookEntryDTO(entry));
+  return withLiveCustomerNamesOnNotebookEntries(
+    entries.map((entry) => toNotebookEntryDTO(entry))
+  );
 }
 
 export async function getRecentNotebookCustomers(

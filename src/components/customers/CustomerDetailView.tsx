@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { CustomerDTO, CustomerLedgerSummaryDTO } from "@/types";
 import type { CustomerActivityItemDTO } from "@/types";
 import { CustomerActivityTimeline } from "@/components/customers/CustomerActivityTimeline";
+import { CustomerInfo } from "@/components/customers/CustomerInfo";
 import { CustomerSummaryCard } from "@/components/customers/CustomerSummaryCard";
 
 interface CustomerDetailViewProps {
@@ -11,6 +12,7 @@ interface CustomerDetailViewProps {
   summary: CustomerLedgerSummaryDTO;
   activityItems: CustomerActivityItemDTO[];
   canAddOpeningOutstanding?: boolean;
+  canEditDetails?: boolean;
 }
 
 export function CustomerDetailView({
@@ -18,6 +20,7 @@ export function CustomerDetailView({
   summary,
   activityItems,
   canAddOpeningOutstanding = false,
+  canEditDetails = false,
 }: CustomerDetailViewProps) {
   return (
     <div>
@@ -29,11 +32,14 @@ export function CustomerDetailView({
       </Link>
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,32%)_minmax(0,68%)]">
-        <CustomerSummaryCard
-          customer={customer}
-          summary={summary}
-          canAddOpeningOutstanding={canAddOpeningOutstanding}
-        />
+        <div className="space-y-3">
+          <CustomerSummaryCard
+            customer={customer}
+            summary={summary}
+            canAddOpeningOutstanding={canAddOpeningOutstanding}
+          />
+          <CustomerInfo customer={customer} canEditDetails={canEditDetails} />
+        </div>
 
         <CustomerActivityTimeline items={activityItems} />
       </div>

@@ -20,6 +20,7 @@ import {
 } from "@/lib/constants/counter-rates";
 import { toTableSessionDTO } from "@/lib/mappers/table-session";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
+import { withLiveCustomerNamesOnTableSessions } from "@/lib/counter/live-customer-names";
 import { toCustomerDTO } from "@/lib/mappers";
 import { generateTableSessionNumber, generateTableLocalSessionNumber } from "@/lib/table-sessions/session-number";
 import { getOpenBusinessDayContext } from "@/lib/business-day/require-open-business-day";
@@ -256,7 +257,24 @@ export async function getPoolMiniSessionBoardData(): Promise<PoolMiniSessionBoar
     })
   );
 
-  return { tables };
+  const sessionDtos = tables.flatMap((table) => [
+    ...(table.session ? [table.session] : []),
+    ...table.pendingCheckouts,
+  ]);
+  const liveSessions = await withLiveCustomerNamesOnTableSessions(sessionDtos);
+  const liveById = new Map(liveSessions.map((session) => [session.id, session]));
+
+  return {
+    tables: tables.map((table) => ({
+      ...table,
+      session: table.session
+        ? (liveById.get(table.session.id) ?? table.session)
+        : null,
+      pendingCheckouts: table.pendingCheckouts.map(
+        (session) => liveById.get(session.id) ?? session
+      ),
+    })),
+  };
 }
 
 export async function startTableSession(

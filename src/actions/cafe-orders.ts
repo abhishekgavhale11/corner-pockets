@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { requireStaff } from "@/lib/auth/session";
 import { connectDB } from "@/lib/db/connect";
 import { getOpenBusinessDayContext } from "@/lib/business-day/require-open-business-day";
+import { withLiveCustomerNamesOnCafeOrders } from "@/lib/counter/live-customer-names";
 import {
   normalizeCafeItems,
   toCafeOrderDTO,
@@ -91,7 +92,9 @@ export async function getOpenBusinessDayCafeOrders(): Promise<CafeOrderDTO[]> {
     .sort({ createdAt: -1 })
     .lean();
 
-  return orders.map((order) => toCafeOrderDTO(order as never));
+  return withLiveCustomerNamesOnCafeOrders(
+    orders.map((order) => toCafeOrderDTO(order as never))
+  );
 }
 
 export async function createCafeOrderAction(

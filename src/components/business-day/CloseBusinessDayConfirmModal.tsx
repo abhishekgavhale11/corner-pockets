@@ -182,15 +182,31 @@ function MetricItem({
 function SummaryCard({
   title,
   columns,
+  emphasize = false,
   children,
 }: {
   title: string;
   columns: 4 | 5;
+  emphasize?: boolean;
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-gray-200 bg-white px-4 py-3.5">
-      <h3 className="mb-3 text-[11px] font-bold uppercase tracking-[0.1em] text-gray-500">
+    <section
+      className={cn(
+        "rounded-xl border px-4 py-3.5",
+        emphasize
+          ? "border-sky-200 bg-gradient-to-b from-sky-50/80 to-white shadow-sm"
+          : "border-gray-200 bg-white"
+      )}
+    >
+      <h3
+        className={cn(
+          "mb-3 font-bold uppercase tracking-[0.1em]",
+          emphasize
+            ? "text-xs text-gray-800"
+            : "text-[11px] text-gray-500"
+        )}
+      >
         {title}
       </h3>
       <div
@@ -204,6 +220,47 @@ function SummaryCard({
         {children}
       </div>
     </section>
+  );
+}
+
+function TotalSummary({ data }: { data: BusinessDayClosePreviewDTO }) {
+  return (
+    <SummaryCard title="Total" columns={5} emphasize>
+      <MetricItem
+        icon={<ChartIcon />}
+        iconClassName="bg-gray-100 text-gray-600"
+        label="Revenue"
+        value={formatCurrency(data.todaysBill)}
+        tone="total"
+      />
+      <MetricItem
+        icon={<CashIcon />}
+        iconClassName="bg-emerald-50 text-emerald-600"
+        label="Cash"
+        value={formatCurrency(data.cashCollection)}
+        tone="cash"
+      />
+      <MetricItem
+        icon={<GPayIcon />}
+        iconClassName="bg-blue-50"
+        label="GPay"
+        value={formatCurrency(data.gpayCollection)}
+      />
+      <MetricItem
+        icon={<CoinsIcon />}
+        iconClassName="bg-gray-100 text-gray-700"
+        label="Received"
+        value={formatCurrency(data.totalPaid)}
+        tone="total"
+      />
+      <MetricItem
+        icon={<PersonIcon />}
+        iconClassName="bg-orange-50 text-orange-600"
+        label="Outstanding Created"
+        value={formatCurrency(data.outstandingAmount)}
+        tone="outstanding"
+      />
+    </SummaryCard>
   );
 }
 
@@ -353,40 +410,9 @@ export function CloseBusinessDayConfirmModal({
             </div>
           ) : null}
 
-          <SummaryCard title="Today's Collection" columns={4}>
-            <MetricItem
-              icon={<CashIcon />}
-              iconClassName="bg-emerald-50 text-emerald-600"
-              label="Cash"
-              value={formatCurrency(data.cashCollection)}
-              tone="cash"
-            />
-            <MetricItem
-              icon={<GPayIcon />}
-              iconClassName="bg-blue-50"
-              label="GPay"
-              value={formatCurrency(data.gpayCollection)}
-            />
-            <MetricItem
-              icon={<CoinsIcon />}
-              iconClassName="bg-gray-100 text-gray-700"
-              label="Total Collection"
-              value={formatCurrency(data.totalPaid)}
-              tone="total"
-            />
-          </SummaryCard>
-
-          <CategorySummary title="Snooker Summary" category={data.snooker} />
-          <CategorySummary title="Cafe Summary" category={data.cafe} />
-
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-4 py-3.5">
-            <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-gray-500">
-              Total Outstanding Created
-            </p>
-            <p className="text-lg font-bold tabular-nums text-orange-600">
-              {formatCurrency(data.outstandingAmount)}
-            </p>
-          </div>
+          <TotalSummary data={data} />
+          <CategorySummary title="Snooker" category={data.snooker} />
+          <CategorySummary title="Cafe" category={data.cafe} />
 
           <section className="rounded-xl border border-gray-200 bg-white px-4 py-3.5">
             <h3 className="mb-3 text-[11px] font-bold uppercase tracking-[0.1em] text-gray-500">

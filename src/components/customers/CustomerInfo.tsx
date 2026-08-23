@@ -22,6 +22,8 @@ export function CustomerInfo({
 }: CustomerInfoProps) {
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
+  /** Remount the form after Cancel so inputs reset to the saved customer values. */
+  const [formKey, setFormKey] = useState(0);
 
   const [state, formAction, isPending] = useActionState(
     async (
@@ -39,6 +41,11 @@ export function CustomerInfo({
     null
   );
 
+  const cancelEdit = () => {
+    setIsEditing(false);
+    setFormKey((key) => key + 1);
+  };
+
   return (
     <Card>
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -50,14 +57,16 @@ export function CustomerInfo({
             size="sm"
             onClick={() => setIsEditing(true)}
           >
-            Edit name, surname, phone & card
+            Edit
           </Button>
         )}
       </div>
 
       {isEditing ? (
-        <form action={formAction} className="space-y-5">
+        <form key={formKey} action={formAction} className="space-y-5">
           <input type="hidden" name="customerId" value={customer.id} />
+          {/* Preserve Card ID — not editable here; existing update action still expects it. */}
+          <input type="hidden" name="cardId" value={customer.cardId} />
 
           <div className="grid grid-cols-2 gap-5">
             <div>
@@ -85,7 +94,7 @@ export function CustomerInfo({
           </div>
 
           <div>
-            <Label htmlFor="edit-phone">Phone Number</Label>
+            <Label htmlFor="edit-phone">Mobile Number</Label>
             <Input
               id="edit-phone"
               name="phone"
@@ -94,18 +103,6 @@ export function CustomerInfo({
               required
               autoComplete="tel"
               placeholder="10-digit mobile number"
-            />
-          </div>
-
-          <div>
-            <Label htmlFor="edit-card-id">Card ID</Label>
-            <Input
-              id="edit-card-id"
-              name="cardId"
-              defaultValue={customer.cardId}
-              placeholder="e.g. CP0001"
-              className="uppercase"
-              autoCapitalize="characters"
             />
           </div>
 
@@ -123,9 +120,7 @@ export function CustomerInfo({
               type="button"
               variant="secondary"
               fullWidth
-              onClick={() => {
-                setIsEditing(false);
-              }}
+              onClick={cancelEdit}
               disabled={isPending}
             >
               Cancel
@@ -137,8 +132,8 @@ export function CustomerInfo({
           <dl className="grid gap-4 sm:grid-cols-2">
             <InfoItem label="Name" value={customer.firstName || "—"} />
             <InfoItem label="Surname" value={customer.lastName || "—"} />
-            <InfoItem label="Card ID" value={customer.cardId} />
-            <InfoItem label="Phone Number" value={customer.phone} />
+            <InfoItem label="Mobile Number" value={customer.phone || "—"} />
+            <InfoItem label="Card ID" value={customer.cardId || "—"} />
             <InfoItem
               label="Student Status"
               value={
