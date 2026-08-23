@@ -469,6 +469,8 @@ export async function updateCustomerDetails(
   revalidatePath(`/customers/${parsed.data.customerId}`);
   revalidatePath("/customers");
   revalidateCounterPaths(parsed.data.customerId);
+  revalidatePath("/business-day/history");
+  revalidatePath("/business-day/history/[id]");
 
   return success(toCustomerDTO(customer));
 }

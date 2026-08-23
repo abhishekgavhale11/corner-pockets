@@ -36,6 +36,7 @@ import {
   buildBusinessDayOutstandingTrend,
   getOutstandingRecoveredForReportRange,
 } from "@/lib/business-day/history-outstanding";
+import { loadLiveCustomerNamesById } from "@/lib/counter/live-customer-names";
 import type {
   BusinessDayHistoryCafeLineDTO,
   BusinessDayHistoryDetailDTO,
@@ -215,6 +216,59 @@ async function loadCafeSalesBreakdown(
   }
 
   return breakdown;
+}
+
+function overlayHistoryCustomerName(
+  names: Map<string, string>,
+  customerId: string | undefined,
+  fallback: string
+): string {
+  if (!customerId) return fallback;
+  return names.get(customerId) ?? fallback;
+}
+
+/** Display-only: current Customer.name for History rows. Does not write records. */
+async function withLiveCustomerNamesOnHistoryDetail(input: {
+  settlements: BusinessDayHistorySettlementRowDTO[];
+  frames: BusinessDayHistoryFrameLineDTO[];
+  cafe: BusinessDayHistoryCafeLineDTO[];
+}): Promise<{
+  settlements: BusinessDayHistorySettlementRowDTO[];
+  frames: BusinessDayHistoryFrameLineDTO[];
+  cafe: BusinessDayHistoryCafeLineDTO[];
+}> {
+  const names = await loadLiveCustomerNamesById([
+    ...input.settlements.map((row) => row.customerId),
+    ...input.frames.map((row) => row.customerId),
+    ...input.cafe.map((row) => row.customerId),
+  ]);
+
+  return {
+    settlements: input.settlements.map((row) => ({
+      ...row,
+      customerName: overlayHistoryCustomerName(
+        names,
+        row.customerId,
+        row.customerName
+      ),
+    })),
+    frames: input.frames.map((row) => ({
+      ...row,
+      customerName: overlayHistoryCustomerName(
+        names,
+        row.customerId,
+        row.customerName
+      ),
+    })),
+    cafe: input.cafe.map((row) => ({
+      ...row,
+      customerName: overlayHistoryCustomerName(
+        names,
+        row.customerId,
+        row.customerName
+      ),
+    })),
+  };
 }
 
 function settlementsFromFinalSummary(
@@ -444,8 +498,10 @@ export async function getBusinessDayHistoryDetail(
   }
 
   const finalSummary = await requireBusinessDayFinalSummary(day._id);
-  const settlements = settlementsFromFinalSummary(finalSummary);
-  const { frames, cafe } = await buildHistoryDrilldownLines(day._id);
+  const { frames, cafe, settlements } = await withLiveCustomerNamesOnHistoryDetail({
+    settlements: settlementsFromFinalSummary(finalSummary),
+    ...(await buildHistoryDrilldownLines(day._id)),
+  });
 
   const outstandingTrend = await buildBusinessDayOutstandingTrend({
     businessDayNumber: day.businessDayNumber,

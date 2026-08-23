@@ -130,7 +130,7 @@ export function CustomerInfo({
       ) : (
         <>
           <dl className="grid gap-4 sm:grid-cols-2">
-            <InfoItem label="Name" value={customer.firstName || "—"} />
+            <InfoItem label="Name" value={customer.name || "—"} />
             <InfoItem label="Surname" value={customer.lastName || "—"} />
             <InfoItem label="Mobile Number" value={customer.phone || "—"} />
             <InfoItem label="Card ID" value={customer.cardId || "—"} />
