@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed:sample": "tsx scripts/seed-sample-data.ts",
+    "seed:test-10-days": "tsx scripts/seed-test-10-days.ts",
+    "seed:test-10-days:reset": "tsx scripts/reset-test-10-days.ts",
     "db:reset": "tsx scripts/reset-dev-db.ts",
     "db:production-fresh-start": "tsx scripts/production-fresh-start.ts",
     "test:unit": "vitest run",

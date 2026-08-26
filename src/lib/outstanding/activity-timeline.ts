@@ -7,9 +7,11 @@ import CafeOrder from "@/models/CafeOrder";
 import { CAFE_SECTION } from "@/lib/constants/counter-sections";
 import { entryTypeLabel } from "@/lib/constants/notebook-entry-types";
 import { formatBusinessDayPublicId } from "@/lib/business-day/format";
+import { listFinancialCorrectionsForCustomer } from "@/lib/financial-corrections/queries";
+import { FINANCIAL_CORRECTION_SECTION_LABELS } from "@/lib/constants/financial-corrections";
 import {
   customerEntryShare,
-  listBusinessDayFinalSummaries,
+  listCorrectedBusinessDayFinalSummaries,
   type BusinessDayFinalSummaryPayload,
 } from "@/lib/financial-summary";
 import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
@@ -146,6 +148,12 @@ function isCollectionKind(
   );
 }
 
+function isCorrectionKind(
+  kind: CustomerActivityItemDTO["kind"]
+): boolean {
+  return kind === "MISSED_PAYMENT" || kind === "OUTSTANDING_CORRECTION";
+}
+
 function isBusinessDayClosedKind(
   kind: CustomerActivityItemDTO["kind"]
 ): boolean {
@@ -169,7 +177,8 @@ function applyRunningOutstandingBalances(
       if (isOpeningOutstandingKind(item.kind)) return 0;
       if (isBusinessDayClosedKind(item.kind)) return 1;
       if (isCollectionKind(item.kind)) return 2;
-      return 3;
+      if (isCorrectionKind(item.kind)) return 3;
+      return 4;
     };
     const rankDiff = rank(a) - rank(b);
     if (rankDiff !== 0) return rankDiff;
@@ -209,6 +218,12 @@ function applyRunningOutstandingBalances(
       running = current;
       item.previousOutstanding = previous;
       item.outstandingBalance = current;
+      continue;
+    }
+
+    if (isCorrectionKind(item.kind)) {
+      item.previousOutstanding = running;
+      item.outstandingBalance = running;
     }
   }
 
@@ -226,7 +241,7 @@ export async function getCustomerActivityTimeline(
 
   const customerObjectId = new mongoose.Types.ObjectId(customerId);
 
-  const [rawEntriesInitial, outstandingRecords, collections, cafeOrders] =
+  const [rawEntriesInitial, outstandingRecords, collections, cafeOrders, financialCorrections] =
     await Promise.all([
       NotebookEntry.find({
         status: { $nin: ["CANCELLED", "REVERSED"] },
@@ -250,6 +265,7 @@ export async function getCustomerActivityTimeline(
       })
         .sort({ createdAt: 1 })
         .lean(),
+      listFinancialCorrectionsForCustomer(customerId),
     ]);
 
   const loadedEntryIds = new Set(
@@ -415,7 +431,7 @@ export async function getCustomerActivityTimeline(
     const day = dayById.get(dayId);
     return Boolean(day && day.status === "CLOSED" && day.closedAt);
   });
-  const finalByDayId = await listBusinessDayFinalSummaries(closedDayIds);
+  const finalByDayId = await listCorrectedBusinessDayFinalSummaries(closedDayIds);
 
   for (const dayId of dayIds) {
     const day = dayById.get(dayId);
@@ -502,6 +518,58 @@ export async function getCustomerActivityTimeline(
       receivedAt:
         (collection as { receivedAt?: Date }).receivedAt?.toISOString() ||
         collection.createdAt.toISOString(),
+    });
+  }
+
+  const affectedDayIds = [
+    ...new Set(financialCorrections.map((row) => row.affectedBusinessDayId)),
+  ];
+  const affectedDays =
+    affectedDayIds.length > 0
+      ? await BusinessDay.find({
+          _id: {
+            $in: affectedDayIds.map((id) => new mongoose.Types.ObjectId(id)),
+          },
+        })
+          .select("_id businessDayNumber businessDate openedAt")
+          .lean()
+      : [];
+  const affectedPublicId = new Map(
+    affectedDays.map((day) => [
+      day._id.toString(),
+      formatBusinessDayPublicId(day.businessDayNumber),
+    ])
+  );
+  const affectedBusinessDate = new Map(
+    affectedDays.map((day) => [
+      day._id.toString(),
+      resolveBusinessDate(day.businessDate, day.openedAt).toISOString(),
+    ])
+  );
+
+  for (const correction of financialCorrections) {
+    const isMissed = correction.type === "MISSED_PAYMENT";
+    items.push({
+      id: `correction-${correction.id}`,
+      timestamp: correction.createdAt.toISOString(),
+      kind: isMissed ? "MISSED_PAYMENT" : "OUTSTANDING_CORRECTION",
+      label: isMissed ? "Missed Payment" : "Outstanding Correction",
+      amount: correction.amount,
+      paymentMethod: correction.paymentMethod ?? undefined,
+      paymentMethodLabel: isMissed
+        ? paymentMethodLabel(correction.paymentMethod)
+        : undefined,
+      createdBy: correction.createdBy,
+      reason: correction.reason,
+      section: correction.section,
+      sectionLabel: correction.section
+        ? FINANCIAL_CORRECTION_SECTION_LABELS[correction.section]
+        : undefined,
+      businessDayId: correction.affectedBusinessDayId,
+      businessDayPublicId:
+        affectedPublicId.get(correction.affectedBusinessDayId) ?? undefined,
+      businessDate:
+        affectedBusinessDate.get(correction.affectedBusinessDayId) ?? undefined,
     });
   }
 

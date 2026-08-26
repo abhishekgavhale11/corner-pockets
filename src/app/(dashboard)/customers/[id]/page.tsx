@@ -28,7 +28,7 @@ export default async function CustomerDetailPage({
     notFound();
   }
 
-  const { summary, activityItems } = financials;
+  const { summary, activityItems, eligibleCorrectionDays } = financials;
 
   const canAddOpeningOutstanding = isEligibleForOpeningOutstandingFromFinancials(
     summary,
@@ -48,6 +48,7 @@ export default async function CustomerDetailPage({
       activityItems={activityItems}
       canAddOpeningOutstanding={canAddOpeningOutstanding}
       canEditDetails={canEditDetails}
+      eligibleCorrectionDays={eligibleCorrectionDays}
     />
   );
 }

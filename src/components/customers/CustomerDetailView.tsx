@@ -3,7 +3,9 @@
 import Link from "next/link";
 import type { CustomerDTO, CustomerLedgerSummaryDTO } from "@/types";
 import type { CustomerActivityItemDTO } from "@/types";
+import type { FinancialCorrectionEligibleDayDTO } from "@/types";
 import { CustomerActivityTimeline } from "@/components/customers/CustomerActivityTimeline";
+import { CustomerCorrectionsAdjustments } from "@/components/customers/CustomerCorrectionsAdjustments";
 import { CustomerInfo } from "@/components/customers/CustomerInfo";
 import { CustomerSummaryCard } from "@/components/customers/CustomerSummaryCard";
 
@@ -13,6 +15,7 @@ interface CustomerDetailViewProps {
   activityItems: CustomerActivityItemDTO[];
   canAddOpeningOutstanding?: boolean;
   canEditDetails?: boolean;
+  eligibleCorrectionDays?: FinancialCorrectionEligibleDayDTO[];
 }
 
 export function CustomerDetailView({
@@ -21,6 +24,7 @@ export function CustomerDetailView({
   activityItems,
   canAddOpeningOutstanding = false,
   canEditDetails = false,
+  eligibleCorrectionDays = [],
 }: CustomerDetailViewProps) {
   return (
     <div>
@@ -39,6 +43,11 @@ export function CustomerDetailView({
             canAddOpeningOutstanding={canAddOpeningOutstanding}
           />
           <CustomerInfo customer={customer} canEditDetails={canEditDetails} />
+          <CustomerCorrectionsAdjustments
+            customerId={customer.id}
+            customerName={customer.name}
+            eligibleDays={eligibleCorrectionDays}
+          />
         </div>
 
         <CustomerActivityTimeline items={activityItems} />

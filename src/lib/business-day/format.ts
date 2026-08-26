@@ -11,6 +11,13 @@ export function formatBusinessDayDate(date: Date | string): string {
   }).format(new Date(date));
 }
 
+export function formatBusinessDayDateShort(date: Date | string): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+  }).format(new Date(date));
+}
+
 export function formatBusinessDayTime(date: Date | string): string {
   return new Intl.DateTimeFormat("en-IN", {
     hour: "numeric",

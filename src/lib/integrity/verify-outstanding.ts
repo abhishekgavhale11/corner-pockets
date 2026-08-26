@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Customer from "@/models/Customer";
 import Outstanding from "@/models/Outstanding";
 import OutstandingCollection from "@/models/OutstandingCollection";
+import FinancialCorrection from "@/models/FinancialCorrection";
 import type {
   OutstandingIntegrityCustomerRow,
   OutstandingIntegrityFailureReason,
@@ -28,7 +29,8 @@ type CollectionAggRow = {
  * Read-only Outstanding ledger integrity check.
  *
  * Identity (integer rupees, exact equality):
- *   Σ originalAmount − Σ collection.amount === Σ remainingAmount
+ *   Σ originalAmount − Σ collection.amount − Σ FinancialCorrection.amount
+ *   === Σ remainingAmount
  *
  * Plus per-document status/amount invariants.
  * Does not write, repair, or recompute Due from operational modules.
@@ -36,7 +38,7 @@ type CollectionAggRow = {
 export async function verifyOutstandingIntegrity(): Promise<OutstandingIntegrityReport> {
   const startedAt = new Date();
 
-  const [outstandingRows, collectionRows] = await Promise.all([
+  const [outstandingRows, collectionRows, correctionRows] = await Promise.all([
     Outstanding.aggregate<OutstandingAggRow>([
       {
         $group: {
@@ -123,6 +125,14 @@ export async function verifyOutstandingIntegrity(): Promise<OutstandingIntegrity
         },
       },
     ]),
+    FinancialCorrection.aggregate<CollectionAggRow>([
+      {
+        $group: {
+          _id: "$customerId",
+          totalCollected: { $sum: "$amount" },
+        },
+      },
+    ]),
   ]);
 
   const outstandingByCustomer = new Map<string, OutstandingAggRow>();
@@ -135,9 +145,15 @@ export async function verifyOutstandingIntegrity(): Promise<OutstandingIntegrity
     collectedByCustomer.set(row._id.toString(), row.totalCollected);
   }
 
+  const correctedByCustomer = new Map<string, number>();
+  for (const row of correctionRows) {
+    correctedByCustomer.set(row._id.toString(), row.totalCollected);
+  }
+
   const customerIds = new Set<string>([
     ...outstandingByCustomer.keys(),
     ...collectedByCustomer.keys(),
+    ...correctedByCustomer.keys(),
   ]);
 
   // Names for collection-only customers (no Outstanding rows → no lookup yet).
@@ -174,7 +190,8 @@ export async function verifyOutstandingIntegrity(): Promise<OutstandingIntegrity
     const totalCreated = outstanding?.totalCreated ?? 0;
     const totalRemaining = outstanding?.totalRemaining ?? 0;
     const totalCollected = collectedByCustomer.get(customerId) ?? 0;
-    const expectedRemaining = totalCreated - totalCollected;
+    const totalCorrected = correctedByCustomer.get(customerId) ?? 0;
+    const expectedRemaining = totalCreated - totalCollected - totalCorrected;
 
     const failureReasons: OutstandingIntegrityFailureReason[] = [];
 

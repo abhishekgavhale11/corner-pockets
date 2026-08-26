@@ -11,10 +11,14 @@ import { CAFE_ITEM_TYPE_LABELS } from "@/lib/constants/cafe";
 import { sectionLabel } from "@/lib/constants/notebook-sections";
 import { NOTEBOOK_SECTIONS } from "@/lib/constants/notebook-sections";
 import {
-  listBusinessDayFinalSummaries,
+  applyFinancialCorrections,
+  listCorrectedBusinessDayFinalSummaries,
   requireBusinessDayFinalSummary,
   type BusinessDayFinalSummaryPayload,
 } from "@/lib/financial-summary";
+import { listFinancialCorrectionsByAffectedDayIds } from "@/lib/financial-corrections/queries";
+import { getOutstandingCollectionLedger } from "@/lib/outstanding/collection-ledger";
+import Customer from "@/models/Customer";
 import { formatBusinessDayPublicId } from "@/lib/business-day/format";
 import {
   getBusinessDateRangeBounds,
@@ -36,6 +40,7 @@ import {
   buildBusinessDayOutstandingTrend,
   getOutstandingRecoveredForReportRange,
 } from "@/lib/business-day/history-outstanding";
+import { buildDailyClubOutstandingBalance } from "@/lib/outstanding/daily-balance";
 import { loadLiveCustomerNamesById } from "@/lib/counter/live-customer-names";
 import type {
   BusinessDayHistoryCafeLineDTO,
@@ -43,10 +48,13 @@ import type {
   BusinessDayHistoryFrameLineDTO,
   BusinessDayHistoryListItemDTO,
   BusinessDayHistoryListResultDTO,
+  NotebookPaymentAllocationDTO,
   BusinessDayHistorySettlementRowDTO,
   BusinessDayHistorySummaryDTO,
   CafeSalesBreakdownDTO,
+  FinancialCorrectionHistoryRowDTO,
   NotebookEntryDTO,
+  OutstandingHistoryTabDTO,
 } from "@/types";
 import type { Types } from "mongoose";
 
@@ -128,6 +136,245 @@ function collectChargeLines(entry: NotebookEntryDTO): ChargeLine[] {
   ];
 }
 
+/** Display-only: same Cafe counter format (`Cigarette ×2`). */
+function cafeSnapshotQtyLabel(base: string, quantity: number): string {
+  return quantity > 1 ? `${base} ×${quantity}` : base;
+}
+
+type CafeSnapshotDraft = BusinessDayHistoryCafeLineDTO & {
+  groupKey: string;
+  itemLabel: string;
+  quantity: number;
+  showQuantity: boolean;
+};
+
+function mergeCafeSnapshotAllocations(
+  lines: CafeSnapshotDraft[]
+): NotebookPaymentAllocationDTO[] | undefined {
+  const totals = new Map<"CASH" | "GPAY", number>();
+  let hadAny = false;
+
+  for (const line of lines) {
+    const rows =
+      line.paymentAllocations && line.paymentAllocations.length > 0
+        ? line.paymentAllocations
+        : line.paymentMethod && line.paidAmount > 0
+          ? [
+              {
+                paymentMethod: line.paymentMethod,
+                amount: line.paidAmount,
+              },
+            ]
+          : [];
+
+    for (const row of rows) {
+      if (row.paymentMethod !== "CASH" && row.paymentMethod !== "GPAY") {
+        continue;
+      }
+      if (row.amount <= 0) continue;
+      hadAny = true;
+      totals.set(
+        row.paymentMethod,
+        (totals.get(row.paymentMethod) ?? 0) + row.amount
+      );
+    }
+  }
+
+  if (!hadAny) return undefined;
+  return [...totals.entries()].map(([paymentMethod, amount]) => ({
+    paymentMethod,
+    amount,
+  }));
+}
+
+/**
+ * Display-only grouping for History Cafe Snapshot.
+ * Collapses repeated qty items (Cigarette, Water) into `Item ×N` like Cafe.
+ * Does not change Final Summary money.
+ */
+function collapseHistoryCafeSnapshot(
+  drafts: CafeSnapshotDraft[]
+): BusinessDayHistoryCafeLineDTO[] {
+  const groups = new Map<string, CafeSnapshotDraft[]>();
+
+  for (const draft of drafts) {
+    const key = `${draft.customerId ?? `name:${draft.customerName}`}|${draft.groupKey}`;
+    const list = groups.get(key);
+    if (list) {
+      list.push(draft);
+    } else {
+      groups.set(key, [draft]);
+    }
+  }
+
+  const collapsed: BusinessDayHistoryCafeLineDTO[] = [];
+
+  for (const list of groups.values()) {
+    const first = list[0]!;
+    const quantity = list.reduce((sum, row) => sum + row.quantity, 0);
+    const amount = list.reduce((sum, row) => sum + row.amount, 0);
+    const paidAmount = list.reduce((sum, row) => sum + row.paidAmount, 0);
+    const allocations = mergeCafeSnapshotAllocations(list);
+    const methods = new Set(
+      list
+        .map((row) => row.paymentMethod)
+        .filter((method): method is NonNullable<typeof method> => Boolean(method))
+    );
+    const latestReceipt = list.reduce((latest, row) => {
+      if (!row.receivedAt) return latest;
+      if (!latest.receivedAt || row.receivedAt > latest.receivedAt) return row;
+      return latest;
+    }, first);
+
+    collapsed.push({
+      entryId: first.entryId,
+      customerId: first.customerId,
+      customerName: first.customerName,
+      item: first.showQuantity
+        ? cafeSnapshotQtyLabel(first.itemLabel, quantity)
+        : first.itemLabel,
+      amount,
+      paidAmount,
+      paymentMethod: methods.size === 1 ? [...methods][0] : undefined,
+      paymentAllocations: allocations,
+      receivedByUsername: latestReceipt.receivedByUsername,
+      receivedAt: latestReceipt.receivedAt,
+      createdAt: first.createdAt,
+    });
+  }
+
+  return collapsed.sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+}
+
+function cafeDraftFromNotebookEntry(
+  entry: NotebookEntryDTO,
+  line: ChargeLine
+): CafeSnapshotDraft {
+  const isFood = entry.type === "FOOD" || entry.type === "COLD_DRINK";
+
+  if (isFood) {
+    const note = entry.itemNote?.trim() ?? "";
+    return {
+      entryId: line.entryId,
+      customerId: line.customerId,
+      customerName: line.customerName,
+      item: formatCafeItemLabel(entry),
+      amount: line.amount,
+      paidAmount: line.paidAmount,
+      paymentMethod: line.paymentMethod,
+      paymentAllocations: line.paymentAllocations,
+      receivedByUsername: line.receivedByUsername,
+      receivedAt: line.receivedAt,
+      createdAt: line.createdAt,
+      groupKey: `food:${note.toLowerCase().replace(/\s+/g, " ")}`,
+      itemLabel: formatCafeItemLabel(entry),
+      quantity: 1,
+      showQuantity: false,
+    };
+  }
+
+  const quantity = entry.quantity && entry.quantity > 0 ? entry.quantity : 1;
+  const unitPrice =
+    entry.unitPrice ??
+    (quantity > 0 ? Math.round(line.amount / quantity) : line.amount);
+
+  return {
+    entryId: line.entryId,
+    customerId: line.customerId,
+    customerName: line.customerName,
+    item: getEntryDisplayLabel(entry),
+    amount: line.amount,
+    paidAmount: line.paidAmount,
+    paymentMethod: line.paymentMethod,
+    paymentAllocations: line.paymentAllocations,
+    receivedByUsername: line.receivedByUsername,
+    receivedAt: line.receivedAt,
+    createdAt: line.createdAt,
+    groupKey: `qty:${entry.type}:${unitPrice}`,
+    itemLabel: getEntryDisplayLabel(entry),
+    quantity,
+    showQuantity: true,
+  };
+}
+
+type LeanCafeOrder = {
+  _id: Types.ObjectId;
+  customerId?: Types.ObjectId | null;
+  customerName: string;
+  amount: number;
+  received?: number;
+  paymentMethod?: NotebookEntryDTO["paymentMethod"];
+  receivedByUsername?: string;
+  receivedAt?: Date;
+  createdAt: Date;
+  items?: Array<{
+    type: string;
+    description?: string;
+    quantity?: number;
+    unitPrice?: number;
+    amount: number;
+  }>;
+};
+
+function cafeItemTypeLabel(type: string): string {
+  return (
+    CAFE_ITEM_TYPE_LABELS[type as keyof typeof CAFE_ITEM_TYPE_LABELS] || type
+  );
+}
+
+function cafeDraftFromOrderItem(
+  order: LeanCafeOrder,
+  item: NonNullable<LeanCafeOrder["items"]>[number],
+  index: number
+): CafeSnapshotDraft {
+  const paidAmount =
+    order.amount > 0
+      ? Math.round(((order.received ?? 0) * item.amount) / order.amount)
+      : 0;
+  const base = {
+    entryId: `${order._id.toString()}-${index}`,
+    customerId: order.customerId?.toString(),
+    customerName: order.customerName,
+    amount: item.amount,
+    paidAmount,
+    paymentMethod: order.paymentMethod,
+    receivedByUsername: order.receivedByUsername,
+    receivedAt: order.receivedAt?.toISOString(),
+    createdAt: order.createdAt.toISOString(),
+  };
+
+  if (item.type === "FOOD" || item.type === "COLD_DRINK") {
+    const description =
+      item.description?.trim() || cafeItemTypeLabel(item.type);
+    return {
+      ...base,
+      item: description,
+      groupKey: `food:${description.toLowerCase().replace(/\s+/g, " ")}`,
+      itemLabel: description,
+      quantity: 1,
+      showQuantity: false,
+    };
+  }
+
+  const quantity =
+    item.quantity && item.quantity > 0 ? item.quantity : 1;
+  const unitPrice =
+    item.unitPrice ??
+    (quantity > 0 ? Math.round(item.amount / quantity) : item.amount);
+  const label = cafeItemTypeLabel(item.type);
+
+  return {
+    ...base,
+    item: label,
+    groupKey: `qty:${item.type}:${unitPrice}`,
+    itemLabel: label,
+    quantity,
+    showQuantity: true,
+  };
+}
+
 function buildFrameLines(
   entries: NotebookEntryDTO[]
 ): BusinessDayHistoryFrameLineDTO[] {
@@ -150,43 +397,13 @@ function buildFrameLines(
   );
 }
 
-function buildCafeLines(
-  entries: NotebookEntryDTO[]
-): BusinessDayHistoryCafeLineDTO[] {
+function buildCafeLines(entries: NotebookEntryDTO[]): CafeSnapshotDraft[] {
   return sortEntries(entries).flatMap((entry) =>
-    collectChargeLines(entry).map((line) => ({
-      entryId: line.entryId,
-      customerId: line.customerId,
-      customerName: line.customerName,
-      item: formatCafeItemLabel(entry),
-      amount: line.amount,
-      paidAmount: line.paidAmount,
-      paymentMethod: line.paymentMethod,
-      paymentAllocations: line.paymentAllocations,
-      receivedByUsername: line.receivedByUsername,
-      receivedAt: line.receivedAt,
-      createdAt: line.createdAt,
-    }))
+    collectChargeLines(entry).map((line) =>
+      cafeDraftFromNotebookEntry(entry, line)
+    )
   );
 }
-
-type LeanCafeOrder = {
-  _id: Types.ObjectId;
-  customerId?: Types.ObjectId | null;
-  customerName: string;
-  amount: number;
-  received?: number;
-  paymentMethod?: NotebookEntryDTO["paymentMethod"];
-  receivedByUsername?: string;
-  receivedAt?: Date;
-  createdAt: Date;
-  items?: Array<{
-    type: string;
-    description?: string;
-    quantity?: number;
-    amount: number;
-  }>;
-};
 
 async function loadCafeSalesBreakdown(
   businessDayIds: Types.ObjectId[]
@@ -288,6 +505,133 @@ function settlementsFromFinalSummary(
   }));
 }
 
+async function loadCorrectionHistoryRowsForDays(
+  businessDayIds: Types.ObjectId[]
+): Promise<FinancialCorrectionHistoryRowDTO[]> {
+  if (businessDayIds.length === 0) return [];
+
+  const byDay = await listFinancialCorrectionsByAffectedDayIds(businessDayIds);
+  const records = [...byDay.values()].flat();
+  if (records.length === 0) return [];
+
+  const customerIds = [...new Set(records.map((row) => row.customerId))];
+  const dayIdsForPublicId = [
+    ...new Set([
+      ...records.map((row) => row.affectedBusinessDayId),
+      ...records
+        .map((row) => row.recordedOnBusinessDayId)
+        .filter((id): id is string => Boolean(id)),
+    ]),
+  ];
+
+  const [customers, days] = await Promise.all([
+    Customer.find({
+      _id: { $in: customerIds.map((id) => new mongoose.Types.ObjectId(id)) },
+    })
+      .select("name")
+      .lean(),
+    BusinessDay.find({
+      _id: {
+        $in: dayIdsForPublicId.map((id) => new mongoose.Types.ObjectId(id)),
+      },
+    })
+      .select("_id businessDayNumber businessDate openedAt")
+      .lean(),
+  ]);
+
+  const nameById = new Map(
+    customers.map((customer) => [customer._id.toString(), customer.name as string])
+  );
+  const publicIdByDay = new Map(
+    days.map((day) => [
+      day._id.toString(),
+      formatBusinessDayPublicId(day.businessDayNumber),
+    ])
+  );
+  const businessDateByDay = new Map(
+    days.map((day) => [
+      day._id.toString(),
+      resolveBusinessDate(day.businessDate, day.openedAt).toISOString(),
+    ])
+  );
+
+  return records
+    .map((record) => ({
+      id: record.id,
+      type: record.type,
+      customerId: record.customerId,
+      customerName: nameById.get(record.customerId) ?? "—",
+      amount: record.amount,
+      paymentMethod: record.paymentMethod,
+      section: record.section,
+      reason: record.reason,
+      createdBy: record.createdBy,
+      createdAt: record.createdAt.toISOString(),
+      affectedBusinessDayId: record.affectedBusinessDayId,
+      affectedPublicId: publicIdByDay.get(record.affectedBusinessDayId) ?? "—",
+      affectedBusinessDate:
+        businessDateByDay.get(record.affectedBusinessDayId) ??
+        record.createdAt.toISOString(),
+      recordedOnBusinessDayId: record.recordedOnBusinessDayId,
+      recordedOnPublicId: record.recordedOnBusinessDayId
+        ? (publicIdByDay.get(record.recordedOnBusinessDayId) ?? null)
+        : null,
+    }))
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+}
+
+async function loadCorrectionHistoryRows(
+  businessDayId: Types.ObjectId
+): Promise<FinancialCorrectionHistoryRowDTO[]> {
+  return loadCorrectionHistoryRowsForDays([businessDayId]);
+}
+
+/**
+ * History → Outstanding tab payload.
+ *
+ * Created  = corrected Final Summary overlay for the selected range
+ * Paid     = OutstandingCollection ledger for the selected range
+ * Current  = live club receivable (Σ PENDING remainingAmount)
+ * Series   = calendar-day running balance from corrected BD outstandingCreated
+ *            − OutstandingCollection − FinancialCorrection (recorded date)
+ *            Last point = live Current Club Outstanding.
+ *
+ * New outstanding is dated by Business Day businessDate, not Outstanding.createdAt.
+ */
+export async function getOutstandingHistoryTab(
+  options?: {
+    from?: string;
+    to?: string;
+  }
+): Promise<OutstandingHistoryTabDTO> {
+  const list = await getClosedBusinessDayHistoryList(options);
+  const ledger = await getOutstandingCollectionLedger({
+    from: list.from,
+    to: list.to,
+  });
+  const { openingOutstanding, series } = await buildDailyClubOutstandingBalance({
+    from: list.from,
+    liveCurrent: ledger.summary.totalClubOutstanding,
+  });
+
+  return {
+    from: list.from,
+    to: list.to,
+    movement: {
+      openingOutstanding,
+      outstandingCreated: list.summary.outstandingCreated,
+      outstandingPaid: ledger.summary.totalOutstandingRecovered,
+      currentClubOutstanding: ledger.summary.totalClubOutstanding,
+    },
+    series,
+    ledger,
+    corrections: list.corrections,
+  };
+}
+
 /**
  * Drill-down operational lines only (frames / cafe items).
  * Financial totals come from Business Day Final Summary — never from these lines.
@@ -316,39 +660,16 @@ async function buildHistoryDrilldownLines(businessDayId: Types.ObjectId): Promis
   const cafeEntries = entries.filter((entry) => entry.section === CAFE_SECTION);
 
   const frames = buildFrameLines(frameEntries);
-  const cafeFromEntries = buildCafeLines(cafeEntries);
+  const cafe = collapseHistoryCafeSnapshot([
+    ...buildCafeLines(cafeEntries),
+    ...cafeOrders.flatMap((order) =>
+      (order.items ?? []).map((item, index) =>
+        cafeDraftFromOrderItem(order, item, index)
+      )
+    ),
+  ]);
 
-  const cafeFromOrders: BusinessDayHistoryCafeLineDTO[] = cafeOrders.flatMap(
-    (order) =>
-      (order.items ?? []).map((item, index) => ({
-        entryId: `${order._id.toString()}-${index}`,
-        customerId: order.customerId?.toString(),
-        customerName: order.customerName,
-        item:
-          item.type === "FOOD" || item.type === "COLD_DRINK"
-            ? item.description?.trim() ||
-              CAFE_ITEM_TYPE_LABELS[
-                item.type as keyof typeof CAFE_ITEM_TYPE_LABELS
-              ] ||
-              item.type
-            : `${
-                CAFE_ITEM_TYPE_LABELS[
-                  item.type as keyof typeof CAFE_ITEM_TYPE_LABELS
-                ] || item.type
-              }${item.quantity && item.quantity > 1 ? ` ×${item.quantity}` : ""}`,
-        amount: item.amount,
-        paidAmount:
-          order.amount > 0
-            ? Math.round(((order.received ?? 0) * item.amount) / order.amount)
-            : 0,
-        paymentMethod: order.paymentMethod,
-        receivedByUsername: order.receivedByUsername,
-        receivedAt: order.receivedAt?.toISOString(),
-        createdAt: order.createdAt.toISOString(),
-      }))
-  );
-
-  return { frames, cafe: [...cafeFromEntries, ...cafeFromOrders] };
+  return { frames, cafe };
 }
 
 export async function getClosedBusinessDayHistoryList(
@@ -407,7 +728,7 @@ export async function getClosedBusinessDayHistoryList(
     });
   }
 
-  const finalById = await listBusinessDayFinalSummaries(
+  const finalById = await listCorrectedBusinessDayFinalSummaries(
     matchedDays.map((day) => day._id)
   );
   const reportRangeRecovered = await getOutstandingRecoveredForReportRange(
@@ -482,7 +803,9 @@ export async function getClosedBusinessDayHistoryList(
     insights,
   };
 
-  return { from, to, items, summary: listSummary };
+  const corrections = await loadCorrectionHistoryRowsForDays(includedDayIds);
+
+  return { from, to, items, summary: listSummary, corrections };
 }
 
 export async function getBusinessDayHistoryDetail(
@@ -497,7 +820,18 @@ export async function getBusinessDayHistoryDetail(
     return null;
   }
 
-  const finalSummary = await requireBusinessDayFinalSummary(day._id);
+  const originalSummary = await requireBusinessDayFinalSummary(day._id);
+  const corrections = await loadCorrectionHistoryRows(day._id);
+  const finalSummary = applyFinancialCorrections(
+    originalSummary,
+    corrections.map((row) => ({
+      type: row.type,
+      customerId: row.customerId,
+      amount: row.amount,
+      paymentMethod: row.paymentMethod,
+      section: row.section,
+    }))
+  );
   const { frames, cafe, settlements } = await withLiveCustomerNamesOnHistoryDetail({
     settlements: settlementsFromFinalSummary(finalSummary),
     ...(await buildHistoryDrilldownLines(day._id)),
@@ -564,5 +898,17 @@ export async function getBusinessDayHistoryDetail(
     settlements,
     frames,
     cafe,
+    originalSummary:
+      corrections.length > 0
+        ? {
+            todaysBill: originalSummary.bill,
+            totalReceived: originalSummary.paid,
+            cashCollection: originalSummary.cashCollection,
+            gpayCollection: originalSummary.gpayCollection,
+            outstandingCreated: originalSummary.outstandingCreated,
+            closingOutstanding: originalSummary.closingOutstanding,
+          }
+        : undefined,
+    corrections,
   };
 }

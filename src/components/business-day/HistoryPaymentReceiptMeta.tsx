@@ -1,4 +1,5 @@
 import { formatDate } from "@/lib/utils/format";
+import { formatBusinessDayTime } from "@/lib/business-day/format";
 
 /** Compact payment receipt lines for history surfaces only. */
 export function HistoryPaymentReceiptMeta({
@@ -11,26 +12,47 @@ export function HistoryPaymentReceiptMeta({
   receivedAt?: string;
   /** When true, always render both lines (missing values as "—"). */
   showPlaceholders?: boolean;
-  /** Narrow cards: shorter labels and truncating values. */
+  /** Narrow cards: one line, no By/At labels, hide empty placeholders. */
   compact?: boolean;
 }) {
-  if (!showPlaceholders && !receivedByUsername && !receivedAt) return null;
-
   const by = receivedByUsername?.trim() || null;
   const at = receivedAt || null;
-  const byLabel = compact ? "By" : "Received By";
-  const atLabel = compact ? "At" : "Received At";
+
+  if (compact) {
+    if (!by && !at) return null;
+
+    const time = at ? formatBusinessDayTime(at) : null;
+    const title = [by, at ? formatDate(at) : null].filter(Boolean).join(" · ");
+
+    return (
+      <p
+        className="mt-0.5 min-w-0 truncate text-[9px] leading-tight text-gray-500"
+        title={title}
+      >
+        {by ? (
+          <span className="font-semibold text-gray-700">{by}</span>
+        ) : null}
+        {by && time ? <span className="text-gray-400"> · </span> : null}
+        {time ? <span className="font-medium text-gray-600">{time}</span> : null}
+      </p>
+    );
+  }
+
+  if (!showPlaceholders && !by && !at) return null;
+
+  const byLabel = "Received By";
+  const atLabel = "Received At";
 
   if (!showPlaceholders) {
     return (
       <div className="mt-1 space-y-0.5 text-left text-[10px] leading-tight text-gray-500">
         {by ? (
-          <p className={compact ? "truncate" : undefined} title={by}>
+          <p>
             {byLabel}: <span className="font-semibold text-gray-700">{by}</span>
           </p>
         ) : null}
         {at ? (
-          <p className={compact ? "truncate" : undefined}>
+          <p>
             {atLabel}:{" "}
             <span className="font-medium text-gray-600">{formatDate(at)}</span>
           </p>

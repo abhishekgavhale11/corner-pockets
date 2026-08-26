@@ -22,7 +22,7 @@ const navItems = [
   },
   {
     href: "/business-day/history",
-    label: "Business Day History",
+    label: "Business History",
     permission: "NOTEBOOK_VIEW" as const,
     icon: "📅",
     match: (path: string) => path.startsWith("/business-day/history"),

@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import BusinessDay from "@/models/BusinessDay";
 import OutstandingCollection from "@/models/OutstandingCollection";
 import BusinessDayFinalSummary from "@/models/BusinessDayFinalSummary";
+import { sumMissedPaymentsForCustomer } from "@/lib/financial-corrections/queries";
 
 export type CustomerLifetimeStats = {
   /** Distinct closed Business Days the customer participated in. */
@@ -24,7 +25,7 @@ export async function getCustomerLifetimeStats(
 
   const customerObjectId = new mongoose.Types.ObjectId(customerId);
 
-  const [finalDayRows, collectionPaid] = await Promise.all([
+  const [finalDayRows, collectionPaid, missedPaid] = await Promise.all([
     BusinessDayFinalSummary.aggregate<{
       _id: mongoose.Types.ObjectId;
       received: number;
@@ -42,12 +43,13 @@ export async function getCustomerLifetimeStats(
       { $match: { customerId: customerObjectId } },
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]),
+    sumMissedPaymentsForCustomer(customerId),
   ]);
 
   if (finalDayRows.length === 0) {
     return {
       totalVisits: 0,
-      lifetimePaid: Math.round(collectionPaid[0]?.total ?? 0),
+      lifetimePaid: Math.round((collectionPaid[0]?.total ?? 0) + missedPaid),
     };
   }
 
@@ -69,7 +71,7 @@ export async function getCustomerLifetimeStats(
   }
 
   const lifetimePaid = Math.round(
-    framesAndCafePaid + (collectionPaid[0]?.total ?? 0)
+    framesAndCafePaid + (collectionPaid[0]?.total ?? 0) + missedPaid
   );
 
   return { totalVisits, lifetimePaid };

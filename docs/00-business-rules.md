@@ -659,7 +659,7 @@ Cafe Summary covers Cafe only.
 
 Business Summary / Business Performance may include Outstanding Created as a day or range total.
 
-History list rows show Club Outstanding (End of Day): the club receivable when that Business Day closed. It is historical for that day and must not change when later collections occur.
+Club Outstanding (End of Day) is the club receivable when that Business Day closed. It is historical for that day and must not change when later collections occur. It is not shown as a column on the Business Day History list.
 
 Outstanding Recovered is not part of that day's business. It is recovery of prior Outstanding via the Customer page. It must not appear inside Business Performance (Revenue / Business Collection / Outstanding Created). History exposes collections on a dedicated Outstanding tab (Outstanding Collection Ledger), filtered by OutstandingCollection time — never mixed into Revenue or Business Collection.
 

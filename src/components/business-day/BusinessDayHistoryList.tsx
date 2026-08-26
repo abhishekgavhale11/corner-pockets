@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  AmountCell,
   HistoryActivityTable,
   HistoryEmptyState,
   HistoryTableCell,
@@ -10,6 +9,7 @@ import {
   formatBusinessDayDate,
   formatBusinessDayTime,
 } from "@/lib/business-day/format";
+import { formatCurrency } from "@/lib/utils/format";
 import type { BusinessDayHistoryListItemDTO } from "@/types";
 
 interface BusinessDayHistoryListProps {
@@ -24,12 +24,29 @@ const COLUMNS = [
   { key: "revenue", label: "Revenue", align: "right" as const },
   { key: "collection", label: "Business Collection", align: "right" as const },
   { key: "created", label: "Outstanding Created", align: "right" as const },
-  {
-    key: "closing",
-    label: "Club Outstanding (EOD)",
-    align: "right" as const,
-  },
 ];
+
+function CalendarIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect
+        x="3"
+        y="5"
+        width="18"
+        height="16"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M3 10h18M8 3v4M16 3v4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
 
 export function BusinessDayHistoryList({ items }: BusinessDayHistoryListProps) {
   if (items.length === 0) {
@@ -40,16 +57,30 @@ export function BusinessDayHistoryList({ items }: BusinessDayHistoryListProps) {
 
   return (
     <HistoryActivityTable
-      title="Business Day Activity"
+      title={
+        <div className="flex items-start gap-2.5">
+          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+            <CalendarIcon />
+          </span>
+          <div>
+            <h3 className="text-[16px] font-semibold tracking-tight text-gray-900">
+              Business Day Activity
+            </h3>
+            <p className="text-[12px] text-gray-500">
+              Daily wise business performance
+            </p>
+          </div>
+        </div>
+      }
       columns={COLUMNS}
-      minWidth="1100px"
+      minWidth="960px"
     >
       {items.map((item) => (
         <HistoryTableRow key={item.id}>
           <HistoryTableCell>
             <Link
               href={`/business-day/history/${item.id}`}
-              className="text-[15px] font-semibold text-emerald-800 hover:text-emerald-950"
+              className="text-[14px] font-semibold text-emerald-700 hover:text-emerald-900"
             >
               {item.publicId}
             </Link>
@@ -60,26 +91,29 @@ export function BusinessDayHistoryList({ items }: BusinessDayHistoryListProps) {
             </span>
           </HistoryTableCell>
           <HistoryTableCell>
-            <span className="text-[13px] tabular-nums text-gray-700">
+            <span className="text-[13px] tabular-nums text-gray-600">
               {formatBusinessDayTime(item.openedAt)}
             </span>
           </HistoryTableCell>
           <HistoryTableCell>
-            <span className="text-[13px] tabular-nums text-gray-700">
+            <span className="text-[13px] tabular-nums text-gray-600">
               {formatBusinessDayTime(item.closedAt)}
             </span>
           </HistoryTableCell>
           <HistoryTableCell align="right">
-            <AmountCell amount={item.todaysBill} />
+            <span className="text-[13px] font-semibold tabular-nums text-gray-900">
+              {formatCurrency(item.todaysBill)}
+            </span>
           </HistoryTableCell>
           <HistoryTableCell align="right">
-            <AmountCell amount={item.totalReceived} tone="positive" />
+            <span className="text-[13px] font-semibold tabular-nums text-emerald-700">
+              {formatCurrency(item.totalReceived)}
+            </span>
           </HistoryTableCell>
           <HistoryTableCell align="right">
-            <AmountCell amount={item.outstandingCreated} tone="negative" />
-          </HistoryTableCell>
-          <HistoryTableCell align="right">
-            <AmountCell amount={item.closingOutstanding} tone="negative" />
+            <span className="text-[13px] font-semibold tabular-nums text-orange-600">
+              {formatCurrency(item.outstandingCreated)}
+            </span>
           </HistoryTableCell>
         </HistoryTableRow>
       ))}

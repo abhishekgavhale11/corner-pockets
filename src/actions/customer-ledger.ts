@@ -10,6 +10,7 @@ import type {
   CustomerLedgerSummaryDTO,
   CustomerActivityItemDTO,
   CustomerOutstandingRowDTO,
+  FinancialCorrectionEligibleDayDTO,
 } from "@/types";
 import Customer from "@/models/Customer";
 import CustomerBalancePayment from "@/models/CustomerBalancePayment";
@@ -18,6 +19,7 @@ import Outstanding from "@/models/Outstanding";
 import { getCustomerLifetimeStats } from "@/lib/customers/lifetime-stats";
 import { getCustomerActivityTimeline } from "@/lib/outstanding/activity-timeline";
 import { getCustomerOutstandingBalance } from "@/lib/outstanding/queries";
+import { listEligibleCorrectionDays } from "@/lib/financial-corrections/eligible-days";
 
 async function findLastCustomerPayment(customerId: string): Promise<{
   createdAt: string;
@@ -131,6 +133,7 @@ export async function getCustomerLedger(
 export async function getCustomerFinancials(customerId: string): Promise<{
   summary: CustomerLedgerSummaryDTO;
   activityItems: CustomerActivityItemDTO[];
+  eligibleCorrectionDays: FinancialCorrectionEligibleDayDTO[];
 } | null> {
   const authResult = await authorizePermission("CUSTOMER_SEARCH");
   if (!("session" in authResult)) {
@@ -144,16 +147,17 @@ export async function getCustomerFinancials(customerId: string): Promise<{
     return null;
   }
 
-  const [summary, activityItems] = await Promise.all([
+  const [summary, activityItems, eligibleCorrectionDays] = await Promise.all([
     getCustomerLedgerSummary(customerId),
     getCustomerActivityTimeline(customerId),
+    listEligibleCorrectionDays(customerId),
   ]);
 
   if (!summary) {
     return null;
   }
 
-  return { summary, activityItems };
+  return { summary, activityItems, eligibleCorrectionDays };
 }
 
 export async function getCustomersWithOutstanding(

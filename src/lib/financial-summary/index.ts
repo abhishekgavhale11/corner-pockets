@@ -46,3 +46,14 @@ export {
   listBusinessDayFinalSummaries,
   requireBusinessDayFinalSummary,
 } from "@/lib/financial-summary/final-summary-store";
+
+export {
+  applyFinancialCorrections,
+  type FinancialCorrectionOverlayInput,
+} from "@/lib/financial-summary/apply-corrections";
+
+export {
+  getCorrectedBusinessDayFinalSummary,
+  listCorrectedBusinessDayFinalSummaries,
+  requireCorrectedBusinessDayFinalSummary,
+} from "@/lib/financial-summary/corrected-summary";

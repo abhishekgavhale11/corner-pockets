@@ -170,52 +170,90 @@ function CashGpayReceivedLine({
 }
 
 /** Same labels as Cafe Counter item cards. */
-function cafeOrderItemLabel(item: CafeOrderItemDTO): string {
-  const type = item.type as CafeItemType;
-  if (isQtyCafeItemType(type)) {
-    const base = CAFE_ITEM_TYPE_LABELS[type];
-    const qty = item.quantity ?? 0;
-    return qty > 1 ? `${base} ×${qty}` : base;
-  }
-  return item.description?.trim() || CAFE_ITEM_TYPE_LABELS[type];
+function cafeQtyItemLabel(type: CafeItemType, quantity: number): string {
+  const base = CAFE_ITEM_TYPE_LABELS[type];
+  return quantity > 1 ? `${base} ×${quantity}` : base;
 }
 
-function CafeOrderRows({ order }: { order: CafeOrderDTO }) {
-  const items = order.items ?? [];
-  if (items.length === 0) return null;
+function foodItemDisplayLabel(item: CafeOrderItemDTO): string {
+  return item.description?.trim() || CAFE_ITEM_TYPE_LABELS[item.type];
+}
 
-  return (
-    <>
-      {items.map((item, index) => {
-        const isLast = index === items.length - 1;
-        return (
-          <tr
-            key={`${order.id}-${item.id || index}`}
-            className="border-b border-gray-100 last:border-0"
-          >
-            <td className="py-1.5 pr-1 font-medium text-gray-700 truncate">
-              Cafe
-            </td>
-            <td className="px-1 py-1.5 font-medium text-gray-800 truncate">
-              {cafeOrderItemLabel(item)}
-            </td>
-            <td className="px-1 py-1.5 text-right tabular-nums text-gray-800">
-              {formatCurrency(item.amount)}
-            </td>
-            <td className="py-1.5 pl-1 text-right">
-              {isLast ? (
-                <PaymentStatusCell
-                  amount={order.amount}
-                  paidAmount={order.received}
-                  paymentMethod={order.paymentMethod}
-                />
-              ) : null}
-            </td>
-          </tr>
-        );
-      })}
-    </>
-  );
+function foodItemGroupKey(item: CafeOrderItemDTO): string {
+  return (item.description ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+type AggregatedCafeLine = {
+  key: string;
+  label: string;
+  amount: number;
+};
+
+/**
+ * Display-only grouping for Today's Cafe in the customer summary popup.
+ * Does not change CafeOrder documents or financial totals.
+ */
+function aggregateTodaysCafeItems(orders: CafeOrderDTO[]): AggregatedCafeLine[] {
+  const qtyByType = new Map<
+    "CIGARETTE" | "WATER",
+    { quantity: number; amount: number }
+  >();
+  const foodByDescription = new Map<string, { label: string; amount: number }>();
+  const seen: string[] = [];
+
+  for (const order of orders) {
+    for (const item of order.items ?? []) {
+      if (isQtyCafeItemType(item.type)) {
+        const key = `qty:${item.type}`;
+        const existing = qtyByType.get(item.type);
+        if (existing) {
+          existing.quantity += item.quantity ?? 0;
+          existing.amount += item.amount;
+        } else {
+          qtyByType.set(item.type, {
+            quantity: item.quantity ?? 0,
+            amount: item.amount,
+          });
+          seen.push(key);
+        }
+        continue;
+      }
+
+      const key = `food:${foodItemGroupKey(item)}`;
+      const existing = foodByDescription.get(key);
+      if (existing) {
+        existing.amount += item.amount;
+      } else {
+        foodByDescription.set(key, {
+          label: foodItemDisplayLabel(item),
+          amount: item.amount,
+        });
+        seen.push(key);
+      }
+    }
+  }
+
+  return seen.map((key) => {
+    if (key === "qty:CIGARETTE" || key === "qty:WATER") {
+      const type = key === "qty:CIGARETTE" ? "CIGARETTE" : "WATER";
+      const row = qtyByType.get(type);
+      if (!row) {
+        return { key, label: CAFE_ITEM_TYPE_LABELS[type], amount: 0 };
+      }
+      return {
+        key,
+        label: cafeQtyItemLabel(type, row.quantity),
+        amount: row.amount,
+      };
+    }
+
+    const food = foodByDescription.get(key);
+    return {
+      key,
+      label: food?.label ?? "Food & Beverages",
+      amount: food?.amount ?? 0,
+    };
+  });
 }
 
 export function CustomerCounterDrawerPanel({
@@ -225,7 +263,11 @@ export function CustomerCounterDrawerPanel({
   summary: CustomerCounterDrawerDTO;
   onPaymentComplete?: () => void;
 }) {
-  const hasCafe = summary.todaysCafeOrders.length > 0;
+  const todaysCafeLines = useMemo(
+    () => aggregateTodaysCafeItems(summary.todaysCafeOrders),
+    [summary.todaysCafeOrders]
+  );
+  const hasCafe = todaysCafeLines.length > 0;
   const hasDue = summary.totalDue > 0;
   const [paymentMode, setPaymentMode] = useState<PaymentModeOption | "">("");
   const [error, setError] = useState<string | null>(null);
@@ -355,13 +397,25 @@ export function CustomerCounterDrawerPanel({
           <table className="mt-1 w-full table-fixed border-collapse text-xs">
             <colgroup>
               <col className="w-[26%]" />
-              <col className="w-[30%]" />
-              <col className="w-[22%]" />
+              <col className="w-[52%]" />
               <col className="w-[22%]" />
             </colgroup>
             <tbody>
-              {summary.todaysCafeOrders.map((order) => (
-                <CafeOrderRows key={order.id} order={order} />
+              {todaysCafeLines.map((line) => (
+                <tr
+                  key={line.key}
+                  className="border-b border-gray-100 last:border-0"
+                >
+                  <td className="py-1.5 pr-1 font-medium text-gray-700 truncate">
+                    Cafe
+                  </td>
+                  <td className="px-1 py-1.5 font-medium text-gray-800 truncate">
+                    {line.label}
+                  </td>
+                  <td className="px-1 py-1.5 text-right tabular-nums text-gray-800">
+                    {formatCurrency(line.amount)}
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>

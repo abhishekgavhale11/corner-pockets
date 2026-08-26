@@ -12,26 +12,42 @@ interface CustomerCellProps {
   name: string;
   href?: string;
   secondary?: string;
+  compact?: boolean;
 }
 
-export function CustomerCell({ name, href, secondary }: CustomerCellProps) {
+export function CustomerCell({
+  name,
+  href,
+  secondary,
+  compact = false,
+}: CustomerCellProps) {
   const title = href ? (
     <Link
       href={href}
-      className="block truncate text-[14px] font-semibold leading-tight text-gray-900 hover:text-emerald-800"
+      className={`block truncate font-semibold leading-tight text-gray-900 hover:text-emerald-800 ${
+        compact ? "text-[13px]" : "text-[14px]"
+      }`}
     >
       {name}
     </Link>
   ) : (
-    <p className="truncate text-[14px] font-semibold leading-tight text-gray-900">
+    <p
+      className={`truncate font-semibold leading-tight text-gray-900 ${
+        compact ? "text-[13px]" : "text-[14px]"
+      }`}
+    >
       {name}
     </p>
   );
 
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className={`flex min-w-0 items-center ${compact ? "gap-2" : "gap-3"}`}>
       <span
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-800 ring-1 ring-inset ring-emerald-100"
+        className={`inline-flex shrink-0 items-center justify-center rounded-full bg-emerald-50 font-bold text-emerald-800 ring-1 ring-inset ring-emerald-100 ${
+          compact
+            ? "h-6 w-6 text-[9px]"
+            : "h-8 w-8 text-[10px]"
+        }`}
         aria-hidden
       >
         {initials(name)}

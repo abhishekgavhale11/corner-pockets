@@ -1,16 +1,16 @@
 import {
   getBusinessDayHistoryListAction,
-  getOutstandingCollectionLedgerAction,
+  getOutstandingHistoryTabAction,
 } from "@/actions/business-day-history";
 import {
   BusinessDayHistoryFilters,
   BusinessDayHistoryTabs,
   type BusinessDayHistoryListTab,
 } from "@/components/business-day/BusinessDayHistoryFilters";
-import { BusinessDayHistoryList } from "@/components/business-day/BusinessDayHistoryList";
-import { BusinessDayHistorySummary } from "@/components/business-day/BusinessDayHistorySummary";
-import { OutstandingCollectionLedger } from "@/components/business-day/OutstandingCollectionLedger";
+import { BusinessDayHistoryBusinessPanel } from "@/components/business-day/BusinessDayHistoryBusinessPanel";
+import { BusinessDayHistoryOutstandingRange } from "@/components/business-day/BusinessDayHistoryOutstandingRange";
 import { HistoryPageLayout } from "@/components/business-day/history";
+import { formatBusinessDayDate } from "@/lib/business-day/format";
 import { getDefaultBusinessDayHistoryRange } from "@/lib/utils/business-date";
 
 interface BusinessDayHistoryPageProps {
@@ -41,45 +41,57 @@ export default async function BusinessDayHistoryPage({
   const to = readParam(params.to) ?? defaults.to;
   const tab = readTab(params.tab);
 
-  const [listResult, ledgerResult] = await Promise.all([
+  const [listResult, outstandingResult] = await Promise.all([
     tab === "days"
       ? getBusinessDayHistoryListAction({ from, to })
       : Promise.resolve(null),
     tab === "outstanding"
-      ? getOutstandingCollectionLedgerAction({ from, to })
+      ? getOutstandingHistoryTabAction({ from, to })
       : Promise.resolve(null),
   ]);
 
-  const filterFrom = listResult?.from ?? ledgerResult?.from ?? from;
-  const filterTo = listResult?.to ?? ledgerResult?.to ?? to;
+  const filterFrom = listResult?.from ?? outstandingResult?.from ?? from;
+  const filterTo = listResult?.to ?? outstandingResult?.to ?? to;
+  const periodLabel =
+    filterFrom === filterTo
+      ? formatBusinessDayDate(`${filterFrom}T12:00:00+05:30`)
+      : `${formatBusinessDayDate(`${filterFrom}T12:00:00+05:30`)} – ${formatBusinessDayDate(`${filterTo}T12:00:00+05:30`)}`;
+  const headingSub =
+    listResult != null
+      ? `${listResult.summary.totalBusinessDays} closed Business Day${
+          listResult.summary.totalBusinessDays === 1 ? "" : "s"
+        } · ${periodLabel}`
+      : periodLabel;
 
   return (
     <HistoryPageLayout
-      title="Business Day History"
-      subtitle="Closed Business Days and Outstanding collections — read-only."
-      tabs={<BusinessDayHistoryTabs tab={tab} from={filterFrom} to={filterTo} />}
+      compact
       filters={
         <BusinessDayHistoryFilters
           key={`${tab}-${filterFrom}-${filterTo}`}
           from={filterFrom}
           to={filterTo}
           tab={tab}
+          heading="Business History"
+          subheading={headingSub}
         />
+      }
+      tabs={
+        <BusinessDayHistoryTabs tab={tab} from={filterFrom} to={filterTo} />
       }
     >
       {tab === "days" && listResult ? (
-        <>
-          <BusinessDayHistorySummary
-            summary={listResult.summary}
-            from={listResult.from}
-            to={listResult.to}
-          />
-          <BusinessDayHistoryList items={listResult.items} />
-        </>
+        <BusinessDayHistoryBusinessPanel
+          summary={listResult.summary}
+          items={listResult.items}
+          corrections={listResult.corrections}
+          from={listResult.from}
+          to={listResult.to}
+        />
       ) : null}
 
-      {tab === "outstanding" && ledgerResult ? (
-        <OutstandingCollectionLedger ledger={ledgerResult} />
+      {tab === "outstanding" && outstandingResult ? (
+        <BusinessDayHistoryOutstandingRange data={outstandingResult} />
       ) : null}
     </HistoryPageLayout>
   );

@@ -102,12 +102,26 @@ export function HistoryPaymentStatusCell({
     return cellShell(
       compact,
       <>
-        <span className="inline-flex w-fit max-w-full items-center rounded-full bg-orange-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-orange-700 ring-1 ring-orange-100">
-          Outstanding
-        </span>
-        <p className="mt-1 text-[10px] font-semibold tabular-nums text-orange-800">
-          Due: {formatCurrency(due)}
-        </p>
+        <div
+          className={
+            compact
+              ? "flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5"
+              : undefined
+          }
+        >
+          <span className="inline-flex w-fit max-w-full items-center rounded-full bg-orange-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-orange-700 ring-1 ring-orange-100">
+            Outstanding
+          </span>
+          <p
+            className={
+              compact
+                ? "text-[10px] font-semibold tabular-nums text-orange-800"
+                : "mt-1 text-[10px] font-semibold tabular-nums text-orange-800"
+            }
+          >
+            Due: {formatCurrency(due)}
+          </p>
+        </div>
         {receipt}
       </>
     );

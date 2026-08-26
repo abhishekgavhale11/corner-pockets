@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { BusinessDayHistoryInsightCards } from "@/components/business-day/BusinessDayHistoryInsightCards";
 import { BusinessDayHistoryOutstandingTab } from "@/components/business-day/BusinessDayHistoryOutstandingTab";
+import { BusinessDayHistoryCorrections } from "@/components/business-day/BusinessDayHistoryCorrections";
 import { BusinessDayHistoryPrintButton } from "@/components/business-day/BusinessDayHistoryPrintButton";
 import {
   HistoryPaidStatusBadge,
@@ -175,7 +176,7 @@ function FrameTableColumns({
                             key={`${line.entryId}-${line.customerId ?? line.customerName}`}
                             className="border-b border-gray-50 last:border-0"
                           >
-                            <td className="max-w-0 px-2 py-2 align-top">
+                            <td className="max-w-0 px-2 py-1.5 align-top">
                               {line.customerId ? (
                                 <Link
                                   href={`/customers/${line.customerId}`}
@@ -193,7 +194,7 @@ function FrameTableColumns({
                                 </span>
                               )}
                             </td>
-                            <td className="max-w-0 px-1.5 py-2 align-top">
+                            <td className="max-w-0 px-1.5 py-1.5 align-top">
                               <span
                                 className="block truncate text-gray-700"
                                 title={line.gameType}
@@ -201,10 +202,10 @@ function FrameTableColumns({
                                 {line.gameType}
                               </span>
                             </td>
-                            <td className="px-1.5 py-2 text-right align-top tabular-nums font-semibold text-gray-900">
+                            <td className="px-1.5 py-1.5 text-right align-top tabular-nums font-semibold text-gray-900">
                               {formatCurrency(line.amount)}
                             </td>
-                            <td className="min-w-0 px-2 py-2 align-top">
+                            <td className="min-w-0 px-2 py-1.5 align-top">
                               <HistoryPaymentStatusCell
                                 amount={line.amount}
                                 paidAmount={line.paidAmount}
@@ -569,7 +570,7 @@ export function BusinessDayHistoryDetail({
             href="/business-day/history"
             className="text-sm font-medium text-emerald-800 hover:text-emerald-950"
           >
-            ← Business Day History
+            ← Business History
           </Link>
           <div className="mt-3 flex flex-wrap items-center gap-2.5">
             <h1 className="text-3xl font-bold tracking-tight text-gray-900">
@@ -653,6 +654,12 @@ export function BusinessDayHistoryDetail({
         <>
           <BusinessDayHistoryInsightCards insights={insights} />
 
+          <BusinessDayHistoryCorrections
+            publicId={detail.publicId}
+            corrections={detail.corrections}
+            originalSummary={detail.originalSummary}
+          />
+
           <CustomerSettlementSummary settlements={detail.settlements} />
 
           <CounterSnapshotSection frames={detail.frames} />
@@ -664,7 +671,9 @@ export function BusinessDayHistoryDetail({
               <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-violet-200 text-[10px] font-bold">
                 i
               </span>
-              All amounts are final as of the close of Business Day.
+              {detail.corrections.length > 0
+                ? "Corrected totals are shown. Original close is in Corrections & Adjustments."
+                : "All amounts are final as of the close of Business Day."}
             </span>
             <span className="font-medium">
               Figures are locked and cannot be edited.

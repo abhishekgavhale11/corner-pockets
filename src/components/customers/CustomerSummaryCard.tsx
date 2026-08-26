@@ -10,7 +10,10 @@ import {
 } from "@/components/counter/EntryPaymentFields";
 import { formatLastVisitLabel } from "@/lib/utils/customer-ledger-display";
 import { formatCurrency } from "@/lib/utils/format";
-import type { CustomerDTO, CustomerLedgerSummaryDTO } from "@/types";
+import type {
+  CustomerDTO,
+  CustomerLedgerSummaryDTO,
+} from "@/types";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { cn } from "@/lib/utils/cn";

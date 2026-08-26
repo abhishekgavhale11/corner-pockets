@@ -23,6 +23,7 @@ export const OPERATIONAL_COLLECTIONS = [
   "notebooksettlementreversals",
   "notebooksettlements",
   "visits",
+  "financialcorrections",
 ] as const;
 
 /** Authentication — preserved unchanged. */

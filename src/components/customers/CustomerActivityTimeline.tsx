@@ -39,6 +39,8 @@ function affectsOutstandingBalance(item: CustomerActivityItemDTO): boolean {
     case "OPENING_OUTSTANDING":
     case "OUTSTANDING_COLLECTED":
     case "OUTSTANDING_PARTIALLY_COLLECTED":
+    case "MISSED_PAYMENT":
+    case "OUTSTANDING_CORRECTION":
       return true;
     case "BUSINESS_DAY_SUMMARY":
       return (item.businessDaySummary?.todaysDue ?? 0) > 0;
@@ -293,6 +295,93 @@ function PaymentMethodDot({
       className={`inline-block h-2 w-2 shrink-0 rounded-full ${className}`}
       aria-hidden
     />
+  );
+}
+
+function CorrectionCard({ item }: { item: CustomerActivityItemDTO }) {
+  const isMissed = item.kind === "MISSED_PAYMENT";
+  const amount = item.amount ?? 0;
+  const title = isMissed ? "Missed Payment" : "Outstanding Correction";
+  const border = isMissed ? "border-sky-200" : "border-amber-200";
+  const titleColor = isMissed ? "text-sky-800" : "text-amber-900";
+
+  return (
+    <div className="relative flex gap-2.5">
+      <TimelineMeta date={item.timestamp} time={item.timestamp} />
+
+      <TimelineMarker tone={isMissed ? "collect" : "outstanding"} />
+
+      <article
+        className={`min-w-0 flex-1 overflow-hidden rounded-[10px] border bg-white shadow-sm shadow-gray-900/5 ${border}`}
+      >
+        <div className="flex items-center justify-between gap-2 px-3 pt-2">
+          <h3
+            className={`text-[11px] font-semibold uppercase tracking-wide ${titleColor}`}
+          >
+            {title}
+          </h3>
+          <p
+            className={`shrink-0 text-[13px] font-semibold tabular-nums ${titleColor}`}
+          >
+            {formatCurrency(amount)}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 px-3 py-2">
+          {isMissed ? (
+            <div className="min-w-0">
+              <p className="text-[11px] leading-tight text-gray-500">
+                Payment Method
+              </p>
+              <p className="text-[13px] font-semibold text-gray-900">
+                {item.paymentMethodLabel ?? "—"}
+              </p>
+            </div>
+          ) : (
+            <div className="min-w-0">
+              <p className="text-[11px] leading-tight text-gray-500">Type</p>
+              <p className="text-[13px] font-semibold text-gray-900">
+                Not a payment
+              </p>
+            </div>
+          )}
+          {item.sectionLabel ? (
+            <div className="min-w-0">
+              <p className="text-[11px] leading-tight text-gray-500">Section</p>
+              <p className="text-[13px] font-semibold text-gray-900">
+                {item.sectionLabel}
+              </p>
+            </div>
+          ) : null}
+          <div className="min-w-0">
+            <p className="text-[11px] leading-tight text-gray-500">
+              Affected Date
+            </p>
+            <p
+              className="text-[13px] font-semibold text-gray-900"
+              title={item.businessDayPublicId}
+            >
+              {item.businessDate
+                ? formatBusinessDayDate(item.businessDate)
+                : "—"}
+            </p>
+          </div>
+        </div>
+
+        {item.reason ? (
+          <div className="px-3 pb-1">
+            <p className="text-[11px] leading-tight text-gray-500">Reason</p>
+            <p className="text-[12px] text-gray-800">{item.reason}</p>
+          </div>
+        ) : null}
+
+        {item.createdBy ? (
+          <p className="px-3 pb-2 text-[11px] text-gray-500">
+            Recorded by {item.createdBy}
+          </p>
+        ) : null}
+      </article>
+    </div>
   );
 }
 
@@ -658,6 +747,9 @@ export function CustomerActivityTimeline({
                   <BusinessDayClosedCard item={item} />
                 ) : item.kind === "OPENING_OUTSTANDING" ? (
                   <OpeningOutstandingCard item={item} />
+                ) : item.kind === "MISSED_PAYMENT" ||
+                  item.kind === "OUTSTANDING_CORRECTION" ? (
+                  <CorrectionCard item={item} />
                 ) : (
                   <CollectionCard item={item} />
                 )}

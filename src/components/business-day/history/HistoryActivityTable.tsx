@@ -13,7 +13,7 @@ interface HistoryActivityTableProps {
   children: ReactNode;
   minWidth?: string;
   /** Optional section chrome around the table. */
-  title?: string;
+  title?: ReactNode;
   titleTrailing?: ReactNode;
   footer?: ReactNode;
   /** When false, renders the table surface without the outer card wrapper. */
@@ -32,8 +32,12 @@ export function HistoryActivityTable({
   const table = (
     <>
       {title ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3.5 sm:px-5">
-          <h3 className={historyUi.sectionTitle}>{title}</h3>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 sm:px-5">
+          {typeof title === "string" ? (
+            <h3 className={historyUi.sectionTitle}>{title}</h3>
+          ) : (
+            title
+          )}
           {titleTrailing}
         </div>
       ) : null}

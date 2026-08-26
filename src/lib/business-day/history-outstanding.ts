@@ -18,7 +18,7 @@ type ClosedDayLean = {
   closedAt: Date;
 };
 
-async function sumOpeningOutstandingThrough(asOf: Date): Promise<number> {
+export async function sumOpeningOutstandingThrough(asOf: Date): Promise<number> {
   const agg = await Outstanding.aggregate<{ total: number }>([
     {
       $match: {
@@ -280,6 +280,17 @@ export async function getOutstandingRecoveredForReportRange(
     { $group: { _id: null, total: { $sum: "$amount" } } },
   ]);
 
+  return agg[0]?.total ?? 0;
+}
+
+/** Σ OutstandingCollection.amount with createdAt ≤ asOf. Read-only. */
+export async function sumOutstandingCollectionsThrough(
+  asOf: Date
+): Promise<number> {
+  const agg = await OutstandingCollection.aggregate<{ total: number }>([
+    { $match: { createdAt: { $lte: asOf } } },
+    { $group: { _id: null, total: { $sum: "$amount" } } },
+  ]);
   return agg[0]?.total ?? 0;
 }
 

@@ -545,7 +545,38 @@ export type CustomerActivityEventKind =
   | "OPENING_OUTSTANDING"
   | "OUTSTANDING_COLLECTED"
   | "OUTSTANDING_PARTIALLY_COLLECTED"
+  | "MISSED_PAYMENT"
+  | "OUTSTANDING_CORRECTION"
   | "LEDGER";
+
+/** Closed Business Day with remaining Outstanding that can receive a correction. */
+export interface FinancialCorrectionEligibleDayDTO {
+  businessDayId: string;
+  publicId: string;
+  businessDayNumber: number;
+  businessDate: string;
+  remainingAmount: number;
+}
+
+/** Append-only correction shown on Business Day History. */
+export interface FinancialCorrectionHistoryRowDTO {
+  id: string;
+  type: "MISSED_PAYMENT" | "OUTSTANDING_CORRECTION";
+  customerId: string;
+  customerName: string;
+  amount: number;
+  paymentMethod: "CASH" | "GPAY" | null;
+  section: import("@/lib/constants/financial-corrections").FinancialCorrectionSection | null;
+  reason: string;
+  createdBy: string;
+  createdAt: string;
+  affectedBusinessDayId: string;
+  affectedPublicId: string;
+  /** Business Date of the affected day (display). */
+  affectedBusinessDate: string;
+  recordedOnBusinessDayId: string | null;
+  recordedOnPublicId: string | null;
+}
 
 export interface CustomerActivityOpeningOutstandingDTO {
   amount: number;
@@ -593,6 +624,11 @@ export interface CustomerActivityItemDTO {
   paymentMethodLabel?: string;
   /** Who collected (display username). */
   createdBy?: string;
+  /** Present on FinancialCorrection events when a section was recorded. */
+  section?: import("@/lib/constants/financial-corrections").FinancialCorrectionSection | null;
+  sectionLabel?: string;
+  /** Present on FinancialCorrection timeline events. */
+  reason?: string;
   receivedByUsername?: string;
   receivedAt?: string;
   /** Outstanding before this event (Balance History story). */
@@ -940,6 +976,7 @@ export interface BusinessDayHistoryListResultDTO {
   to: string;
   items: BusinessDayHistoryListItemDTO[];
   summary: BusinessDayHistorySummaryDTO;
+  corrections: FinancialCorrectionHistoryRowDTO[];
 }
 
 /** One OutstandingCollection row for History → Outstanding ledger. */
@@ -969,6 +1006,39 @@ export interface OutstandingCollectionLedgerResultDTO {
   to: string;
   summary: OutstandingCollectionLedgerSummaryDTO;
   items: OutstandingCollectionLedgerRowDTO[];
+}
+
+/**
+ * Owner-level Outstanding summary for a History date range.
+ * Opening is the running balance immediately before the selected start date.
+ * Created is the corrected overlay total; Collected is OutstandingCollection only.
+ * Current Club Outstanding is the live club receivable — not period movement.
+ */
+export interface OutstandingMovementSummaryDTO {
+  openingOutstanding: number;
+  outstandingCreated: number;
+  outstandingPaid: number;
+  currentClubOutstanding: number;
+}
+
+/**
+ * One Asia/Kolkata calendar day on the History → Outstanding running-balance chart.
+ * closingOutstanding is the running receivables balance at the end of that local day.
+ * The final isToday point is the live Current Club Outstanding.
+ */
+export interface OutstandingMovementPointDTO {
+  date: string;
+  closingOutstanding: number;
+  isToday: boolean;
+}
+
+export interface OutstandingHistoryTabDTO {
+  from: string;
+  to: string;
+  movement: OutstandingMovementSummaryDTO;
+  series: OutstandingMovementPointDTO[];
+  ledger: OutstandingCollectionLedgerResultDTO;
+  corrections: FinancialCorrectionHistoryRowDTO[];
 }
 
 export interface BusinessDayHistoryChargeLineDTO {
@@ -1039,6 +1109,17 @@ export interface BusinessDayHistoryDetailDTO {
   settlements: BusinessDayHistorySettlementRowDTO[];
   frames: BusinessDayHistoryFrameLineDTO[];
   cafe: BusinessDayHistoryCafeLineDTO[];
+  /** Original close snapshot — present when corrections exist (audit). */
+  originalSummary?: {
+    todaysBill: number;
+    totalReceived: number;
+    cashCollection: number;
+    gpayCollection: number;
+    outstandingCreated: number;
+    closingOutstanding: number;
+  };
+  /** Append-only corrections attributed to this Business Day. */
+  corrections: FinancialCorrectionHistoryRowDTO[];
 }
 
 /** Read-only Outstanding ledger integrity (Admin → Data Integrity). */
