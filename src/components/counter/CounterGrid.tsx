@@ -66,7 +66,7 @@ export function CounterGrid({
           ))}
         </div>
 
-        <div className="relative z-20 grid shrink-0 grid-cols-1 gap-3 overflow-y-auto [scrollbar-gutter:stable] lg:grid-cols-3">
+        <div className="relative z-20 grid shrink-0 grid-cols-1 gap-3 overflow-x-clip overflow-y-hidden [scrollbar-gutter:stable] lg:grid-cols-3">
           {sections.map((section) => (
             <div
               key={`header-${section}`}
@@ -81,20 +81,22 @@ export function CounterGrid({
           ))}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-x-clip overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable]">
-          <div className="grid min-h-full grid-cols-1 items-start gap-3 lg:grid-cols-3">
-            {sections.map((section) => (
-              <div
-                key={`body-${section}`}
-                ref={(el) => {
-                  bodyRefs.current[section] = el;
-                }}
-                className={cn(
-                  "min-h-full min-w-0 rounded-b-xl border border-t-0 border-gray-200/90 bg-[#f6faf8] shadow-sm shadow-gray-900/5",
-                  section === mobileSection ? "block" : "hidden lg:block"
-                )}
-              />
-            ))}
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch] [scrollbar-gutter:stable]">
+          <div className="pb-[max(8rem,calc(env(safe-area-inset-bottom)+5.5rem))] lg:pb-3">
+            <div className="grid min-h-full grid-cols-1 items-stretch gap-3 lg:grid-cols-3">
+              {sections.map((section) => (
+                <div
+                  key={`body-${section}`}
+                  ref={(el) => {
+                    bodyRefs.current[section] = el;
+                  }}
+                  className={cn(
+                    "min-h-full min-w-0 rounded-b-xl border border-t-0 border-gray-200/90 bg-[#f6faf8] shadow-sm shadow-gray-900/5",
+                    section === mobileSection ? "block" : "hidden lg:block"
+                  )}
+                />
+              ))}
+            </div>
           </div>
         </div>
 

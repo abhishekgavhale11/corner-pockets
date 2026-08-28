@@ -47,7 +47,7 @@ export function DashboardShell({ role, topBar, children }: DashboardShellProps) 
   }, [open, ready]);
 
   return (
-    <div className="flex h-screen min-h-0 overflow-hidden bg-gray-50">
+    <div className="flex h-dvh min-h-0 overflow-hidden bg-gray-50">
       {open && <Sidebar role={role} onHide={() => setOpen(false)} />}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -73,8 +73,10 @@ export function DashboardShell({ role, topBar, children }: DashboardShellProps) 
         <div ref={setTabsSlot} className="shrink-0 bg-gray-50" />
         <main
           className={cn(
-            "flex min-h-0 flex-1 flex-col overflow-y-auto p-1.5 sm:p-2",
-            isCounterWorkspace ? COUNTER_WORKSPACE_BG : undefined
+            "flex min-h-0 flex-1 flex-col p-1.5 sm:p-2",
+            isCounterWorkspace
+              ? cn(COUNTER_WORKSPACE_BG, "overflow-hidden")
+              : "overflow-y-auto"
           )}
         >
           <CounterShellSlotContext.Provider value={tabsSlot}>
