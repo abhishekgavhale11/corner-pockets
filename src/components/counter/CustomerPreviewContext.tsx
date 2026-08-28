@@ -9,6 +9,7 @@ import {
   useState,
   type MouseEvent,
   type ReactNode,
+  type SyntheticEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -340,7 +341,7 @@ export function useCustomerRowPreviewHandlers(
   useEffect(() => clearClickTimer, [clearClickTimer]);
 
   const handleRowClick = useCallback(
-    (event: MouseEvent<HTMLElement>) => {
+    (event: SyntheticEvent<HTMLElement>) => {
       if (!customerId || !preview) return;
       if ((event.target as HTMLElement).closest("button, a")) return;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { type MouseEvent, type ReactNode } from "react";
+import { type MouseEvent, type ReactNode, type SyntheticEvent } from "react";
 import type { NotebookEntryDTO } from "@/types";
 import { formatCurrency } from "@/lib/utils/format";
 import { formatTime } from "@/lib/utils/format-time";
@@ -57,7 +57,7 @@ function MobileFrameLine({
   correctionButton?: ReactNode;
   selected?: boolean;
   hasDue?: boolean;
-  onClick?: (event: MouseEvent<HTMLElement>) => void;
+  onClick?: (event: SyntheticEvent<HTMLElement>) => void;
   onDoubleClick?: (event: MouseEvent<HTMLElement>) => void;
 }) {
   return (
