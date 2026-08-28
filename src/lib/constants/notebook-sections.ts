@@ -33,3 +33,23 @@ export function getSectionBySlug(slug: string): NotebookSection | null {
 export function sectionLabel(section: NotebookSection): string {
   return NOTEBOOK_SECTION_META[section].label;
 }
+
+/** Compact counter chrome label (T1 / T2 / T3, Mini, P1 / P2). */
+export function sectionShortLabel(section: NotebookSection): string {
+  switch (section) {
+    case "BIG_SNOOKER_1":
+      return "T1";
+    case "BIG_SNOOKER_2":
+      return "T2";
+    case "BIG_SNOOKER_3":
+      return "T3";
+    case "MINI_SNOOKER":
+      return "Mini";
+    case "POOL_1":
+      return "P1";
+    case "POOL_2":
+      return "P2";
+    case "CAFE":
+      return "Cafe";
+  }
+}

@@ -256,9 +256,7 @@ export function useCustomerPreviewOptional() {
 }
 
 export function customerPreviewRowClass(selected: boolean): string {
-  return selected
-    ? "bg-emerald-50/90 ring-1 ring-inset ring-emerald-300"
-    : "";
+  return selected ? "bg-emerald-50" : "";
 }
 
 interface CustomerPreviewNameButtonProps {
@@ -310,7 +308,7 @@ export function CustomerPreviewNameButton({
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       className={cn(
-        "block min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-left text-[14px] font-bold leading-snug text-gray-900 hover:text-emerald-800",
+        "block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[14px] font-bold leading-snug text-gray-900 hover:text-emerald-800",
         selected && "text-emerald-900",
         className
       )}
@@ -342,7 +340,7 @@ export function useCustomerRowPreviewHandlers(
   useEffect(() => clearClickTimer, [clearClickTimer]);
 
   const handleRowClick = useCallback(
-    (event: MouseEvent<HTMLTableRowElement>) => {
+    (event: MouseEvent<HTMLElement>) => {
       if (!customerId || !preview) return;
       if ((event.target as HTMLElement).closest("button, a")) return;
 
@@ -356,7 +354,7 @@ export function useCustomerRowPreviewHandlers(
   );
 
   const handleRowDoubleClick = useCallback(
-    (event: MouseEvent<HTMLTableRowElement>) => {
+    (event: MouseEvent<HTMLElement>) => {
       if (!customerId) return;
       if ((event.target as HTMLElement).closest("button, a")) return;
 

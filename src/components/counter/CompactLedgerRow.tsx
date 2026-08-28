@@ -16,6 +16,14 @@ import {
   entryRowClass,
   splitContributorRowClass,
 } from "@/components/counter/EntryPayStatus";
+import {
+  ledgerCellActionsClass,
+  ledgerCellAmountClass,
+  ledgerCellCustomerClass,
+  ledgerCellDueClass,
+  ledgerCellTimeClass,
+  ledgerCellTypeClass,
+} from "@/components/counter/CounterLedgerTable";
 import { frameDueFromParts } from "@/lib/utils/frame-payment";
 import { isSnookerFrameEntry } from "@/lib/utils/snooker-frame";
 import { isPoolMiniEntry } from "@/lib/utils/pool-mini-entry";
@@ -27,6 +35,136 @@ import {
 } from "@/components/counter/CustomerPreviewContext";
 import { cn } from "@/lib/utils/cn";
 
+function MobileFrameLine({
+  name,
+  amount,
+  due,
+  meta,
+  editFrameButton,
+  deleteFrameButton,
+  correctionButton,
+  selected,
+  hasDue,
+  onClick,
+  onDoubleClick,
+}: {
+  name: ReactNode;
+  amount: ReactNode;
+  due: ReactNode;
+  meta?: ReactNode;
+  editFrameButton?: ReactNode;
+  deleteFrameButton?: ReactNode;
+  correctionButton?: ReactNode;
+  selected?: boolean;
+  hasDue?: boolean;
+  onClick?: (event: MouseEvent<HTMLElement>) => void;
+  onDoubleClick?: (event: MouseEvent<HTMLElement>) => void;
+}) {
+  return (
+    <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onKeyDown={
+        onClick
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onClick(event);
+              }
+            }
+          : undefined
+      }
+      className={cn(
+        "bg-[#fbfdfc] px-3 py-2.5",
+        hasDue && "border-b border-red-200 bg-red-50",
+        selected && "bg-emerald-50",
+        onClick && "cursor-pointer"
+      )}
+    >
+      <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+        <div className="min-w-0 flex-1 basis-40">
+          <div className="min-w-0">{name}</div>
+          {meta}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 pt-px">
+          <div className="shrink-0">{amount}</div>
+          <div className="shrink-0">{due}</div>
+          {editFrameButton}
+          {deleteFrameButton}
+        </div>
+      </div>
+      {correctionButton ? (
+        <div className="mt-1 flex justify-end">{correctionButton}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function MobileSplitContributorLine({
+  entry,
+  contributor,
+  meta,
+  editFrameButton,
+  deleteFrameButton,
+  correctionButton,
+}: {
+  entry: NotebookEntryDTO;
+  contributor: NonNullable<NotebookEntryDTO["contributors"]>[number];
+  meta?: ReactNode;
+  editFrameButton?: ReactNode;
+  deleteFrameButton?: ReactNode;
+  correctionButton?: ReactNode;
+}) {
+  const preview = useCustomerRowPreviewHandlers(
+    contributor.customerId,
+    contributor.customerName
+  );
+
+  return (
+    <MobileFrameLine
+      name={
+        <CustomerNameCell
+          customerId={contributor.customerId}
+          customerName={contributor.customerName}
+          className="block min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-[15px] font-bold"
+        />
+      }
+      amount={
+        <span className="whitespace-nowrap text-[13px] font-bold tabular-nums text-gray-900">
+          {formatCurrency(contributor.amount)}
+        </span>
+      }
+      due={
+        <DueStatusCell
+          amount={contributor.amount}
+          paidAmount={contributor.paidAmount}
+          balanceCollectedAmount={contributor.balanceCollectedAmount}
+          paymentMethod={contributor.paymentMethod ?? entry.paymentMethod}
+          status={entry.status}
+        />
+      }
+      meta={meta}
+      editFrameButton={editFrameButton}
+      deleteFrameButton={deleteFrameButton}
+      correctionButton={correctionButton}
+      selected={preview.isSelected}
+      hasDue={
+        frameDueFromParts(
+          contributor.amount,
+          contributor.paidAmount,
+          contributor.balanceCollectedAmount
+        ) > 0 &&
+        entry.status !== "CANCELLED" &&
+        entry.status !== "REVERSED"
+      }
+      onClick={preview.handleRowClick}
+      onDoubleClick={preview.handleRowDoubleClick}
+    />
+  );
+}
+
 interface CompactLedgerRowProps {
   entry: NotebookEntryDTO;
   frameEditable?: boolean;
@@ -34,6 +172,8 @@ interface CompactLedgerRowProps {
   allowSplit?: boolean;
   /** Big Snooker keeps Type; Pool & Mini hides it (card header identifies the table). */
   showTypeColumn?: boolean;
+  /** Desktop table row vs compact stacked mobile row. */
+  presentation?: "table" | "mobile";
   onUnassignedAction?: (entry: NotebookEntryDTO) => void;
   onEditFrame?: (entry: NotebookEntryDTO) => void;
   onDeleteFrame?: (entry: NotebookEntryDTO) => void;
@@ -86,7 +226,7 @@ function EditIconButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-emerald-700 transition-colors hover:bg-emerald-100 hover:text-emerald-900"
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-teal-600 text-white transition-colors hover:bg-teal-700"
       aria-label={label}
       title={title}
     >
@@ -121,7 +261,7 @@ function DeleteIconButton({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50 hover:text-red-800"
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-700"
       aria-label={label}
       title={title}
     >
@@ -176,25 +316,27 @@ function DueStatusCell({
   if (due <= 0) {
     if (paymentMethod === "CASH") {
       return (
-        <span className="inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold text-emerald-800 bg-emerald-50">
+        <span className="inline-flex items-center rounded-md border border-emerald-300 bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-900">
           {paymentMethodLabel("CASH")}
         </span>
       );
     }
     if (paymentMethod === "GPAY") {
       return (
-        <span className="inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold text-blue-800 bg-blue-50">
+        <span className="inline-flex items-center rounded-md border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[11px] font-semibold text-blue-900">
           {paymentMethodLabel("GPAY")}
         </span>
       );
     }
     return (
-      <span className="text-[11px] font-bold text-emerald-700">Paid</span>
+      <span className="inline-flex items-center rounded-md border border-emerald-400 bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-950">
+        Paid
+      </span>
     );
   }
 
   return (
-    <span className="text-[13px] font-bold tabular-nums text-orange-700">
+    <span className="text-[13px] font-bold tabular-nums text-red-700">
       {formatCurrency(due)}
     </span>
   );
@@ -238,35 +380,35 @@ function SplitContributorRow({
       onClick={contributorPreview.handleRowClick}
       onDoubleClick={contributorPreview.handleRowDoubleClick}
     >
-      {index === 0 && (
-        <>
-          <td
-            rowSpan={total}
-            className="overflow-visible whitespace-nowrap px-3 py-2 align-middle"
-          >
-            <div className="flex flex-col gap-0.5">{timeCell}</div>
-          </td>
-          {showTypeColumn ? (
-            <td
-              rowSpan={total}
-              className="whitespace-nowrap px-3 py-2 align-middle text-[13px] font-semibold text-gray-800"
-            >
-              {typeCell}
-            </td>
-          ) : null}
-        </>
-      )}
-      <td className="min-w-0 max-w-0 overflow-clip px-3 py-2 align-middle">
+      <td className={ledgerCellTimeClass}>
+        {index === 0 ? timeCell : null}
+      </td>
+      {showTypeColumn ? (
+        <td
+          className={cn(
+            ledgerCellTypeClass,
+            "text-[12px] font-medium text-gray-600"
+          )}
+        >
+          {index === 0 ? typeCell : null}
+        </td>
+      ) : null}
+      <td className={ledgerCellCustomerClass}>
         <CustomerNameCell
           customerId={contributor.customerId}
           customerName={contributor.customerName}
-          className="block min-w-0 overflow-clip text-ellipsis whitespace-nowrap"
+          className="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-bold"
         />
       </td>
-      <td className="whitespace-nowrap px-3 py-2 text-right align-middle text-[13px] font-bold tabular-nums text-gray-900">
+      <td
+        className={cn(
+          ledgerCellAmountClass,
+          "text-[13px] font-bold tabular-nums text-gray-900"
+        )}
+      >
         {formatCurrency(contributor.amount)}
       </td>
-      <td className="whitespace-nowrap px-3 py-2 text-right align-middle">
+      <td className={ledgerCellDueClass}>
         <DueStatusCell
           amount={contributor.amount}
           paidAmount={contributor.paidAmount}
@@ -275,10 +417,10 @@ function SplitContributorRow({
           status={entry.status}
         />
       </td>
-      <td className="px-3 py-2 align-middle text-right">
-        <div className="flex flex-col items-end gap-1.5">
+      <td className={ledgerCellActionsClass}>
+        <div className="flex flex-col items-end gap-1">
           {index === 0 ? (
-            <div className="flex flex-nowrap items-center justify-end gap-2">
+            <div className="flex flex-nowrap items-center justify-end gap-0.5">
               {editFrameButton}
               {deleteFrameButton}
             </div>
@@ -295,6 +437,7 @@ export function CompactLedgerRow({
   frameEditable = false,
   allowSplit = true,
   showTypeColumn = true,
+  presentation = "table",
   onUnassignedAction,
   onEditFrame,
   onDeleteFrame,
@@ -372,9 +515,15 @@ export function CompactLedgerRow({
       </button>
     ) : null;
 
+  const timeText = formatTime(entry.playStartedAt ?? entry.createdAt);
+  const typeText = `${typeLabel}${qty ? ` ${qty}` : ""}`;
+
   const timeCell = (
-    <span className="font-mono text-[13px] font-medium tabular-nums text-gray-600">
-      {formatTime(entry.playStartedAt ?? entry.createdAt)}
+    <span
+      className="block min-w-0 truncate text-[12px] tabular-nums text-gray-500"
+      title={timeText}
+    >
+      {timeText}
     </span>
   );
 
@@ -382,7 +531,7 @@ export function CompactLedgerRow({
     <button
       type="button"
       onClick={handleUnassignedClick}
-      className="block w-full min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-left text-[13px] font-semibold text-gray-400 hover:text-emerald-800"
+      className="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] font-semibold text-gray-500 hover:text-emerald-800"
     >
       Unassigned
     </button>
@@ -390,10 +539,10 @@ export function CompactLedgerRow({
     <CustomerNameCell
       customerId={entry.customerId}
       customerName={entry.customerName ?? "Customer"}
-      className="block w-full min-w-0 overflow-clip text-ellipsis whitespace-nowrap"
+      className="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-bold"
     />
   ) : (
-    <span className="block min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-left text-[14px] font-bold leading-snug text-gray-900">
+    <span className="block w-full min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left text-[13px] font-bold leading-snug text-gray-900">
       {entry.customerName}
     </span>
   );
@@ -404,7 +553,10 @@ export function CompactLedgerRow({
   const typeCell = (
     <>
       <FieldCell correction={byField.entryType}>
-        <span className="block whitespace-nowrap">
+        <span
+          className="block w-full min-w-0 truncate"
+          title={typeText}
+        >
           {typeLabel}
           {qty && <span className="font-normal text-gray-500"> {qty}</span>}
         </span>
@@ -418,6 +570,104 @@ export function CompactLedgerRow({
       )}
     </>
   );
+
+  const mobileMeta = (
+    <div className="mt-0.5 min-w-0">
+      <p className="min-w-0 truncate text-[11px] leading-snug text-gray-500">
+        {showTypeColumn ? `${typeText} · ${timeText}` : timeText}
+      </p>
+      {showPlayerCorrection && byField.playerCount ? (
+        <CorrectionChangeLine
+          from={byField.playerCount.from}
+          to={byField.playerCount.to}
+          className="mt-0.5"
+        />
+      ) : null}
+    </div>
+  );
+
+  const mobileName = entry.isUnassigned ? (
+    <button
+      type="button"
+      onClick={handleUnassignedClick}
+      className="block w-full min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-left text-[15px] font-semibold text-gray-500 hover:text-emerald-800"
+    >
+      Unassigned
+    </button>
+  ) : entry.customerId ? (
+    <CustomerNameCell
+      customerId={entry.customerId}
+      customerName={entry.customerName ?? "Customer"}
+      className="block w-full min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-[15px] font-bold"
+    />
+  ) : (
+    <span className="block min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-left text-[15px] font-bold leading-snug text-gray-900">
+      {entry.customerName}
+    </span>
+  );
+
+  if (presentation === "mobile") {
+    if (hasContributors && (entry.contributors?.length ?? 0) > 0) {
+      const contributors = entry.contributors ?? [];
+      return (
+        <div className="divide-y divide-black/[0.04]">
+          {contributors.map((contributor, index) => (
+            <MobileSplitContributorLine
+              key={`${entry.id}-${contributor.customerId}`}
+              entry={entry}
+              contributor={contributor}
+              meta={index === 0 ? mobileMeta : undefined}
+              editFrameButton={index === 0 ? editFrameButton : undefined}
+              deleteFrameButton={index === 0 ? deleteFrameButton : undefined}
+              correctionButton={
+                index === contributors.length - 1 ? correctionButton : undefined
+              }
+            />
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <MobileFrameLine
+        name={<FieldCell correction={byField.customer}>{mobileName}</FieldCell>}
+        amount={
+          <span className="whitespace-nowrap text-[13px] font-bold tabular-nums text-gray-900">
+            <FieldCell correction={byField.amount}>
+              {formatCurrency(entry.amount)}
+            </FieldCell>
+          </span>
+        }
+        due={
+          <DueStatusCell
+            amount={entry.amount}
+            paidAmount={entry.paidAmount}
+            balanceCollectedAmount={entry.balanceCollectedAmount}
+            paymentMethod={entry.paymentMethod}
+            status={entry.status}
+          />
+        }
+        meta={mobileMeta}
+        editFrameButton={editFrameButton}
+        deleteFrameButton={deleteFrameButton}
+        correctionButton={correctionButton}
+        selected={Boolean(entry.customerId && rowPreview.isSelected)}
+        hasDue={
+          frameDueFromParts(
+            entry.amount,
+            entry.paidAmount,
+            entry.balanceCollectedAmount
+          ) > 0 &&
+          entry.status !== "CANCELLED" &&
+          entry.status !== "REVERSED"
+        }
+        onClick={entry.customerId ? rowPreview.handleRowClick : undefined}
+        onDoubleClick={
+          entry.customerId ? rowPreview.handleRowDoubleClick : undefined
+        }
+      />
+    );
+  }
 
   if (hasContributors && (entry.contributors?.length ?? 0) > 0) {
     const contributors = entry.contributors ?? [];
@@ -452,23 +702,31 @@ export function CompactLedgerRow({
       onClick={rowPreview.handleRowClick}
       onDoubleClick={rowPreview.handleRowDoubleClick}
     >
-      <td className="px-3 py-2 align-middle">
-        <div className="flex flex-col gap-0.5">{timeCell}</div>
-      </td>
+      <td className={ledgerCellTimeClass}>{timeCell}</td>
       {showTypeColumn ? (
-        <td className="whitespace-nowrap px-3 py-2 align-middle text-[13px] font-semibold text-gray-800">
+        <td
+          className={cn(
+            ledgerCellTypeClass,
+            "text-[12px] font-medium text-gray-600"
+          )}
+        >
           {typeCell}
         </td>
       ) : null}
-      <td className="min-w-0 max-w-0 overflow-clip px-3 py-2 align-middle">
+      <td className={ledgerCellCustomerClass}>
         <FieldCell correction={byField.customer}>{nameCell}</FieldCell>
       </td>
-      <td className="whitespace-nowrap px-3 py-2 text-right align-middle text-[13px] font-bold tabular-nums text-gray-900">
+      <td
+        className={cn(
+          ledgerCellAmountClass,
+          "text-[13px] font-bold tabular-nums text-gray-900"
+        )}
+      >
         <FieldCell correction={byField.amount}>
           {formatCurrency(entry.amount)}
         </FieldCell>
       </td>
-      <td className="whitespace-nowrap px-3 py-2 text-right align-middle">
+      <td className={ledgerCellDueClass}>
         <DueStatusCell
           amount={entry.amount}
           paidAmount={entry.paidAmount}
@@ -477,9 +735,9 @@ export function CompactLedgerRow({
           status={entry.status}
         />
       </td>
-      <td className="px-3 py-2 align-middle text-right">
-        <div className="flex flex-col items-end gap-1.5">
-          <div className="flex flex-nowrap items-center justify-end gap-2">
+      <td className={ledgerCellActionsClass}>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex flex-nowrap items-center justify-end gap-0.5">
             {editFrameButton}
             {deleteFrameButton}
           </div>

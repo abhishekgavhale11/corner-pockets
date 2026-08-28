@@ -14,7 +14,7 @@ export default async function BigSnookerCounterPage() {
   );
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <CounterGrid sections={sections} ledgers={ledgers} snookerQuick />
     </div>
   );

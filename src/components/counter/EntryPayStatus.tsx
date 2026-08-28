@@ -33,28 +33,44 @@ export function entryRowBaseClass(entry: NotebookEntryDTO): string {
     entry.balanceCollectedAmount
   );
 
+  const hasOutstanding = !paid && due > 0;
+
   return cn(
-    "text-[14px] leading-snug transition-colors hover:bg-emerald-50/40",
-    !paid && due > 0 && !entryHasContributors(entry) && "bg-amber-50/25",
+    "bg-[#fbfdfc] text-[13px] leading-snug transition-colors hover:bg-white/70",
+    hasOutstanding && !entryHasContributors(entry) && "bg-red-50",
     !paid &&
       entry.isUnassigned &&
       entry.status === "PENDING" &&
       !entryHasContributors(entry) &&
-      "bg-amber-50/35",
-    entryHasCorrections(entry) && !paid && "bg-amber-50/30",
+      "bg-red-50",
+    entryHasCorrections(entry) && !paid && "bg-red-50",
     entry.status === "CANCELLED" && "opacity-55",
     entry.status === "REVERSED" && "bg-amber-50/20"
   );
 }
 
 /** Solid divider between separate ledger entries */
-export const ledgerEntryDividerClass = "border-b border-gray-100";
+export const ledgerEntryDividerClass = "border-b border-black/[0.05]";
+
+/** Stronger divider so unpaid frames are easy to scan */
+export const ledgerOutstandingDividerClass = "border-b border-red-200";
 
 /** Lighter dashed divider between contributors in the same split */
-export const ledgerSplitDividerClass = "border-t border-dashed border-gray-100";
+export const ledgerSplitDividerClass = "border-t border-dashed border-black/[0.06]";
 
 export function entryRowClass(entry: NotebookEntryDTO): string {
-  return cn(entryRowBaseClass(entry), ledgerEntryDividerClass);
+  const paid = isFrameFullyPaid(entry);
+  const due = frameDueFromParts(
+    entry.amount,
+    entry.paidAmount,
+    entry.balanceCollectedAmount
+  );
+  const hasOutstanding = !paid && due > 0 && entry.status !== "CANCELLED";
+
+  return cn(
+    entryRowBaseClass(entry),
+    hasOutstanding ? ledgerOutstandingDividerClass : ledgerEntryDividerClass
+  );
 }
 
 export function splitContributorRowClass(
@@ -71,10 +87,17 @@ export function splitContributorRowClass(
     ) <= 0;
 
   return cn(
-    "text-[14px] leading-snug transition-colors hover:bg-emerald-50/40",
-    entryHasCorrections(entry) && !contributorPaid && "bg-amber-50/30",
+    "bg-[#fbfdfc] text-[13px] leading-snug transition-colors hover:bg-white/70",
+    !contributorPaid && "bg-red-50",
+    entryHasCorrections(entry) && !contributorPaid && "bg-red-50",
     entry.status === "CANCELLED" && "opacity-55",
     entry.status === "REVERSED" && "bg-amber-50/20",
-    index < total - 1 ? ledgerSplitDividerClass : ledgerEntryDividerClass
+    index < total - 1
+      ? !contributorPaid
+        ? "border-t border-red-200"
+        : ledgerSplitDividerClass
+      : !contributorPaid
+        ? ledgerOutstandingDividerClass
+        : ledgerEntryDividerClass
   );
 }

@@ -25,6 +25,18 @@ export const snookerFrameFieldLabelClass =
 export const snookerFrameControlClass =
   "h-9 w-full rounded-[10px] border border-gray-200 bg-white px-2.5 text-[13px] font-medium text-gray-900 shadow-sm shadow-gray-900/5 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/15 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400";
 
+export const snookerFrameToolbarControlClass =
+  "h-10 w-full rounded-md border border-gray-300 bg-white px-2.5 text-[13px] font-medium text-gray-800 shadow-none outline-none transition-shadow placeholder:text-gray-500 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400";
+
+export const counterAddControlsShellClass =
+  "rounded-lg border border-gray-200 bg-white px-2 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]";
+
+export const counterTableBadgeClass =
+  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-emerald-800 text-[13px] font-bold tracking-wide text-white";
+
+export const counterAddFrameButtonClass =
+  "h-10 shrink-0 whitespace-nowrap rounded-md bg-emerald-800 px-3.5 text-[13px] font-semibold text-white transition-colors hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-45";
+
 export function SnookerFrameField({
   label,
   className,
@@ -48,6 +60,10 @@ interface SnookerFrameFieldsProps {
   disabled?: boolean;
   onKeyDown?: (e: KeyboardEvent) => void;
   submitSlot?: ReactNode;
+  /** Compact counter chrome: table id (T1 / T2 / T3) before Type. */
+  leadingSlot?: ReactNode;
+  /** Replaces the toolbar type select (e.g. Regular / HH). */
+  typeSlot?: ReactNode;
   variant?: "toolbar" | "dialog";
   /** POS dialog: first cell on row 1 (e.g. Time). */
   timeSlot?: ReactNode;
@@ -75,6 +91,8 @@ export function SnookerFrameFields({
   disabled = false,
   onKeyDown,
   submitSlot,
+  leadingSlot,
+  typeSlot,
   variant = "toolbar",
   timeSlot,
   ownershipSlot,
@@ -151,7 +169,8 @@ export function SnookerFrameFields({
     return Number(amount) === preset.amount;
   };
 
-  const typeSelected = isPoolMini ? Boolean(rateType) : Boolean(frameType);
+  const typeSelected =
+    Boolean(typeSlot) || (isPoolMini ? Boolean(rateType) : Boolean(frameType));
   const isDialog = variant === "dialog";
 
   const typeSelect = isPoolMini ? (
@@ -279,39 +298,65 @@ export function SnookerFrameFields({
     );
   }
 
-  // Toolbar remains Big Snooker–only (Pool/Mini uses PoolMiniAddRow).
+  // Counter toolbar: Type (or typeSlot) + Amount + Add.
   return (
     <>
-      <div className="flex flex-wrap items-end gap-2.5">
-        <SnookerFrameField label="Type" className="min-w-[7.5rem] flex-[1.2]">
+      <div className="flex min-w-0 items-center gap-2">
+        {leadingSlot}
+        {typeSlot ?? (
           <select
             value={frameType}
             onChange={(e) =>
               onFrameTypeChange?.(e.target.value as SnookerFrameType | "")
             }
+            aria-label="Type"
             className={cn(
-              snookerFrameControlClass,
-              !frameType && "text-gray-500"
+              snookerFrameToolbarControlClass,
+              "min-w-[6.75rem] flex-1 whitespace-nowrap text-[12px] text-gray-800 [&_option]:text-[12px] [&_option]:text-gray-800",
+              !frameType && "text-gray-600"
             )}
             disabled={disabled}
           >
-            <option value="">Select type</option>
+            <option value="" className="text-gray-600">
+              Select type
+            </option>
             {SNOOKER_FRAME_TYPES.map((type) => (
-              <option key={type} value={type}>
+              <option key={type} value={type} className="text-gray-800">
                 {SNOOKER_FRAME_TYPE_LABELS[type]}
               </option>
             ))}
           </select>
-        </SnookerFrameField>
+        )}
 
-        {amountField}
+        <div className="relative w-[5.75rem] shrink-0">
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] font-medium text-gray-500">
+            ₹
+          </span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={amount}
+            onChange={(e) => {
+              const next = e.target.value.replace(/[^\d]/g, "");
+              onAmountChange(next);
+            }}
+            onKeyDown={onKeyDown}
+            placeholder="0"
+            aria-label="Amount"
+            disabled={!typeSelected || disabled}
+            className={cn(
+              snookerFrameToolbarControlClass,
+              "pl-6 font-semibold tabular-nums"
+            )}
+          />
+        </div>
         {submitSlot}
       </div>
 
       {frameType && amountPresets.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
           <span className="text-[10px] font-medium text-gray-500">
-            {frameType === "RUMMY" ? "Players:" : "Quick:"}
+            {frameType === "RUMMY" ? "Players" : "Quick"}
           </span>
           {amountPresets.map((preset) => (
             <button
@@ -320,10 +365,10 @@ export function SnookerFrameFields({
               disabled={disabled}
               onClick={() => applyPreset(preset)}
               className={cn(
-                "rounded-[10px] border px-2.5 py-0.5 text-[11px] font-semibold transition-colors",
+                "rounded-md px-2 py-0.5 text-[10px] font-semibold transition-colors",
                 isPresetActive(preset)
-                  ? "border-emerald-800 bg-emerald-800 text-white shadow-sm"
-                  : "border-gray-200 bg-white text-gray-700 hover:border-emerald-300 hover:bg-emerald-50"
+                  ? "bg-emerald-800 text-white"
+                  : "bg-white text-gray-600 ring-1 ring-inset ring-gray-200/80 hover:bg-emerald-50 hover:text-emerald-900"
               )}
             >
               {preset.label}

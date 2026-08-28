@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createPoolMiniEntry } from "@/actions/notebook-entries";
-import type { NotebookSection } from "@/lib/constants/notebook-sections";
+import {
+  sectionLabel,
+  sectionShortLabel,
+  type NotebookSection,
+} from "@/lib/constants/notebook-sections";
 import {
   poolMiniDefaultAmount,
   poolMiniEntryTypeForSection,
@@ -15,8 +19,10 @@ import {
   type CounterRateType,
 } from "@/lib/constants/counter-rates";
 import {
-  SnookerFrameField,
-  snookerFrameControlClass,
+  SnookerFrameFields,
+  counterAddControlsShellClass,
+  counterAddFrameButtonClass,
+  counterTableBadgeClass,
 } from "@/components/counter/SnookerFrameFields";
 import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
 import { cn } from "@/lib/utils/cn";
@@ -94,66 +100,74 @@ export function PoolMiniAddRow({ section }: PoolMiniAddRowProps) {
   };
 
   return (
-    <div className="border-b border-gray-100 bg-white px-3 py-2.5">
-      <div className="flex flex-wrap items-end gap-2">
-        <SnookerFrameField label="Rate" className="min-w-[9.5rem] flex-[1.2]">
-          <div className="flex gap-1">
-            {COUNTER_RATE_TYPES.map((option) => {
-              const optionAmount =
-                rateOptions.find((row) => row.rateType === option)?.amount ?? 0;
-              const label = option === "REGULAR" ? "Regular" : "HH";
-              const selected = rateType === option;
-              return (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => applyRateType(option)}
-                  disabled={isPending}
-                  className={cn(
-                    "h-9 flex-1 rounded-[10px] border px-2 text-[12px] font-bold transition-colors",
-                    selected
-                      ? "border-emerald-700 bg-emerald-800 text-white shadow-sm"
-                      : "border-gray-200 bg-white text-gray-700 hover:border-emerald-400 hover:bg-emerald-50"
-                  )}
-                  title={`${option === "REGULAR" ? "Regular" : "Happy Hour"} · ₹${optionAmount}`}
-                >
-                  {label} ₹{optionAmount}
-                </button>
-              );
-            })}
-          </div>
-        </SnookerFrameField>
-        <SnookerFrameField label="Amount" className="min-w-[6.5rem] flex-1">
-          <input
-            type="text"
-            inputMode="numeric"
-            value={amount}
-            onChange={(e) => {
-              setAmount(e.target.value.replace(/[^\d]/g, ""));
-              setError(null);
-            }}
-            onKeyDown={handleKeyDown}
-            disabled={isPending}
-            className={snookerFrameControlClass}
-            aria-label="Amount"
-          />
-        </SnookerFrameField>
-        <div className="shrink-0 pb-0.5">
-          <button
-            type="button"
-            onClick={submit}
-            disabled={isPending}
-            className="h-9 whitespace-nowrap rounded-[10px] bg-emerald-800 px-4 text-[13px] font-bold text-white shadow-sm shadow-emerald-900/15 transition-colors hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            {isPending ? "Adding…" : "+ Add"}
-          </button>
-        </div>
+    <div className="py-2">
+      <div className={counterAddControlsShellClass}>
+        <SnookerFrameFields
+          amount={amount}
+          onAmountChange={(value) => {
+            setAmount(value);
+            setError(null);
+          }}
+          disabled={isPending}
+          onKeyDown={handleKeyDown}
+          leadingSlot={
+            <span
+              className={cn(counterTableBadgeClass, "w-auto min-w-10 px-1.5")}
+              title={sectionLabel(section)}
+            >
+              {sectionShortLabel(section)}
+            </span>
+          }
+          typeSlot={
+            <div
+              className="flex h-10 min-w-0 flex-1 overflow-hidden rounded-md border border-gray-300 bg-white"
+              role="group"
+              aria-label="Type"
+            >
+              {COUNTER_RATE_TYPES.map((option, index) => {
+                const optionAmount =
+                  rateOptions.find((row) => row.rateType === option)?.amount ??
+                  0;
+                const label = option === "REGULAR" ? "Regular" : "HH";
+                const selected = rateType === option;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => applyRateType(option)}
+                    disabled={isPending}
+                    className={cn(
+                      "h-full min-w-0 flex-1 px-2.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45",
+                      index > 0 && "border-l border-gray-300",
+                      selected
+                        ? "bg-emerald-800 text-white"
+                        : "text-gray-600 hover:bg-emerald-50 hover:text-emerald-900"
+                    )}
+                    title={`${option === "REGULAR" ? "Regular" : "Happy Hour"} · ₹${optionAmount}`}
+                  >
+                    {label} ₹{optionAmount}
+                  </button>
+                );
+              })}
+            </div>
+          }
+          submitSlot={
+            <button
+              type="button"
+              onClick={submit}
+              disabled={isPending}
+              className={counterAddFrameButtonClass}
+            >
+              {isPending ? "Adding…" : "+ Add"}
+            </button>
+          }
+        />
       </div>
-      <p className="mt-1.5 text-[11px] text-gray-500">
+      <p className="mt-1.5 text-[10px] text-gray-500">
         Amount can still be edited — software does not auto-calculate time
       </p>
       {error && (
-        <p className="mt-2 text-[11px] font-medium text-red-600">{error}</p>
+        <p className="mt-1 text-[11px] font-medium text-red-600">{error}</p>
       )}
     </div>
   );

@@ -248,23 +248,37 @@ function CafeDueDisplay({
   className?: string;
 }) {
   if (due <= 0) {
-    if (paymentMethod === "CASH" || paymentMethod === "GPAY") {
+    if (paymentMethod === "CASH") {
       return (
         <span
           className={cn(
-            "inline-flex rounded px-1.5 py-0.5 text-[11px] font-bold",
-            paymentMethod === "CASH"
-              ? "bg-emerald-50 text-emerald-800"
-              : "bg-blue-50 text-blue-800",
+            "inline-flex items-center rounded-md border border-emerald-300 bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-900",
             className
           )}
         >
-          {paymentMethodLabel(paymentMethod)}
+          {paymentMethodLabel("CASH")}
+        </span>
+      );
+    }
+    if (paymentMethod === "GPAY") {
+      return (
+        <span
+          className={cn(
+            "inline-flex items-center rounded-md border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-[11px] font-semibold text-blue-900",
+            className
+          )}
+        >
+          {paymentMethodLabel("GPAY")}
         </span>
       );
     }
     return (
-      <span className={cn("text-[11px] font-bold text-emerald-700", className)}>
+      <span
+        className={cn(
+          "inline-flex items-center rounded-md border border-emerald-400 bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-950",
+          className
+        )}
+      >
         Paid
       </span>
     );
@@ -272,10 +286,7 @@ function CafeDueDisplay({
 
   return (
     <span
-      className={cn(
-        "font-semibold tabular-nums text-red-600",
-        className
-      )}
+      className={cn("text-[13px] font-bold tabular-nums text-red-700", className)}
     >
       {formatCurrency(due)}
     </span>
@@ -305,7 +316,11 @@ function CafeMobileOrderRow({
     <div
       className={cn(
         "flex items-stretch border-b border-gray-100 last:border-b-0",
-        selected ? "bg-emerald-50" : "bg-white active:bg-gray-50"
+        selected
+          ? "bg-emerald-50"
+          : due > 0
+            ? "border-b-red-200 bg-red-50"
+            : "bg-[#fbfdfc] active:bg-white/70"
       )}
     >
       <div
@@ -1142,10 +1157,10 @@ export function CafeOrdersWorkspace({
     <CounterWorkspaceTabs
       trailing={<NewCustomerButton onClick={() => setNewCustomerOpen(true)} />}
     />
-    <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start">
-      <div className="min-w-0 flex-1 overflow-x-clip">
-        <div className="mb-2 flex min-w-0 flex-col gap-2 lg:mb-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-center justify-between gap-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:items-stretch">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="mb-2 flex shrink-0 min-w-0 flex-col gap-2 lg:mb-3 lg:flex-row lg:items-center lg:gap-3">
+          <div className="flex min-w-0 items-center justify-between gap-2 lg:shrink-0">
             <h2 className="truncate text-[15px] font-bold text-gray-900 lg:text-base">
               Cafe Orders
             </h2>
@@ -1157,13 +1172,13 @@ export function CafeOrdersWorkspace({
               + New Cafe Order
             </Button>
           </div>
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="relative min-w-0 flex-1 lg:flex-none">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="relative min-w-0 flex-1">
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search customer..."
-                className="h-9 w-full min-w-0 pl-8 text-sm lg:w-48"
+                className="h-9 w-full min-w-0 pl-8 text-sm"
               />
               <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400">
                 <SearchIcon />
@@ -1180,6 +1195,7 @@ export function CafeOrdersWorkspace({
           </div>
         </div>
 
+        <div className="min-h-0 flex-1 overflow-x-clip overflow-y-auto overscroll-y-contain">
         {unassigned.length > 0 && (
           <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
             <div className="mb-2 flex items-center gap-2 text-amber-900">
@@ -1222,7 +1238,7 @@ export function CafeOrdersWorkspace({
                         Amount {formatCurrency(order.amount)} · Received{" "}
                         {formatCurrency(order.received)} ·{" "}
                         {due > 0 ? (
-                          <span className="font-semibold text-red-600">
+                          <span className="text-[13px] font-bold tabular-nums text-red-700">
                             Due {formatCurrency(due)}
                           </span>
                         ) : (
@@ -1268,7 +1284,7 @@ export function CafeOrdersWorkspace({
           </div>
         )}
 
-        <div className="overflow-clip rounded-xl border border-gray-200 bg-white lg:hidden">
+        <div className="overflow-clip rounded-xl border border-gray-200/90 bg-[#f6faf8] lg:hidden">
           {assigned.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-gray-400">
               No cafe orders yet.
@@ -1287,7 +1303,7 @@ export function CafeOrdersWorkspace({
               />
             ))
           )}
-          <div className="border-t border-gray-200 bg-gray-50 px-3 py-2 text-[11px] text-gray-600">
+          <div className="border-t border-gray-200/90 bg-[#f6faf8] px-3 py-2 text-[11px] text-gray-600">
             <p>
               Showing {assigned.length} cafe{" "}
               {assigned.length === 1 ? "order" : "orders"}
@@ -1296,7 +1312,7 @@ export function CafeOrdersWorkspace({
               Total Amount: {formatCurrency(totals.amount)} · Received:{" "}
               {formatCurrency(totals.received)} ·{" "}
               {totals.due > 0 ? (
-                <span className="font-semibold text-red-600">
+                <span className="font-bold tabular-nums text-red-700">
                   Due: {formatCurrency(totals.due)}
                 </span>
               ) : assigned.length > 0 ? (
@@ -1308,10 +1324,10 @@ export function CafeOrdersWorkspace({
           </div>
         </div>
 
-        <div className="hidden overflow-clip rounded-xl border border-gray-200 bg-white shadow-sm lg:block">
+        <div className="hidden overflow-clip rounded-xl border border-gray-200/90 bg-[#f6faf8] shadow-sm shadow-gray-900/5 lg:block">
           <div className="overflow-x-auto overflow-y-clip overscroll-x-contain">
           <table className="w-full min-w-[44rem] text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-[11px] font-bold uppercase tracking-wide text-gray-500">
+            <thead className="border-b border-black/[0.05] bg-[#f6faf8] text-[11px] font-bold uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="whitespace-nowrap px-3 py-2.5">Customer / Status</th>
                 <th className="px-3 py-2.5">Items</th>
@@ -1348,8 +1364,12 @@ export function CafeOrdersWorkspace({
                         }
                       }}
                       className={cn(
-                        "cursor-pointer border-b border-gray-100 last:border-0",
-                        selected ? "bg-emerald-50" : "hover:bg-gray-50"
+                        "cursor-pointer border-b last:border-0",
+                        selected
+                          ? "border-gray-100 bg-emerald-50"
+                          : due > 0
+                            ? "border-red-200 bg-red-50"
+                            : "border-black/[0.05] bg-[#fbfdfc] hover:bg-white/70"
                       )}
                     >
                       <td className="px-3 py-3">
@@ -1411,7 +1431,7 @@ export function CafeOrdersWorkspace({
           </table>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200/90 bg-[#f6faf8] px-3 py-2.5 text-xs text-gray-600">
             <span>
               Showing {assigned.length} cafe{" "}
               {assigned.length === 1 ? "order" : "orders"}
@@ -1420,7 +1440,7 @@ export function CafeOrdersWorkspace({
               Total Amount: {formatCurrency(totals.amount)} · Total Received:{" "}
               {formatCurrency(totals.received)} ·{" "}
               {totals.due > 0 ? (
-                <span className="font-semibold text-red-600">
+                <span className="font-bold tabular-nums text-red-700">
                   Total Due: {formatCurrency(totals.due)}
                 </span>
               ) : assigned.length > 0 ? (
@@ -1434,6 +1454,7 @@ export function CafeOrdersWorkspace({
               )}
             </span>
           </div>
+        </div>
         </div>
       </div>
 
@@ -1456,12 +1477,12 @@ export function CafeOrdersWorkspace({
           : null
         : panel
           ? (
-            <div className="sticky top-2 z-20 w-full max-w-md shrink-0 self-start">
+            <div className="hidden min-h-0 w-full max-w-md shrink-0 lg:flex lg:flex-col">
               {orderPanel}
             </div>
           )
           : (
-            <div className="sticky top-2 hidden w-full max-w-md shrink-0 items-center justify-center self-start rounded-xl border border-dashed border-gray-200 bg-gray-50 px-6 py-16 text-center text-sm text-gray-400 lg:flex">
+            <div className="hidden min-h-0 w-full max-w-md shrink-0 items-center justify-center rounded-xl border border-dashed border-gray-200/90 bg-[#f6faf8] px-6 py-16 text-center text-sm text-gray-400 lg:flex">
               Select a cafe order to view details
             </div>
           )}

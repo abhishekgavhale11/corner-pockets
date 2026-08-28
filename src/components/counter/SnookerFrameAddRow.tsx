@@ -3,13 +3,20 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createSnookerFrameEntry } from "@/actions/notebook-entries";
-import type { NotebookSection } from "@/lib/constants/notebook-sections";
 import type { SnookerFrameType } from "@/lib/constants/counter-sections";
 import {
   SnookerFrameFields,
+  counterAddControlsShellClass,
+  counterAddFrameButtonClass,
+  counterTableBadgeClass,
   useSnookerFrameAmountDefaults,
 } from "@/components/counter/SnookerFrameFields";
 import { invalidateCustomerGlanceCache } from "@/components/counter/CustomerPreviewContext";
+import {
+  sectionLabel,
+  sectionShortLabel,
+  type NotebookSection,
+} from "@/lib/constants/notebook-sections";
 
 interface SnookerFrameAddRowProps {
   section: NotebookSection;
@@ -79,10 +86,11 @@ export function SnookerFrameAddRow({ section }: SnookerFrameAddRowProps) {
   };
 
   return (
-    <div className="border-b border-gray-100 bg-white px-3 py-2.5">
-      <SnookerFrameFields
-        frameType={frameType}
-        onFrameTypeChange={(type) => {
+    <div className="py-2">
+      <div className={counterAddControlsShellClass}>
+        <SnookerFrameFields
+          frameType={frameType}
+          onFrameTypeChange={(type) => {
           setFrameType(type);
           if (type === "RUMMY") {
             setPlayerCount("4");
@@ -101,22 +109,29 @@ export function SnookerFrameAddRow({ section }: SnookerFrameAddRowProps) {
         }}
         disabled={isPending}
         onKeyDown={handleKeyDown}
+        leadingSlot={
+          <span
+            className={counterTableBadgeClass}
+            title={sectionLabel(section)}
+          >
+            {sectionShortLabel(section)}
+          </span>
+        }
         submitSlot={
-          <div className="shrink-0 pb-0.5">
-            <button
-              type="button"
-              onClick={submit}
-              disabled={isPending || !frameType}
-              className="h-9 whitespace-nowrap rounded-[10px] bg-emerald-800 px-4 text-[13px] font-bold text-white shadow-sm shadow-emerald-900/15 transition-colors hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              {isPending ? "Adding…" : "+ Add Frame"}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={isPending || !frameType}
+            className={counterAddFrameButtonClass}
+          >
+            {isPending ? "Adding…" : "+ Add Frame"}
+          </button>
         }
       />
+      </div>
 
       {error && (
-        <p className="mt-2 text-[11px] font-medium text-red-600">{error}</p>
+        <p className="mt-1.5 text-[11px] font-medium text-red-600">{error}</p>
       )}
     </div>
   );

@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import type { StaffRole } from "@/lib/auth/roles";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { CounterShellSlotContext } from "@/components/layout/CounterShellSlot";
 import { cn } from "@/lib/utils/cn";
 
 const STORAGE_KEY = "cpos-sidebar-open";
+
+/** Counter workspace canvas — very light mint, soft tonal variation. */
+const COUNTER_WORKSPACE_BG =
+  "bg-[#eef6f1] bg-[radial-gradient(120%_80%_at_8%_0%,rgba(255,255,255,0.72),transparent_52%),radial-gradient(90%_70%_at_100%_100%,rgba(167,243,208,0.28),transparent_55%)]";
 
 interface DashboardShellProps {
   role: StaffRole;
@@ -15,9 +20,11 @@ interface DashboardShellProps {
 }
 
 export function DashboardShell({ role, topBar, children }: DashboardShellProps) {
+  const pathname = usePathname();
   const [open, setOpen] = useState(true);
   const [ready, setReady] = useState(false);
   const [tabsSlot, setTabsSlot] = useState<HTMLDivElement | null>(null);
+  const isCounterWorkspace = pathname.startsWith("/counter");
 
   useEffect(() => {
     try {
@@ -64,7 +71,12 @@ export function DashboardShell({ role, topBar, children }: DashboardShellProps) 
         {/* Counter workspace tabs portal here — flush against the header,
             outside main's padding, so there is never a gap or scroll-through. */}
         <div ref={setTabsSlot} className="shrink-0 bg-gray-50" />
-        <main className="min-h-0 flex-1 overflow-y-auto p-1.5 sm:p-2">
+        <main
+          className={cn(
+            "flex min-h-0 flex-1 flex-col overflow-y-auto p-1.5 sm:p-2",
+            isCounterWorkspace ? COUNTER_WORKSPACE_BG : undefined
+          )}
+        >
           <CounterShellSlotContext.Provider value={tabsSlot}>
             {children}
           </CounterShellSlotContext.Provider>

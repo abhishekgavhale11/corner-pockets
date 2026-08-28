@@ -7,7 +7,7 @@ export default async function CafeCounterPage() {
   const orders = await getOpenBusinessDayCafeOrders();
 
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <CafeOrdersWorkspace orders={orders} />
     </div>
   );

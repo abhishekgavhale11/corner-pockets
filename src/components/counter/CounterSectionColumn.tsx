@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { NotebookSection } from "@/lib/constants/notebook-sections";
-import { sectionLabel } from "@/lib/constants/notebook-sections";
 import type { NotebookEntryDTO } from "@/types";
 import {
   getPresetsForSection,
@@ -11,6 +11,7 @@ import {
 import type { SnookerQuickPreset } from "@/lib/constants/counter-sections";
 import { CompactLedgerRow } from "@/components/counter/CompactLedgerRow";
 import {
+  CounterLedgerHeader,
   CounterLedgerTable,
   counterLedgerColSpan,
 } from "@/components/counter/CounterLedgerTable";
@@ -27,17 +28,17 @@ import {
   RateTypeEntryDialog,
   type RatedEntryPreset,
 } from "@/components/counter/RateTypeEntryDialog";
-import { TableCardOverflowMenu } from "@/components/counter/TableCardOverflowMenu";
-import { summarizeTableLedger } from "@/components/counter/table-card-summary";
 import { isPoolMiniEntry } from "@/lib/utils/pool-mini-entry";
-import { cn } from "@/lib/utils/cn";
 
 interface CounterSectionColumnProps {
   section: NotebookSection;
   entries: NotebookEntryDTO[];
   snookerQuick?: boolean;
   poolMiniQuick?: boolean;
-  activeMobile?: boolean;
+  /** Frozen table chrome host (Type / Amount / Add Frame, column headers). */
+  headerHost?: HTMLElement | null;
+  /** Shared frames-list host for this table. */
+  bodyHost?: HTMLElement | null;
 }
 
 export function CounterSectionColumn({
@@ -45,7 +46,8 @@ export function CounterSectionColumn({
   entries,
   snookerQuick = false,
   poolMiniQuick = false,
-  activeMobile = true,
+  headerHost = null,
+  bodyHost = null,
 }: CounterSectionColumnProps) {
   const [unassignedEntry, setUnassignedEntry] = useState<NotebookEntryDTO | null>(null);
   const [rummySection, setRummySection] = useState<NotebookSection | null>(null);
@@ -71,8 +73,6 @@ export function CounterSectionColumn({
   const showTypeColumn = !poolMiniQuick;
   const quickButtons =
     snookerQuick || poolMiniQuick ? [] : getPresetsForSection(section);
-  const tableName = sectionLabel(section);
-  const summary = summarizeTableLedger(entries);
 
   const toRatedPreset = (
     btn: SnookerQuickPreset | NotebookPreset
@@ -112,25 +112,8 @@ export function CounterSectionColumn({
     setEditFrameEntry(savedEntryById[entry.id] ?? entry);
   };
 
-  const stickyChrome = (
+  const tableChrome = (
     <>
-      <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2.5">
-        <h3 className="min-w-0 flex-1 truncate text-[15px] font-bold tracking-tight text-gray-900">
-          {tableName}
-        </h3>
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-            summary.isActive
-              ? "bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-200"
-              : "bg-gray-50 text-gray-500 ring-1 ring-inset ring-gray-200"
-          )}
-        >
-          {summary.isActive ? "Active" : "Idle"}
-        </span>
-        <TableCardOverflowMenu tableName={tableName} />
-      </div>
-
       {quickButtons.length > 0 && (
         <div className="flex gap-1.5 border-b border-gray-100 px-2.5 py-2">
           {quickButtons.map((btn) => (
@@ -151,50 +134,74 @@ export function CounterSectionColumn({
       ) : poolMiniQuick ? (
         <PoolMiniAddRow section={section} />
       ) : null}
+
+      <div className="hidden lg:block">
+        <CounterLedgerHeader showTypeColumn={showTypeColumn} />
+      </div>
     </>
   );
 
-  const column = (
-    <div className="overflow-clip rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
-      <CounterLedgerTable
-        stickyChrome={stickyChrome}
-        showTypeColumn={showTypeColumn}
-      >
+  const rowProps = {
+    frameEditable: ledgerEditable,
+    allowSplit: !poolMiniQuick,
+    showTypeColumn,
+    onEditFrame: handleEditEntry,
+    onDeleteFrame: setDeleteFrameEntry,
+    onEditSplit: (row: NotebookEntryDTO) => setSplitEntry(row),
+    onUnassignedAction: setUnassignedEntry,
+    onCorrect: setCorrectEntry,
+    onShowCorrectionHistory: setHistoryEntry,
+  };
+
+  const framesBody = (
+    <>
+        <div className="divide-y divide-black/[0.05] lg:hidden">
         {entries.length === 0 ? (
-          <tr>
-            <td
-              colSpan={counterLedgerColSpan(showTypeColumn)}
-              className="px-3 py-8 text-center text-[13px] font-medium text-gray-400"
-            >
-              No frames yet
-            </td>
-          </tr>
+          <p className="px-3 py-8 text-center text-[13px] font-medium text-gray-400">
+            No frames yet
+          </p>
         ) : (
           entries.map((entry) => (
             <CompactLedgerRow
               key={entry.id}
               entry={entry}
-              frameEditable={ledgerEditable}
-              allowSplit={!poolMiniQuick}
-              showTypeColumn={showTypeColumn}
-              onEditFrame={handleEditEntry}
-              onDeleteFrame={setDeleteFrameEntry}
-              onEditSplit={(row) => setSplitEntry(row)}
-              onUnassignedAction={setUnassignedEntry}
-              onCorrect={setCorrectEntry}
-              onShowCorrectionHistory={setHistoryEntry}
+              presentation="mobile"
+              {...rowProps}
             />
           ))
         )}
-      </CounterLedgerTable>
-    </div>
+      </div>
+
+      <div className="hidden lg:block">
+        <CounterLedgerTable showTypeColumn={showTypeColumn} showHeader={false}>
+          {entries.length === 0 ? (
+            <tr>
+              <td
+                colSpan={counterLedgerColSpan(showTypeColumn)}
+                className="px-3 py-8 text-center text-[13px] font-medium text-gray-400"
+              >
+                No frames yet
+              </td>
+            </tr>
+          ) : (
+            entries.map((entry) => (
+              <CompactLedgerRow
+                key={entry.id}
+                entry={entry}
+                presentation="table"
+                {...rowProps}
+              />
+            ))
+          )}
+        </CounterLedgerTable>
+      </div>
+    </>
   );
 
   return (
     <>
-      <div className={cn("min-w-0", activeMobile ? "block" : "hidden lg:block")}>
-        {column}
-      </div>
+      {headerHost ? createPortal(tableChrome, headerHost) : null}
+      {bodyHost ? createPortal(framesBody, bodyHost) : null}
       <UnassignedEntryDialog
         entry={unassignedEntry}
         onClose={() => setUnassignedEntry(null)}
