@@ -11,9 +11,9 @@ export const ledgerCellTypeClass =
 export const ledgerCellCustomerClass =
   "counter-ledger-customer min-w-0 overflow-hidden py-2.5 pl-1 pr-0.5 text-left";
 export const ledgerCellAmountClass =
-  "counter-ledger-amount overflow-hidden whitespace-nowrap py-2.5 pl-0.5 pr-1 text-right";
+  "counter-ledger-amount overflow-hidden whitespace-nowrap py-2.5 pl-0.5 pr-4 text-right";
 export const ledgerCellDueClass =
-  "counter-ledger-due overflow-hidden whitespace-nowrap px-1 py-2.5 text-left";
+  "counter-ledger-due overflow-hidden whitespace-nowrap py-2.5 pl-4 pr-1 text-left";
 export const ledgerCellActionsClass =
   "counter-ledger-actions py-2.5 pl-0.5 pr-2 text-right";
 
