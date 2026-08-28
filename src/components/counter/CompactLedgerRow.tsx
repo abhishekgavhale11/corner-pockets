@@ -256,11 +256,11 @@ function SplitContributorRow({
           ) : null}
         </>
       )}
-      <td className="min-w-0 max-w-0 overflow-hidden px-3 py-2 align-middle">
+      <td className="min-w-0 max-w-0 overflow-clip px-3 py-2 align-middle">
         <CustomerNameCell
           customerId={contributor.customerId}
           customerName={contributor.customerName}
-          className="block min-w-0 truncate"
+          className="block min-w-0 overflow-clip text-ellipsis whitespace-nowrap"
         />
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-right align-middle text-[13px] font-bold tabular-nums text-gray-900">
@@ -382,7 +382,7 @@ export function CompactLedgerRow({
     <button
       type="button"
       onClick={handleUnassignedClick}
-      className="block w-full min-w-0 truncate text-left text-[13px] font-semibold text-gray-400 hover:text-emerald-800"
+      className="block w-full min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-left text-[13px] font-semibold text-gray-400 hover:text-emerald-800"
     >
       Unassigned
     </button>
@@ -390,10 +390,10 @@ export function CompactLedgerRow({
     <CustomerNameCell
       customerId={entry.customerId}
       customerName={entry.customerName ?? "Customer"}
-      className="block w-full min-w-0 truncate"
+      className="block w-full min-w-0 overflow-clip text-ellipsis whitespace-nowrap"
     />
   ) : (
-    <span className="block min-w-0 truncate text-left text-[14px] font-bold leading-snug text-gray-900">
+    <span className="block min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-left text-[14px] font-bold leading-snug text-gray-900">
       {entry.customerName}
     </span>
   );
@@ -460,7 +460,7 @@ export function CompactLedgerRow({
           {typeCell}
         </td>
       ) : null}
-      <td className="min-w-0 max-w-0 overflow-hidden px-3 py-2 align-middle">
+      <td className="min-w-0 max-w-0 overflow-clip px-3 py-2 align-middle">
         <FieldCell correction={byField.customer}>{nameCell}</FieldCell>
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-right align-middle text-[13px] font-bold tabular-nums text-gray-900">

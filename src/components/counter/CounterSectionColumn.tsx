@@ -155,7 +155,7 @@ export function CounterSectionColumn({
   );
 
   const column = (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
+    <div className="overflow-clip rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5">
       <CounterLedgerTable
         stickyChrome={stickyChrome}
         showTypeColumn={showTypeColumn}

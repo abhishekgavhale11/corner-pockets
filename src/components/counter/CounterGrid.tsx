@@ -40,7 +40,7 @@ export function CounterGrid({
         }
       />
 
-      <div className="mb-2 flex gap-1.5 overflow-x-auto lg:hidden">
+      <div className="mb-2 flex gap-1.5 overflow-x-auto overflow-y-clip lg:hidden">
         {sections.map((section) => (
           <button
             key={section}

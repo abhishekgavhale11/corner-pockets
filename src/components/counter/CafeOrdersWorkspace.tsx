@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   assignCafeOrderCustomerAction,
@@ -210,6 +211,32 @@ function orderItemsSummary(order: CafeOrderDTO): string {
   return parts.length > 0 ? parts.join(", ") : "No items";
 }
 
+function orderItemCount(order: CafeOrderDTO): number {
+  let count = 0;
+  for (const item of order.items) {
+    if (isQtyCafeItemType(item.type)) {
+      count += item.quantity ?? 0;
+    } else {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function ChevronIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M6 3.5 11 8 6 12.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** Due column: "Paid" (or payment mode) when settled — never ₹0. */
 function CafeDueDisplay({
   due,
@@ -252,6 +279,95 @@ function CafeDueDisplay({
     >
       {formatCurrency(due)}
     </span>
+  );
+}
+
+function CafeMobileOrderRow({
+  order,
+  selected,
+  onOpen,
+  onDelete,
+}: {
+  order: CafeOrderDTO;
+  selected: boolean;
+  onOpen: () => void;
+  onDelete?: () => void;
+}) {
+  const due = frameDueAmount(order.amount, order.received);
+  const count = orderItemCount(order);
+  const countLabel =
+    count === 1 ? "1 item" : `${count} items`;
+  const itemsSummary = orderItemsSummary(order);
+  const subtitle =
+    itemsSummary === "No items" ? countLabel : `${countLabel} · ${itemsSummary}`;
+
+  return (
+    <div
+      className={cn(
+        "flex items-stretch border-b border-gray-100 last:border-b-0",
+        selected ? "bg-emerald-50" : "bg-white active:bg-gray-50"
+      )}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onOpen}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpen();
+          }
+        }}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-3 py-2.5 text-left"
+      >
+        <span
+          className={cn(
+            "h-2 w-2 shrink-0 rounded-full",
+            statusDotClass(due, order.received, Boolean(order.customerId))
+          )}
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline justify-between gap-3">
+            {order.customerId ? (
+              <CustomerPreviewNameButton
+                customerId={order.customerId}
+                customerName={order.customerName}
+                className="text-[15px] font-semibold"
+              />
+            ) : (
+              <span className="truncate text-[15px] font-semibold leading-tight text-gray-900">
+                {order.customerName}
+              </span>
+            )}
+            <span className="shrink-0 text-[15px] font-bold tabular-nums text-gray-900">
+              {formatCurrency(order.amount)}
+            </span>
+          </span>
+          <span className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-[12px] text-gray-500">
+              {subtitle}
+            </span>
+            <CafeDueDisplay
+              due={due}
+              paymentMethod={order.paymentMethod}
+              className="shrink-0"
+            />
+          </span>
+        </span>
+        <ChevronIcon className="h-4 w-4 shrink-0 text-gray-400" />
+      </div>
+      {onDelete ? (
+        <button
+          type="button"
+          className="shrink-0 px-2.5 text-red-600"
+          aria-label={`Delete cafe order for ${order.customerName}`}
+          onClick={onDelete}
+        >
+          <TrashIcon />
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -558,7 +674,13 @@ function CafeOrderPanel({
   };
 
   return (
-    <aside className="flex max-h-[min(calc(100vh-8.5rem),calc(100dvh-7rem))] min-h-0 w-full max-w-md shrink-0 flex-col self-start overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm shadow-gray-900/5 lg:sticky lg:top-3">
+    <aside className="z-10 flex max-h-[min(92dvh,40rem)] min-h-0 w-full max-w-none shrink-0 flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-2xl shadow-gray-900/20 pb-[max(0.5rem,env(safe-area-inset-bottom))] max-lg:relative lg:max-h-[min(calc(100vh-8.5rem),calc(100dvh-7rem))] lg:max-w-md lg:rounded-xl lg:pb-0 lg:shadow-sm lg:shadow-gray-900/5">
+      <div
+        className="flex shrink-0 justify-center pt-2 lg:hidden"
+        aria-hidden
+      >
+        <span className="h-1 w-10 rounded-full bg-gray-300" />
+      </div>
       <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-200 px-4 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -597,7 +719,7 @@ function CafeOrderPanel({
         </button>
       </div>
 
-      <div className="min-h-0 space-y-[18px] overflow-y-auto px-4 py-3">
+      <div className="min-h-0 flex-1 space-y-[18px] overflow-x-hidden overflow-y-auto px-4 py-3">
         <section className="shrink-0 space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
             Add Item
@@ -896,8 +1018,10 @@ function CafeOrderPanel({
           />
 
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        </div>
+      </div>
 
-          <div className="mt-2.5 flex gap-2 border-t border-gray-200 pt-3">
+      <div className="flex shrink-0 gap-2 border-t border-gray-200 px-4 py-3">
             <Button
               variant="secondary"
               className="h-10 flex-1"
@@ -913,8 +1037,6 @@ function CafeOrderPanel({
             >
               {isPending ? "Saving…" : "Save Changes"}
             </Button>
-          </div>
-        </div>
       </div>
 
       {editingManual && (
@@ -983,34 +1105,65 @@ export function CafeOrdersWorkspace({
   );
 
   const selectedOrderId = panel?.mode === "edit" ? panel.order.id : null;
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
 
   const openOrder = (order: CafeOrderDTO) => {
     setPanel({ mode: "edit", order });
   };
+
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setIsMobileViewport(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    if (!panel || !isMobileViewport) return;
+
+    const previousBody = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousBody;
+    };
+  }, [panel, isMobileViewport]);
+
+  const orderPanel = panel ? (
+    <CafeOrderPanel
+      mode={panel.mode}
+      order={panel.mode === "edit" ? panel.order : null}
+      onClose={() => setPanel(null)}
+    />
+  ) : null;
 
   return (
     <CustomerPreviewProvider>
     <CounterWorkspaceTabs
       trailing={<NewCustomerButton onClick={() => setNewCustomerOpen(true)} />}
     />
-    <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-      <div className="min-w-0 flex-1">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-bold text-gray-900">Cafe Orders</h2>
-          <div className="flex flex-wrap items-center gap-2">
+    <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start">
+      <div className="min-w-0 flex-1 overflow-x-clip">
+        <div className="mb-2 flex min-w-0 flex-col gap-2 lg:mb-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <h2 className="truncate text-[15px] font-bold text-gray-900 lg:text-base">
+              Cafe Orders
+            </h2>
             <Button
               variant="secondary"
-              className="border-emerald-700 text-emerald-900"
+              className="h-9 shrink-0 border-emerald-700 px-3 text-xs text-emerald-900 lg:text-sm"
               onClick={() => setPanel({ mode: "create", order: null })}
             >
               + New Cafe Order
             </Button>
-            <div className="relative">
+          </div>
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="relative min-w-0 flex-1 lg:flex-none">
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search customer..."
-                className="h-9 w-48 pl-8 text-sm"
+                className="h-9 w-full min-w-0 pl-8 text-sm lg:w-48"
               />
               <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400">
                 <SearchIcon />
@@ -1018,7 +1171,7 @@ export function CafeOrdersWorkspace({
             </div>
             <button
               type="button"
-              className="flex h-9 w-9 items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
+              className="hidden h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-200 text-gray-500 hover:bg-gray-50 lg:flex"
               aria-label="Filter"
               title="Filter (coming soon)"
             >
@@ -1059,7 +1212,10 @@ export function CafeOrdersWorkspace({
                     )}
                   >
                     <div className="min-w-0">
-                      <p className="font-medium text-gray-900">
+                      <p className="truncate font-semibold text-gray-900">
+                        {order.customerName}
+                      </p>
+                      <p className="truncate text-xs text-gray-600">
                         {orderItemsSummary(order)}
                       </p>
                       <p className="text-xs text-gray-500">
@@ -1112,16 +1268,57 @@ export function CafeOrdersWorkspace({
           </div>
         )}
 
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-clip rounded-xl border border-gray-200 bg-white lg:hidden">
+          {assigned.length === 0 ? (
+            <p className="px-3 py-8 text-center text-sm text-gray-400">
+              No cafe orders yet.
+            </p>
+          ) : (
+            assigned.map((order) => (
+              <CafeMobileOrderRow
+                key={order.id}
+                order={order}
+                selected={selectedOrderId === order.id}
+                onOpen={() => openOrder(order)}
+                onDelete={() => {
+                  setDeleteError(null);
+                  setDeleteOrderId(order.id);
+                }}
+              />
+            ))
+          )}
+          <div className="border-t border-gray-200 bg-gray-50 px-3 py-2 text-[11px] text-gray-600">
+            <p>
+              Showing {assigned.length} cafe{" "}
+              {assigned.length === 1 ? "order" : "orders"}
+            </p>
+            <p className="mt-0.5 tabular-nums">
+              Total Amount: {formatCurrency(totals.amount)} · Received:{" "}
+              {formatCurrency(totals.received)} ·{" "}
+              {totals.due > 0 ? (
+                <span className="font-semibold text-red-600">
+                  Due: {formatCurrency(totals.due)}
+                </span>
+              ) : assigned.length > 0 ? (
+                <span className="font-semibold text-emerald-700">Due: Paid</span>
+              ) : (
+                <span>Due: {formatCurrency(0)}</span>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="hidden overflow-clip rounded-xl border border-gray-200 bg-white shadow-sm lg:block">
+          <div className="overflow-x-auto overflow-y-clip overscroll-x-contain">
+          <table className="w-full min-w-[44rem] text-left text-sm">
             <thead className="border-b border-gray-200 bg-gray-50 text-[11px] font-bold uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="px-3 py-2.5">Customer / Status</th>
+                <th className="whitespace-nowrap px-3 py-2.5">Customer / Status</th>
                 <th className="px-3 py-2.5">Items</th>
-                <th className="px-3 py-2.5 text-right">Amount</th>
-                <th className="px-3 py-2.5 text-right">Received</th>
-                <th className="px-3 py-2.5 text-right">Due</th>
-                <th className="px-3 py-2.5 text-right">Action</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">Amount</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">Received</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">Due</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -1191,33 +1388,20 @@ export function CafeOrdersWorkspace({
                           paymentMethod={order.paymentMethod}
                         />
                       </td>
-                      <td className="px-3 py-3 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openOrder(order);
-                            }}
-                          >
-                            <PencilIcon className="text-emerald-700" />
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteError(null);
-                              setDeleteOrderId(order.id);
-                            }}
-                            disabled={isPending}
-                          >
-                            <TrashIcon className="text-red-600" />
-                            Delete
-                          </button>
-                        </div>
+                      <td className="whitespace-nowrap px-3 py-3 text-right">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteError(null);
+                            setDeleteOrderId(order.id);
+                          }}
+                          disabled={isPending}
+                        >
+                          <TrashIcon className="text-red-600" />
+                          Delete
+                        </button>
                       </td>
                     </tr>
                   );
@@ -1225,6 +1409,7 @@ export function CafeOrdersWorkspace({
               )}
             </tbody>
           </table>
+          </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
             <span>
@@ -1252,17 +1437,34 @@ export function CafeOrdersWorkspace({
         </div>
       </div>
 
-      {panel ? (
-        <CafeOrderPanel
-          mode={panel.mode}
-          order={panel.mode === "edit" ? panel.order : null}
-          onClose={() => setPanel(null)}
-        />
-      ) : (
-        <div className="hidden w-full max-w-md shrink-0 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 px-6 py-16 text-center text-sm text-gray-400 lg:flex">
-          Select a cafe order to view details
-        </div>
-      )}
+      {isMobileViewport
+        ? panel && typeof document !== "undefined"
+          ? createPortal(
+              <div className="fixed inset-0 z-[180] flex items-end justify-center">
+                <button
+                  type="button"
+                  className="absolute inset-0 bg-black/45"
+                  aria-label="Close cafe order"
+                  onClick={() => setPanel(null)}
+                />
+                <div className="relative z-10 w-full max-w-lg">
+                  {orderPanel}
+                </div>
+              </div>,
+              document.body
+            )
+          : null
+        : panel
+          ? (
+            <div className="sticky top-2 z-20 w-full max-w-md shrink-0 self-start">
+              {orderPanel}
+            </div>
+          )
+          : (
+            <div className="sticky top-2 hidden w-full max-w-md shrink-0 items-center justify-center self-start rounded-xl border border-dashed border-gray-200 bg-gray-50 px-6 py-16 text-center text-sm text-gray-400 lg:flex">
+              Select a cafe order to view details
+            </div>
+          )}
 
       <CafeNewTabDialog
         open={newCustomerOpen}

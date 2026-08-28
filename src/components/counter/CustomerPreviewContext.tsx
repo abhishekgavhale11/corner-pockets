@@ -310,7 +310,7 @@ export function CustomerPreviewNameButton({
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       className={cn(
-        "block min-w-0 truncate text-left text-[14px] font-bold leading-snug text-gray-900 hover:text-emerald-800",
+        "block min-w-0 overflow-clip text-ellipsis whitespace-nowrap text-left text-[14px] font-bold leading-snug text-gray-900 hover:text-emerald-800",
         selected && "text-emerald-900",
         className
       )}
