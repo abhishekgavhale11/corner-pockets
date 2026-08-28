@@ -22,3 +22,124 @@ textarea,
 select {
   font-size: 16px;
 }
+
+/*
+  Counter ledger row: TIME | TYPE | CUSTOMER | AMOUNT | DUE | ACTIONS
+
+  Tracks are definite (not content-sized) so header/body and T1/T2/T3 align.
+  On wide cards TYPE is capped to the longest label (~Singles (HH)); CUSTOMER
+  takes remaining space. TYPE still shrinks to 0 before CUSTOMER loses width.
+*/
+.counter-ledger-container {
+  width: 100%;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.counter-ledger-table,
+.counter-ledger-table :is(thead, tbody) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.counter-ledger-row,
+.counter-ledger-row-no-type {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  overflow-x: hidden;
+}
+
+.counter-ledger-row {
+  /* 22.25rem = TIME 3 + CUSTOMER floor 8 + AMOUNT 3.75 + DUE 4 + ACTIONS 3.5.
+     TYPE takes leftover up to 5.75rem (full Singles (HH) / Ind (HH)),
+     then shrinks to 0 before CUSTOMER loses width. */
+  grid-template-columns:
+    minmax(0, 3rem)
+    clamp(0rem, calc(100% - 22.25rem), 5.75rem)
+    minmax(0, 1fr)
+    3.75rem
+    4rem
+    3.5rem;
+}
+
+.counter-ledger-row-no-type {
+  grid-template-columns:
+    minmax(0, 3rem)
+    minmax(0, 1fr)
+    3.75rem
+    4rem
+    3.5rem;
+}
+
+.counter-ledger-time,
+.counter-ledger-type,
+.counter-ledger-customer,
+.counter-ledger-amount,
+.counter-ledger-due,
+.counter-ledger-actions {
+  min-width: 0;
+}
+
+.counter-ledger-time {
+  overflow: hidden;
+}
+
+.counter-ledger-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.counter-ledger-customer {
+  overflow: hidden;
+}
+
+.counter-ledger-empty-cell {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+@container (max-width: 20rem) {
+  .counter-ledger-type {
+    display: none;
+  }
+
+  .counter-ledger-row {
+    grid-template-columns:
+      minmax(0, 3rem)
+      minmax(8rem, 1fr)
+      3.75rem
+      4rem
+      3.5rem;
+  }
+}
+
+@container (max-width: 18rem) {
+  .counter-ledger-row,
+  .counter-ledger-row-no-type {
+    grid-template-columns:
+      minmax(0, 2.35rem)
+      minmax(8rem, 1fr)
+      3.75rem
+      4rem
+      3.5rem;
+  }
+}
+
+@container (max-width: 16rem) {
+  .counter-ledger-time {
+    display: none;
+  }
+
+  .counter-ledger-row,
+  .counter-ledger-row-no-type {
+    grid-template-columns:
+      minmax(0, 1fr)
+      3.75rem
+      4rem
+      3.5rem;
+  }
+}

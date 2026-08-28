@@ -13,8 +13,8 @@ const LEGACY_SNOOKER_AMOUNT_LABELS: Record<number, string> = {
   160: "Singles",
   130: "Singles",
   150: "Singles",
-  180: "Individual",
-  190: "Individual",
+  180: "Ind",
+  190: "Ind",
   120: "Shuffle",
   100: "Shuffle",
 };

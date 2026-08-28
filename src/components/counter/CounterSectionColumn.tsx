@@ -14,6 +14,7 @@ import {
   CounterLedgerHeader,
   CounterLedgerTable,
   counterLedgerColSpan,
+  ledgerRowClass,
 } from "@/components/counter/CounterLedgerTable";
 import { SnookerFrameAddRow } from "@/components/counter/SnookerFrameAddRow";
 import { SnookerFrameEditDialog } from "@/components/counter/SnookerFrameEditDialog";
@@ -175,10 +176,10 @@ export function CounterSectionColumn({
       <div className="hidden lg:block">
         <CounterLedgerTable showTypeColumn={showTypeColumn} showHeader={false}>
           {entries.length === 0 ? (
-            <tr>
+            <tr className={ledgerRowClass(showTypeColumn)}>
               <td
                 colSpan={counterLedgerColSpan(showTypeColumn)}
-                className="px-3 py-8 text-center text-[13px] font-medium text-gray-400"
+                className="counter-ledger-empty-cell px-3 py-8 text-center text-[13px] font-medium text-gray-400"
               >
                 No frames yet
               </td>

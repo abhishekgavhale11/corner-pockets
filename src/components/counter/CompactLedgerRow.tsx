@@ -23,6 +23,7 @@ import {
   ledgerCellDueClass,
   ledgerCellTimeClass,
   ledgerCellTypeClass,
+  ledgerRowClass,
 } from "@/components/counter/CounterLedgerTable";
 import { frameDueFromParts } from "@/lib/utils/frame-payment";
 import { isSnookerFrameEntry } from "@/lib/utils/snooker-frame";
@@ -373,6 +374,7 @@ function SplitContributorRow({
   return (
     <tr
       className={cn(
+        ledgerRowClass(showTypeColumn),
         splitContributorRowClass(entry, index, total, contributor),
         customerPreviewRowClass(contributorPreview.isSelected),
         "cursor-pointer"
@@ -695,6 +697,7 @@ export function CompactLedgerRow({
   return (
     <tr
       className={cn(
+        ledgerRowClass(showTypeColumn),
         entryRowClass(entry),
         entry.customerId && customerPreviewRowClass(rowPreview.isSelected),
         entry.customerId && "cursor-pointer"

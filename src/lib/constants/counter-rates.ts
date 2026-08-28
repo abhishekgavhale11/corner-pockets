@@ -8,7 +8,7 @@ export type SnookerGame = (typeof SNOOKER_GAMES)[number];
 
 export const SNOOKER_GAME_LABELS: Record<SnookerGame, string> = {
   SINGLES: "Singles",
-  INDIVIDUAL: "Individual",
+  INDIVIDUAL: "Ind",
   SHUFFLE: "Shuffle",
 };
 

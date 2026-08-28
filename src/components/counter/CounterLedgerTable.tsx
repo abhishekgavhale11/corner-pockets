@@ -1,42 +1,28 @@
 import { cn } from "@/lib/utils/cn";
 
-const COL_TIME = "3rem";
-const COL_TYPE = "2.5rem";
-const COL_AMOUNT = "3.75rem";
-const COL_DUE = "4rem";
-const COL_ACTIONS = "3.5rem";
-
-function LedgerColgroup({ showTypeColumn }: { showTypeColumn: boolean }) {
-  return (
-    <colgroup>
-      <col style={{ width: COL_TIME }} />
-      {showTypeColumn ? <col style={{ width: COL_TYPE }} /> : null}
-      <col />
-      <col style={{ width: COL_AMOUNT }} />
-      <col style={{ width: COL_DUE }} />
-      <col style={{ width: COL_ACTIONS }} />
-    </colgroup>
-  );
+export function ledgerRowClass(showTypeColumn: boolean): string {
+  return showTypeColumn ? "counter-ledger-row" : "counter-ledger-row-no-type";
 }
 
 export const ledgerCellTimeClass =
-  "overflow-hidden py-2.5 pl-2 pr-0.5 text-left";
+  "counter-ledger-time overflow-hidden py-2.5 pl-2 pr-0.5 text-left";
 export const ledgerCellTypeClass =
-  "min-w-0 overflow-hidden px-1 py-2.5 text-left";
+  "counter-ledger-type min-w-0 overflow-hidden text-ellipsis whitespace-nowrap py-2.5 pl-1 pr-1 text-left";
 export const ledgerCellCustomerClass =
-  "min-w-0 overflow-hidden px-1.5 py-2.5 text-left";
+  "counter-ledger-customer min-w-0 overflow-hidden py-2.5 pl-1 pr-0.5 text-left";
 export const ledgerCellAmountClass =
-  "overflow-hidden whitespace-nowrap px-1 py-2.5 text-right";
+  "counter-ledger-amount overflow-hidden whitespace-nowrap py-2.5 pl-0.5 pr-1 text-right";
 export const ledgerCellDueClass =
-  "overflow-hidden whitespace-nowrap px-1 py-2.5 text-left";
-export const ledgerCellActionsClass = "py-2.5 pl-0.5 pr-2 text-right";
+  "counter-ledger-due overflow-hidden whitespace-nowrap px-1 py-2.5 text-left";
+export const ledgerCellActionsClass =
+  "counter-ledger-actions py-2.5 pl-0.5 pr-2 text-right";
 
 const HEADER_CELL =
   "overflow-hidden text-ellipsis whitespace-nowrap py-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500";
 
 function HeaderRow({ showTypeColumn }: { showTypeColumn: boolean }) {
   return (
-    <tr>
+    <tr className={ledgerRowClass(showTypeColumn)}>
       <th className={cn(ledgerCellTimeClass, HEADER_CELL, "py-2")}>Time</th>
       {showTypeColumn ? (
         <th className={cn(ledgerCellTypeClass, HEADER_CELL, "py-2")}>Type</th>
@@ -79,17 +65,18 @@ function LedgerTable({
   headerBorderClass: string;
 }) {
   return (
-    <table
-      className={cn("w-full min-w-0 table-fixed border-collapse", className)}
-    >
-      <LedgerColgroup showTypeColumn={showTypeColumn} />
-      {showHeader ? (
-        <thead className={headerBorderClass}>
-          <HeaderRow showTypeColumn={showTypeColumn} />
-        </thead>
-      ) : null}
-      {children ? <tbody>{children}</tbody> : null}
-    </table>
+    <div className="counter-ledger-container">
+      <table
+        className={cn("counter-ledger-table border-collapse", className)}
+      >
+        {showHeader ? (
+          <thead className={headerBorderClass}>
+            <HeaderRow showTypeColumn={showTypeColumn} />
+          </thead>
+        ) : null}
+        {children ? <tbody>{children}</tbody> : null}
+      </table>
+    </div>
   );
 }
 
