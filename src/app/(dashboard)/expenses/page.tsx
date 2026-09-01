@@ -33,6 +33,7 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
       <Suspense fallback={<div className="h-16 rounded-lg bg-gray-100" />}>
         <ExpenseFilters
           category={result.category}
+          subcategory={result.subcategory}
           from={result.from}
           to={result.to}
         />
@@ -43,6 +44,8 @@ export default async function ExpensesPage({ searchParams }: ExpensesPageProps) 
         totalAmount={result.totalAmount}
         canCreate={canCreate}
         canManage={canManage}
+        category={result.category}
+        subcategory={result.subcategory}
       />
     </div>
   );

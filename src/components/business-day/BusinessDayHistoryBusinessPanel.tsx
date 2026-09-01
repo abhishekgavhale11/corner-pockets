@@ -349,13 +349,17 @@ function SnookerTable({
   ];
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[420px] border-collapse text-sm">
+    <div className="min-w-0 overflow-x-hidden">
+      <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
             <th className="px-2 py-1.5 font-semibold"> </th>
-            <th className="px-2 py-1.5 font-semibold">Big Snooker</th>
-            <th className="px-2 py-1.5 font-semibold">Pool & Mini</th>
+            <th className="hidden px-2 py-1.5 font-semibold md:table-cell">
+              Big Snooker
+            </th>
+            <th className="hidden px-2 py-1.5 font-semibold md:table-cell">
+              Pool & Mini
+            </th>
             <th className="rounded-t-md bg-emerald-50/80 px-2 py-1.5 font-semibold text-emerald-800">
               Total Snooker
             </th>
@@ -393,8 +397,8 @@ function SnookerTable({
                   <td
                     key={`${row.label}-${index}`}
                     className={`px-2 py-2 text-[13px] font-semibold tabular-nums ${valueClass} ${
-                      index === 2 ? "bg-emerald-50/80" : ""
-                    }`}
+                      index < 2 ? "hidden md:table-cell" : ""
+                    } ${index === 2 ? "bg-emerald-50/80" : ""}`}
                   >
                     {row.money ? formatCurrency(value) : value}
                   </td>

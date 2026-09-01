@@ -36,6 +36,7 @@ import { toNotebookEntryDTO } from "@/lib/mappers/notebook";
 import { formatCurrency } from "@/lib/utils/format";
 import { applyTimeToDate } from "@/lib/utils/format-time";
 import { framePaymentStatus } from "@/lib/utils/frame-payment";
+import { contributorPersistedPayment } from "@/lib/utils/contributor-payment";
 import { applySingleCustomerEntryPayment } from "@/lib/notebook/apply-entry-payment";
 import type { PaymentAllocation } from "@/lib/utils/payment-allocations";
 import {
@@ -1131,20 +1132,33 @@ export async function setEntryContributors(
       return failure("Customer not found");
     }
 
-    const paidAmount = row.paidAmount ?? 0;
-    totalPaid += paidAmount;
+    const persisted = contributorPersistedPayment({
+      amount: row.amount,
+      paidAmount: row.paidAmount ?? 0,
+      paymentMethod: row.paymentMethod,
+    });
+    if (!persisted.ok) {
+      return failure(persisted.error);
+    }
 
-    const method =
-      paidAmount > 0 && row.paymentMethod ? row.paymentMethod : undefined;
+    totalPaid += persisted.paidAmount;
+
     const contributorDoc: (typeof contributorDocs)[number] = {
       customerId: customer._id,
       customerName: customer.name,
       amount: row.amount,
-      paidAmount,
-      status: framePaymentStatus(row.amount, paidAmount),
-      paymentMethod: method,
+      paidAmount: persisted.paidAmount,
+      status: persisted.status,
+      ...(persisted.paymentMethod
+        ? { paymentMethod: persisted.paymentMethod }
+        : {}),
     };
-    applyCashGpayReceipt(contributorDoc, receiptActor, method, paidAmount);
+    applyCashGpayReceipt(
+      contributorDoc,
+      receiptActor,
+      persisted.paymentMethod,
+      persisted.paidAmount
+    );
     contributorDocs.push(contributorDoc);
   }
 

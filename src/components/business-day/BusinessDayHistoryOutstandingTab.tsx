@@ -87,7 +87,7 @@ export function BusinessDayHistoryOutstandingTab({
             { key: "customer", label: "Customer" },
             { key: "amount", label: "Amount", align: "right" },
           ]}
-          minWidth="420px"
+          minWidth="0"
         >
           {trend.created.map((row) => (
             <HistoryTableRow key={row.customerId}>
@@ -113,9 +113,14 @@ export function BusinessDayHistoryOutstandingTab({
           columns={[
             { key: "customer", label: "Customer" },
             { key: "amount", label: "Amount Collected", align: "right" },
-            { key: "method", label: "Payment Mode", align: "right" },
+            {
+              key: "method",
+              label: "Payment Mode",
+              align: "right",
+              className: "hidden md:table-cell",
+            },
           ]}
-          minWidth="520px"
+          minWidth="0"
         >
           {trend.recovered.map((row, index) => (
             <HistoryTableRow
@@ -130,7 +135,7 @@ export function BusinessDayHistoryOutstandingTab({
               <HistoryTableCell align="right">
                 <AmountCell amount={row.amount} tone="positive" />
               </HistoryTableCell>
-              <HistoryTableCell align="right">
+              <HistoryTableCell align="right" className="hidden md:table-cell">
                 <PaymentBadge method={row.paymentMethod} />
               </HistoryTableCell>
             </HistoryTableRow>

@@ -141,8 +141,8 @@ export function BusinessDayHistoryFilters({
           </span>
         </div>
 
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-[9.5rem]">
+        <div className="flex w-full min-w-0 flex-wrap items-end gap-2 xl:w-auto">
+          <div className="min-w-0 flex-1 sm:min-w-[9.5rem] sm:flex-none">
             <Label htmlFor="history-from">From Date</Label>
             <Input
               id="history-from"
@@ -150,10 +150,10 @@ export function BusinessDayHistoryFilters({
               value={draftFrom}
               onChange={(event) => setDraftFrom(event.target.value)}
               disabled={isPending}
-              className="mt-1"
+              className="mt-1 w-full"
             />
           </div>
-          <div className="min-w-[9.5rem]">
+          <div className="min-w-0 flex-1 sm:min-w-[9.5rem] sm:flex-none">
             <Label htmlFor="history-to">To Date</Label>
             <Input
               id="history-to"
@@ -161,7 +161,7 @@ export function BusinessDayHistoryFilters({
               value={draftTo}
               onChange={(event) => setDraftTo(event.target.value)}
               disabled={isPending}
-              className="mt-1"
+              className="mt-1 w-full"
             />
           </div>
           <Button

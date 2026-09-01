@@ -40,6 +40,7 @@ export interface CustomerListRowDTO {
 export interface ExpenseDTO {
   id: string;
   category: import("@/lib/constants/expenses").ExpenseCategory;
+  subcategory?: import("@/lib/constants/expenses").ExpenseSubcategory;
   amount: number;
   /** YYYY-MM-DD calendar date. */
   expenseDate: string;
@@ -57,7 +58,8 @@ export interface ExpenseListResult {
   totalAmount: number;
   from: string;
   to: string;
-  category: "all" | import("@/lib/constants/expenses").ExpenseCategory;
+  category: import("@/lib/constants/expenses").ExpenseCategory;
+  subcategory: "all" | import("@/lib/constants/expenses").ExpenseSubcategory;
 }
 
 export interface CustomerActivityEventDTO {

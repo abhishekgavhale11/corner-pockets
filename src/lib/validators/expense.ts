@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_PAYMENT_METHODS,
+  EXPENSE_SUBCATEGORIES,
+  isExpenseSubcategoryOf,
 } from "@/lib/constants/expenses";
 
 const amountSchema = z.coerce
@@ -16,8 +18,9 @@ const dateSchema = z
   .min(1, "Date is required")
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");
 
-export const expenseFormSchema = z.object({
+const expenseFieldsSchema = z.object({
   category: z.enum(EXPENSE_CATEGORIES),
+  subcategory: z.enum(EXPENSE_SUBCATEGORIES),
   amount: amountSchema,
   expenseDate: dateSchema,
   description: z
@@ -34,22 +37,67 @@ export const expenseFormSchema = z.object({
   paymentMethod: z.enum(EXPENSE_PAYMENT_METHODS),
 });
 
-export const updateExpenseSchema = expenseFormSchema.extend({
-  expenseId: z.string().min(1, "Expense is required"),
-});
+function refineCategorySubcategory(
+  data: { category: (typeof EXPENSE_CATEGORIES)[number]; subcategory: string },
+  ctx: z.RefinementCtx
+) {
+  if (!isExpenseSubcategoryOf(data.category, data.subcategory)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Select a type that matches the category",
+      path: ["subcategory"],
+    });
+  }
+}
+
+export const expenseFormSchema = expenseFieldsSchema.superRefine(
+  refineCategorySubcategory
+);
+
+export const updateExpenseSchema = expenseFieldsSchema
+  .extend({
+    expenseId: z.string().min(1, "Expense is required"),
+  })
+  .superRefine(refineCategorySubcategory);
 
 export const deleteExpenseSchema = z.object({
   expenseId: z.string().min(1, "Expense is required"),
 });
 
-export const expenseListFilterSchema = z.object({
-  category: z
-    .union([z.literal("all"), z.enum(EXPENSE_CATEGORIES)])
-    .optional()
-    .default("all"),
-  from: z.string().optional(),
-  to: z.string().optional(),
+export const updateExpenseSubcategorySchema = z.object({
+  expenseId: z.string().min(1, "Expense is required"),
+  subcategory: z.enum(EXPENSE_SUBCATEGORIES),
 });
+
+export const updateExpenseClassificationSchema = z
+  .object({
+    expenseId: z.string().min(1, "Expense is required"),
+    category: z.enum(EXPENSE_CATEGORIES).optional(),
+    subcategory: z.enum(EXPENSE_SUBCATEGORIES).optional(),
+  })
+  .refine((data) => Boolean(data.category || data.subcategory), {
+    message: "Nothing to update",
+  });
+
+export const expenseListFilterSchema = z
+  .object({
+    category: z.enum(EXPENSE_CATEGORIES).optional().default("CAFE"),
+    subcategory: z
+      .union([z.literal("all"), z.enum(EXPENSE_SUBCATEGORIES)])
+      .optional()
+      .default("all"),
+    from: z.string().optional(),
+    to: z.string().optional(),
+  })
+  .transform((data) => {
+    if (
+      data.subcategory !== "all" &&
+      !isExpenseSubcategoryOf(data.category, data.subcategory)
+    ) {
+      return { ...data, subcategory: "all" as const };
+    }
+    return data;
+  });
 
 export type ExpenseFormInput = z.infer<typeof expenseFormSchema>;
 export type ExpenseListFilterInput = z.infer<typeof expenseListFilterSchema>;

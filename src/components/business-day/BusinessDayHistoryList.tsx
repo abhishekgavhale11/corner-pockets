@@ -16,14 +16,38 @@ interface BusinessDayHistoryListProps {
   items: BusinessDayHistoryListItemDTO[];
 }
 
+const hideOnMobile = "hidden md:table-cell";
+const compactPad = "!px-1.5 md:!px-3";
+const moneyCol = `${compactPad} w-[1%]`;
+
 const COLUMNS = [
-  { key: "id", label: "Business Day" },
-  { key: "date", label: "Business Date" },
-  { key: "opened", label: "Opened" },
-  { key: "closed", label: "Closed" },
-  { key: "revenue", label: "Revenue", align: "right" as const },
-  { key: "collection", label: "Business Collection", align: "right" as const },
-  { key: "created", label: "Outstanding Created", align: "right" as const },
+  { key: "id", label: "Business Day", className: compactPad },
+  { key: "date", label: "Business Date", className: compactPad },
+  { key: "opened", label: "Opened", className: `${hideOnMobile} ${compactPad}` },
+  { key: "closed", label: "Closed", className: `${hideOnMobile} ${compactPad}` },
+  { key: "revenue", label: "Revenue", align: "right" as const, className: moneyCol },
+  {
+    key: "collection",
+    label: (
+      <>
+        <span className="md:hidden">Collection</span>
+        <span className="hidden md:inline">Business Collection</span>
+      </>
+    ),
+    align: "right" as const,
+    className: moneyCol,
+  },
+  {
+    key: "created",
+    label: (
+      <>
+        <span className="md:hidden">Outstanding</span>
+        <span className="hidden md:inline">Outstanding Created</span>
+      </>
+    ),
+    align: "right" as const,
+    className: moneyCol,
+  },
 ];
 
 function CalendarIcon() {
@@ -73,45 +97,45 @@ export function BusinessDayHistoryList({ items }: BusinessDayHistoryListProps) {
         </div>
       }
       columns={COLUMNS}
-      minWidth="960px"
+      minWidth="0"
     >
       {items.map((item) => (
         <HistoryTableRow key={item.id}>
-          <HistoryTableCell>
+          <HistoryTableCell className={compactPad}>
             <Link
               href={`/business-day/history/${item.id}`}
-              className="text-[14px] font-semibold text-emerald-700 hover:text-emerald-900"
+              className="text-[13px] font-semibold text-emerald-700 hover:text-emerald-900 md:text-[14px]"
             >
               {item.publicId}
             </Link>
           </HistoryTableCell>
-          <HistoryTableCell>
-            <span className="text-[13px] font-medium text-gray-800">
+          <HistoryTableCell className={compactPad}>
+            <span className="whitespace-nowrap text-[12px] font-medium text-gray-800 md:text-[13px]">
               {formatBusinessDayDate(item.businessDate)}
             </span>
           </HistoryTableCell>
-          <HistoryTableCell>
+          <HistoryTableCell className={`${hideOnMobile} ${compactPad}`}>
             <span className="text-[13px] tabular-nums text-gray-600">
               {formatBusinessDayTime(item.openedAt)}
             </span>
           </HistoryTableCell>
-          <HistoryTableCell>
+          <HistoryTableCell className={`${hideOnMobile} ${compactPad}`}>
             <span className="text-[13px] tabular-nums text-gray-600">
               {formatBusinessDayTime(item.closedAt)}
             </span>
           </HistoryTableCell>
-          <HistoryTableCell align="right">
-            <span className="text-[13px] font-semibold tabular-nums text-gray-900">
+          <HistoryTableCell align="right" className={moneyCol}>
+            <span className="whitespace-nowrap text-[12px] font-semibold tabular-nums text-gray-900 md:text-[13px]">
               {formatCurrency(item.todaysBill)}
             </span>
           </HistoryTableCell>
-          <HistoryTableCell align="right">
-            <span className="text-[13px] font-semibold tabular-nums text-emerald-700">
+          <HistoryTableCell align="right" className={moneyCol}>
+            <span className="whitespace-nowrap text-[12px] font-semibold tabular-nums text-emerald-700 md:text-[13px]">
               {formatCurrency(item.totalReceived)}
             </span>
           </HistoryTableCell>
-          <HistoryTableCell align="right">
-            <span className="text-[13px] font-semibold tabular-nums text-orange-600">
+          <HistoryTableCell align="right" className={moneyCol}>
+            <span className="whitespace-nowrap text-[12px] font-semibold tabular-nums text-orange-600 md:text-[13px]">
               {formatCurrency(item.outstandingCreated)}
             </span>
           </HistoryTableCell>

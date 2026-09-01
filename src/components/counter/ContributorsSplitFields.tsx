@@ -13,7 +13,10 @@ import { cn } from "@/lib/utils/cn";
 import { Input } from "@/components/ui/Input";
 import { CashGpaySegmentedControl } from "@/components/ui/CashGpaySegmentedControl";
 import { DueStatusBadge } from "@/components/counter/DueStatusBadge";
-import { resolveEntryPaymentSubmit } from "@/components/counter/EntryPaymentFields";
+import {
+  contributorReceivedPaymentModeError,
+  explicitPaymentMethod,
+} from "@/lib/utils/contributor-payment";
 
 export type ContributorPaymentMode = "CASH" | "GPAY";
 
@@ -23,7 +26,7 @@ export type ContributorRow = {
   customerName: string;
   amount: string;
   paidAmount: string;
-  /** Empty when Received = 0 (Unassigned). Required when Received > 0. */
+  /** Empty/null when Unassigned. Cash/GPay only when the cashier explicitly selects one. */
   paymentMethod: ContributorPaymentMode | "";
   initialPaidAmount?: number;
   initialPaymentMethod?: ContributorPaymentMode | "";
@@ -93,7 +96,7 @@ export function ContributorsSplitFields({
         customerId: customer.id,
         customerName: customer.name,
         amount: left > 0 ? String(left) : "",
-        paidAmount: left > 0 ? String(left) : "0",
+        paidAmount: "0",
         paymentMethod: "",
         initialPaidAmount: 0,
         initialPaymentMethod: "",
@@ -309,11 +312,14 @@ export function ContributorsSplitFields({
                           const nextAmount = Number.parseInt(digits, 10) || 0;
                           const currentReceived =
                             Number.parseInt(row.paidAmount, 10) || 0;
-                          const synced = syncReceivedWithAmountChange({
-                            previousAmount,
-                            nextAmount,
-                            currentReceived,
-                          });
+                          const synced =
+                            currentReceived > 0
+                              ? syncReceivedWithAmountChange({
+                                  previousAmount,
+                                  nextAmount,
+                                  currentReceived,
+                                })
+                              : null;
                           updateRow(index, {
                             amount: digits,
                             ...(synced != null ? { paidAmount: synced } : {}),
@@ -427,7 +433,9 @@ export function ContributorsSplitFields({
 export function validateContributorRows(
   rows: ContributorRow[],
   totalAmount: number,
-  options?: { requireAtLeastOne?: boolean }
+  options?: {
+    requireAtLeastOne?: boolean;
+  }
 ): string | null {
   if (rows.length === 0) {
     return options?.requireAtLeastOne ? "Add at least one contributor" : null;
@@ -446,15 +454,12 @@ export function validateContributorRows(
       return `Received cannot exceed amount for ${row.customerName}`;
     }
 
-    const paymentCheck = resolveEntryPaymentSubmit({
-      paidAmount: paid,
-      paymentMode: normalizePaymentMethod(row.paymentMethod),
-    });
-    if (!paymentCheck.valid) {
-      return (
-        paymentCheck.error ??
-        `Select Cash or GPay for ${row.customerName}`
-      );
+    const modeError = contributorReceivedPaymentModeError(
+      paid,
+      normalizePaymentMethod(row.paymentMethod)
+    );
+    if (modeError) {
+      return modeError;
     }
   }
 
@@ -473,17 +478,15 @@ export function validateContributorRows(
 export function contributorRowsToPayload(rows: ContributorRow[]) {
   return rows.map((row) => {
     const paidAmount = Number.parseInt(row.paidAmount || "0", 10) || 0;
-    const resolved = resolveEntryPaymentSubmit({
+    const paymentMethod = explicitPaymentMethod(
       paidAmount,
-      paymentMode: normalizePaymentMethod(row.paymentMethod),
-    });
+      normalizePaymentMethod(row.paymentMethod)
+    );
     return {
       customerId: row.customerId,
       amount: Number.parseInt(row.amount, 10),
       paidAmount,
-      ...(paidAmount > 0 && resolved.paymentMethod
-        ? { paymentMethod: resolved.paymentMethod }
-        : {}),
+      ...(paymentMethod ? { paymentMethod } : {}),
     };
   });
 }

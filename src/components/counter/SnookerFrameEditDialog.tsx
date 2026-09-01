@@ -60,6 +60,10 @@ import {
   syncReceivedWithAmountChange,
 } from "@/lib/utils/frame-payment";
 import { formatCurrency } from "@/lib/utils/format";
+import {
+  contributorReceivedPaymentModeError,
+  RECEIVED_PAYMENT_MODE_REQUIRED_MESSAGE,
+} from "@/lib/utils/contributor-payment";
 import { cn } from "@/lib/utils/cn";
 
 interface SnookerFrameEditDialogProps {
@@ -341,9 +345,9 @@ export function SnookerFrameEditDialog({
         return;
       }
       const contributorError = validateContributorRows(
-        contributorRows,
-        parsedAmount
-      );
+      contributorRows,
+      parsedAmount
+    );
       if (contributorError) {
         setError(contributorError);
         return;
@@ -513,10 +517,9 @@ export function SnookerFrameEditDialog({
     (effectiveBillingMode === "split"
       ? contributorRows.some((row) => {
           const paid = Number.parseInt(row.paidAmount || "0", 10) || 0;
-          return !resolveEntryPaymentSubmit({
-            paidAmount: paid,
-            paymentMode: row.paymentMethod,
-          }).valid;
+          return Boolean(
+            contributorReceivedPaymentModeError(paid, row.paymentMethod)
+          );
         })
       : !paymentResolution?.valid);
   const summaryFullyPaid =
@@ -822,6 +825,10 @@ export function SnookerFrameEditDialog({
         ) : error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
+          </p>
+        ) : paymentModeRequired ? (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {RECEIVED_PAYMENT_MODE_REQUIRED_MESSAGE}
           </p>
         ) : null}
       </div>

@@ -154,18 +154,14 @@ function FrameTableColumns({
                 {lines.length === 0 ? (
                   <p className="px-3 py-4 text-xs text-gray-400">No frames</p>
                 ) : (
-                  <div className="min-w-0">
-                    <table className="w-full table-fixed border-collapse text-[11px]">
-                      <colgroup>
-                        <col className="w-[28%]" />
-                        <col className="w-[18%]" />
-                        <col className="w-[16%]" />
-                        <col className="w-[38%]" />
-                      </colgroup>
+                  <div className="min-w-0 overflow-x-hidden">
+                    <table className="w-full border-collapse text-[11px]">
                       <thead>
                         <tr className="border-b border-gray-100 text-[9px] font-bold uppercase tracking-wide text-gray-400">
                           <th className="px-2 py-2 text-left">Customer</th>
-                          <th className="px-1.5 py-2 text-left">Type</th>
+                          <th className="hidden px-1.5 py-2 text-left md:table-cell">
+                            Type
+                          </th>
                           <th className="px-1.5 py-2 text-right">Amount</th>
                           <th className="px-2 py-2 text-left">Payment</th>
                         </tr>
@@ -176,25 +172,25 @@ function FrameTableColumns({
                             key={`${line.entryId}-${line.customerId ?? line.customerName}`}
                             className="border-b border-gray-50 last:border-0"
                           >
-                            <td className="max-w-0 px-2 py-1.5 align-top">
+                            <td className="min-w-0 px-2 py-1.5 align-top">
                               {line.customerId ? (
                                 <Link
                                   href={`/customers/${line.customerId}`}
-                                  className="block truncate font-semibold text-gray-900 hover:text-emerald-800"
+                                  className="break-words font-semibold text-gray-900 hover:text-emerald-800 md:block md:truncate"
                                   title={line.customerName}
                                 >
                                   {line.customerName}
                                 </Link>
                               ) : (
                                 <span
-                                  className="block truncate text-gray-500"
+                                  className="break-words text-gray-500 md:block md:truncate"
                                   title={line.customerName}
                                 >
                                   {line.customerName}
                                 </span>
                               )}
                             </td>
-                            <td className="max-w-0 px-1.5 py-1.5 align-top">
+                            <td className="hidden max-w-0 px-1.5 py-1.5 align-top md:table-cell">
                               <span
                                 className="block truncate text-gray-700"
                                 title={line.gameType}
@@ -202,7 +198,7 @@ function FrameTableColumns({
                                 {line.gameType}
                               </span>
                             </td>
-                            <td className="px-1.5 py-1.5 text-right align-top tabular-nums font-semibold text-gray-900">
+                            <td className="whitespace-nowrap px-1.5 py-1.5 text-right align-top tabular-nums font-semibold text-gray-900">
                               {formatCurrency(line.amount)}
                             </td>
                             <td className="min-w-0 px-2 py-1.5 align-top">
@@ -219,13 +215,11 @@ function FrameTableColumns({
                           </tr>
                         ))}
                         <tr className="bg-gray-50/80">
-                          <td
-                            colSpan={2}
-                            className="px-2 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-500"
-                          >
+                          <td className="px-2 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-500">
                             Total
                           </td>
-                          <td className="px-1.5 py-2 text-right text-[11px] font-bold tabular-nums text-gray-900">
+                          <td className="hidden md:table-cell" />
+                          <td className="whitespace-nowrap px-1.5 py-2 text-right text-[11px] font-bold tabular-nums text-gray-900">
                             {formatCurrency(tableTotal)}
                           </td>
                           <td />
@@ -337,8 +331,19 @@ function CustomerSettlementSummary({
     }
   );
 
+  const rows = [...settlements].sort((a, b) => {
+    const aOutstanding = a.due > 0 ? 1 : 0;
+    const bOutstanding = b.due > 0 ? 1 : 0;
+    return bOutstanding - aOutstanding;
+  });
+
+  const sectionCol = "hidden md:table-cell";
+  const moneyCell =
+    "w-[1%] whitespace-nowrap px-1.5 py-2.5 text-right tabular-nums md:px-3 md:py-3";
+  const dueCell = `${moneyCell} px-2 md:px-4`;
+
   return (
-    <section className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border border-gray-200/80 bg-white p-3 shadow-sm sm:p-5">
       <SectionTitle
         title="Customer Settlement Summary"
         accent="violet"
@@ -366,91 +371,126 @@ function CustomerSettlementSummary({
           No customer activity on this Business Day.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-100">
-          <table className="w-full min-w-[920px] border-collapse text-sm">
+        <div className="min-w-0 overflow-x-hidden rounded-xl border border-gray-100">
+          <table className="w-full border-collapse text-[12px] md:text-sm">
             <thead>
               <tr className="bg-gray-50/80 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                <th className="px-4 py-3 text-left">Customer</th>
-                <th className="px-3 py-3 text-right">Big Snooker</th>
-                <th className="px-3 py-3 text-right">Pool & Mini</th>
-                <th className="px-3 py-3 text-right">Cafe</th>
-                <th className="px-3 py-3 text-right">Bill</th>
-                <th className="px-3 py-3 text-right">GPay</th>
-                <th className="px-3 py-3 text-right">Cash</th>
-                <th className="px-4 py-3 text-right">Due</th>
+                <th className="px-2 py-2.5 text-left md:px-4 md:py-3">
+                  Customer
+                </th>
+                <th className={`${sectionCol} px-3 py-3 text-right`}>
+                  Big Snooker
+                </th>
+                <th className={`${sectionCol} px-3 py-3 text-right`}>
+                  Pool & Mini
+                </th>
+                <th className={`${sectionCol} px-3 py-3 text-right`}>Cafe</th>
+                <th className={`${moneyCell} font-bold`}>Bill</th>
+                <th className={`${moneyCell} font-bold`}>GPay</th>
+                <th className={`${moneyCell} font-bold`}>Cash</th>
+                <th className={`${dueCell} font-bold`}>Due</th>
               </tr>
             </thead>
             <tbody>
-              {settlements.map((row) => (
-                <tr
-                  key={row.customerId}
-                  className="border-t border-gray-50 transition hover:bg-emerald-50/40"
-                >
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/customers/${row.customerId}`}
-                      className="inline-flex items-center gap-2.5 font-semibold text-gray-900 hover:text-emerald-800"
-                    >
-                      <span
-                        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${avatarTone(row.customerId)}`}
-                      >
-                        {customerInitials(row.customerName)}
-                      </span>
-                      {row.customerName}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-gray-800">
-                    {formatCurrency(row.bigSnooker)}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-gray-800">
-                    {formatCurrency(row.poolMini)}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-gray-800">
-                    {formatCurrency(row.cafe)}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums font-semibold text-gray-900">
-                    {formatCurrency(row.bill)}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums font-semibold text-sky-700">
-                    {formatCurrency(row.gpayCollection)}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums font-semibold text-emerald-700">
-                    {formatCurrency(row.cashCollection)}
-                  </td>
-                  <td
-                    className={`px-4 py-3 text-right tabular-nums font-semibold ${
-                      row.due > 0 ? "text-orange-600" : "text-gray-400"
-                    }`}
+              {rows.map((row) => {
+                const hasOutstanding = row.due > 0;
+                return (
+                  <tr
+                    key={row.customerId}
+                    className={
+                      hasOutstanding
+                        ? "border-b border-red-200 bg-red-50"
+                        : "border-t border-gray-50 transition hover:bg-emerald-50/40"
+                    }
                   >
-                    {formatCurrency(row.due)}
-                  </td>
-                </tr>
-              ))}
+                    <td className="min-w-0 px-2 py-2.5 md:px-4 md:py-3">
+                      <Link
+                        href={`/customers/${row.customerId}`}
+                        className="flex min-w-0 items-center gap-2 font-semibold text-gray-900 hover:text-emerald-800 md:gap-2.5"
+                      >
+                        <span
+                          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold md:h-7 md:w-7 md:text-[10px] ${avatarTone(row.customerId)}`}
+                        >
+                          {customerInitials(row.customerName)}
+                        </span>
+                        <span className="min-w-0 break-words">
+                          {row.customerName}
+                        </span>
+                      </Link>
+                    </td>
+                    <td
+                      className={`${sectionCol} ${moneyCell} text-gray-800`}
+                    >
+                      {formatCurrency(row.bigSnooker)}
+                    </td>
+                    <td
+                      className={`${sectionCol} ${moneyCell} text-gray-800`}
+                    >
+                      {formatCurrency(row.poolMini)}
+                    </td>
+                    <td
+                      className={`${sectionCol} ${moneyCell} text-gray-800`}
+                    >
+                      {formatCurrency(row.cafe)}
+                    </td>
+                    <td className={`${moneyCell} font-semibold text-gray-900`}>
+                      {formatCurrency(row.bill)}
+                    </td>
+                    <td className={`${moneyCell} font-semibold text-sky-700`}>
+                      {formatCurrency(row.gpayCollection)}
+                    </td>
+                    <td
+                      className={`${moneyCell} font-semibold text-emerald-700`}
+                    >
+                      {formatCurrency(row.cashCollection)}
+                    </td>
+                    <td
+                      className={`${dueCell} ${
+                        hasOutstanding
+                          ? "font-bold text-red-700"
+                          : "font-semibold text-gray-400"
+                      }`}
+                    >
+                      {formatCurrency(row.due)}
+                    </td>
+                  </tr>
+                );
+              })}
               <tr className="border-t border-gray-200 bg-slate-50">
-                <td className="px-4 py-3 text-xs font-bold uppercase tracking-wide text-gray-600">
+                <td className="px-2 py-2.5 text-xs font-bold uppercase tracking-wide text-gray-600 md:px-4 md:py-3">
                   Total
                 </td>
-                <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-gray-900">
+                <td
+                  className={`${sectionCol} ${moneyCell} text-sm font-bold text-gray-900`}
+                >
                   {formatCurrency(totals.bigSnooker)}
                 </td>
-                <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-gray-900">
+                <td
+                  className={`${sectionCol} ${moneyCell} text-sm font-bold text-gray-900`}
+                >
                   {formatCurrency(totals.poolMini)}
                 </td>
-                <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-gray-900">
+                <td
+                  className={`${sectionCol} ${moneyCell} text-sm font-bold text-gray-900`}
+                >
                   {formatCurrency(totals.cafe)}
                 </td>
-                <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-gray-900">
+                <td className={`${moneyCell} text-sm font-bold text-gray-900`}>
                   {formatCurrency(totals.bill)}
                 </td>
-                <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-sky-700">
+                <td className={`${moneyCell} text-sm font-bold text-sky-700`}>
                   {formatCurrency(totals.gpayCollection)}
                 </td>
-                <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-emerald-700">
+                <td
+                  className={`${moneyCell} text-sm font-bold text-emerald-700`}
+                >
                   {formatCurrency(totals.cashCollection)}
                 </td>
                 <td
-                  className={`px-4 py-3 text-right text-sm font-bold tabular-nums ${
-                    totals.due > 0 ? "text-orange-600" : "text-gray-400"
+                  className={`${dueCell} text-sm ${
+                    totals.due > 0
+                      ? "font-bold text-red-700"
+                      : "font-bold text-gray-400"
                   }`}
                 >
                   {formatCurrency(totals.due)}
@@ -495,15 +535,25 @@ function CafeSnapshotSection({
           No cafe items on this Business Day.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-100">
-          <table className="w-full min-w-[640px] border-collapse text-sm">
+        <div className="min-w-0 overflow-x-hidden rounded-xl border border-gray-100">
+          <table className="w-full border-collapse text-[12px] md:text-sm">
             <thead>
               <tr className="bg-gray-50/80 text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                <th className="px-4 py-3 text-left">Customer</th>
-                <th className="px-3 py-3 text-left">Item</th>
-                <th className="px-3 py-3 text-right">Amount</th>
-                <th className="px-4 py-3 text-left">Payment</th>
-                <th className="px-4 py-3 text-right">Status</th>
+                <th className="px-2 py-2.5 text-left md:px-4 md:py-3">
+                  Customer
+                </th>
+                <th className="hidden px-3 py-3 text-left md:table-cell">
+                  Item
+                </th>
+                <th className="w-[1%] whitespace-nowrap px-1.5 py-2.5 text-right md:px-3 md:py-3">
+                  Amount
+                </th>
+                <th className="hidden px-4 py-3 text-left md:table-cell">
+                  Payment
+                </th>
+                <th className="w-[1%] px-2 py-2.5 text-right md:px-4 md:py-3">
+                  Status
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -512,23 +562,27 @@ function CafeSnapshotSection({
                   key={`${line.entryId}-${line.customerId ?? line.customerName}`}
                   className="border-t border-gray-50 transition hover:bg-orange-50/30"
                 >
-                  <td className="px-4 py-3">
+                  <td className="min-w-0 px-2 py-2.5 md:px-4 md:py-3">
                     {line.customerId ? (
                       <Link
                         href={`/customers/${line.customerId}`}
-                        className="font-semibold text-gray-900 hover:text-emerald-800"
+                        className="break-words font-semibold text-gray-900 hover:text-emerald-800"
                       >
                         {line.customerName}
                       </Link>
                     ) : (
-                      <span className="text-gray-500">{line.customerName}</span>
+                      <span className="break-words text-gray-500">
+                        {line.customerName}
+                      </span>
                     )}
                   </td>
-                  <td className="px-3 py-3 text-gray-700">{line.item}</td>
-                  <td className="px-3 py-3 text-right tabular-nums font-semibold text-gray-900">
+                  <td className="hidden px-3 py-3 text-gray-700 md:table-cell">
+                    {line.item}
+                  </td>
+                  <td className="whitespace-nowrap px-1.5 py-2.5 text-right tabular-nums font-semibold text-gray-900 md:px-3 md:py-3">
                     {formatCurrency(line.amount)}
                   </td>
-                  <td className="px-4 py-3 align-top">
+                  <td className="hidden px-4 py-3 align-top md:table-cell">
                     <HistoryPaymentStatusCell
                       amount={line.amount}
                       paidAmount={line.paidAmount}
@@ -538,7 +592,7 @@ function CafeSnapshotSection({
                       receivedAt={line.receivedAt}
                     />
                   </td>
-                  <td className="px-4 py-3 text-right align-top">
+                  <td className="px-2 py-2.5 text-right align-top md:px-4 md:py-3">
                     <HistoryPaidStatusBadge
                       amount={line.amount}
                       paidAmount={line.paidAmount}
@@ -573,7 +627,7 @@ export function BusinessDayHistoryDetail({
             ← Business History
           </Link>
           <div className="mt-3 flex flex-wrap items-center gap-2.5">
-            <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">
               {detail.publicId}
             </h1>
             <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">

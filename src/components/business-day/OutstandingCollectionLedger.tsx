@@ -44,8 +44,8 @@ export function OutstandingCollectionLedger({
           {formatCurrency(summary.totalOutstandingRecovered)}
         </span>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+      <div className="min-w-0 overflow-x-hidden">
+        <table className="w-full border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50/90">
               <th className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
@@ -57,7 +57,7 @@ export function OutstandingCollectionLedger({
               <th className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
                 Payment Mode
               </th>
-              <th className="px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+              <th className="hidden px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-500 md:table-cell">
                 Date/Time
               </th>
             </tr>
@@ -68,7 +68,7 @@ export function OutstandingCollectionLedger({
                 key={row.id}
                 className={`align-middle ${historyUi.rowHover}`}
               >
-                <td className="px-3 py-1.5">
+                <td className="min-w-0 px-3 py-1.5">
                   <CustomerCell
                     name={row.customerName}
                     href={`/customers/${row.customerId}`}
@@ -85,7 +85,7 @@ export function OutstandingCollectionLedger({
                 <td className="px-3 py-1.5">
                   <PaymentBadge method={row.paymentMethod} />
                 </td>
-                <td className="px-3 py-1.5">
+                <td className="hidden px-3 py-1.5 md:table-cell">
                   <p className="whitespace-nowrap text-[13px] tabular-nums text-gray-800">
                     {formatBusinessDayDate(row.collectedAt)}
                     <span className="ml-1.5 text-gray-500">

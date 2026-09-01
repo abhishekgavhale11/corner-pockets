@@ -4,8 +4,9 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { deleteExpenseAction } from "@/actions/expenses";
 import {
-  expenseCategoryLabel,
   expensePaymentMethodLabel,
+  type ExpenseCategory,
+  type ExpenseSubcategory,
 } from "@/lib/constants/expenses";
 import { formatBusinessDayDate } from "@/lib/business-day/format";
 import { formatCurrency } from "@/lib/utils/format";
@@ -13,12 +14,16 @@ import type { ExpenseDTO } from "@/types";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { ExpenseFormDialog } from "@/components/expenses/ExpenseFormDialog";
+import { ExpenseCategorySelect } from "@/components/expenses/ExpenseCategorySelect";
+import { ExpenseSubcategorySelect } from "@/components/expenses/ExpenseSubcategorySelect";
 
 interface ExpensesPageClientProps {
   items: ExpenseDTO[];
   totalAmount: number;
   canCreate: boolean;
   canManage: boolean;
+  category: ExpenseCategory;
+  subcategory: "all" | ExpenseSubcategory;
 }
 
 export function ExpensesPageClient({
@@ -26,6 +31,8 @@ export function ExpensesPageClient({
   totalAmount,
   canCreate,
   canManage,
+  category,
+  subcategory,
 }: ExpensesPageClientProps) {
   const router = useRouter();
   const [formOpen, setFormOpen] = useState(false);
@@ -84,14 +91,17 @@ export function ExpensesPageClient({
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-left">
+            <table className="w-full min-w-[760px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50/80 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                   <th className="px-3 py-2">Date</th>
                   <th className="px-3 py-2">Category</th>
+                  <th className="px-3 py-2">Subcategory</th>
                   <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2">Paid To</th>
-                  <th className="px-3 py-2">Payment Method</th>
+                  <th className="hidden px-3 py-2 md:table-cell">Paid To</th>
+                  <th className="hidden px-3 py-2 lg:table-cell">
+                    Payment Method
+                  </th>
                   <th className="px-3 py-2 text-right">Amount</th>
                   {canManage ? (
                     <th className="px-3 py-2 text-right">Actions</th>
@@ -104,16 +114,27 @@ export function ExpensesPageClient({
                     <td className="whitespace-nowrap px-3 py-1.5 text-[13px] text-gray-700">
                       {formatBusinessDayDate(expense.expenseDate)}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-[13px] font-medium text-gray-800">
-                      {expenseCategoryLabel(expense.category)}
+                    <td className="px-3 py-1.5">
+                      <ExpenseCategorySelect
+                        expense={expense}
+                        canEdit={canManage}
+                        onSaved={refresh}
+                      />
                     </td>
-                    <td className="max-w-[220px] truncate px-3 py-1.5 text-[13px] text-gray-900">
+                    <td className="px-3 py-1.5">
+                      <ExpenseSubcategorySelect
+                        expense={expense}
+                        canEdit={canManage}
+                        onSaved={refresh}
+                      />
+                    </td>
+                    <td className="max-w-[180px] truncate px-3 py-1.5 text-[13px] text-gray-900 md:max-w-[220px]">
                       {expense.description}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-[13px] text-gray-600">
+                    <td className="hidden whitespace-nowrap px-3 py-1.5 text-[13px] text-gray-600 md:table-cell">
                       {expense.paidTo || "—"}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-[13px] text-gray-700">
+                    <td className="hidden whitespace-nowrap px-3 py-1.5 text-[13px] text-gray-700 lg:table-cell">
                       {expensePaymentMethodLabel(expense.paymentMethod)}
                     </td>
                     <td className="whitespace-nowrap px-3 py-1.5 text-right text-[13px] font-bold tabular-nums text-gray-950">
@@ -159,6 +180,10 @@ export function ExpensesPageClient({
         <ExpenseFormDialog
           open={formOpen}
           expense={canManage ? editing : null}
+          defaultCategory={category}
+          defaultSubcategory={
+            subcategory === "all" ? undefined : subcategory
+          }
           onClose={() => {
             setFormOpen(false);
             setEditing(null);

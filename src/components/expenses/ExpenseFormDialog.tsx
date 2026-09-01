@@ -10,8 +10,13 @@ import {
   EXPENSE_CATEGORY_LABELS,
   EXPENSE_PAYMENT_METHODS,
   EXPENSE_PAYMENT_METHOD_LABELS,
+  expenseSubcategoriesFor,
+  expenseSubcategoryLabel,
+  defaultExpenseSubcategory,
+  isExpenseSubcategoryOf,
   type ExpenseCategory,
   type ExpensePaymentMethod,
+  type ExpenseSubcategory,
 } from "@/lib/constants/expenses";
 import { getBusinessDate } from "@/lib/utils/business-date";
 import type { ExpenseDTO } from "@/types";
@@ -25,6 +30,8 @@ interface ExpenseFormDialogProps {
   onClose: () => void;
   expense?: ExpenseDTO | null;
   onSaved: () => void;
+  defaultCategory?: ExpenseCategory;
+  defaultSubcategory?: ExpenseSubcategory;
 }
 
 export function ExpenseFormDialog({
@@ -32,9 +39,17 @@ export function ExpenseFormDialog({
   onClose,
   expense,
   onSaved,
+  defaultCategory = "CAFE",
+  defaultSubcategory,
 }: ExpenseFormDialogProps) {
   const isEdit = Boolean(expense);
-  const [category, setCategory] = useState<ExpenseCategory>("CAFE");
+  const [category, setCategory] = useState<ExpenseCategory>(defaultCategory);
+  const [subcategory, setSubcategory] = useState<ExpenseSubcategory>(
+    defaultSubcategory &&
+      isExpenseSubcategoryOf(defaultCategory, defaultSubcategory)
+      ? defaultSubcategory
+      : defaultExpenseSubcategory(defaultCategory)
+  );
   const [amount, setAmount] = useState("");
   const [expenseDate, setExpenseDate] = useState(getBusinessDate());
   const [description, setDescription] = useState("");
@@ -48,13 +63,26 @@ export function ExpenseFormDialog({
     if (!open) return;
     if (expense) {
       setCategory(expense.category);
+      setSubcategory(
+        expense.subcategory &&
+          isExpenseSubcategoryOf(expense.category, expense.subcategory)
+          ? expense.subcategory
+          : defaultExpenseSubcategory(expense.category)
+      );
       setAmount(String(expense.amount));
       setExpenseDate(expense.expenseDate);
       setDescription(expense.description);
       setPaidTo(expense.paidTo);
       setPaymentMethod(expense.paymentMethod);
     } else {
-      setCategory("CAFE");
+      const nextCategory = defaultCategory;
+      setCategory(nextCategory);
+      setSubcategory(
+        defaultSubcategory &&
+          isExpenseSubcategoryOf(nextCategory, defaultSubcategory)
+          ? defaultSubcategory
+          : defaultExpenseSubcategory(nextCategory)
+      );
       setAmount("");
       setExpenseDate(getBusinessDate());
       setDescription("");
@@ -62,7 +90,7 @@ export function ExpenseFormDialog({
       setPaymentMethod("CASH");
     }
     setError(null);
-  }, [open, expense]);
+  }, [open, expense, defaultCategory, defaultSubcategory]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -70,6 +98,7 @@ export function ExpenseFormDialog({
     startTransition(async () => {
       const formData = new FormData();
       formData.set("category", category);
+      formData.set("subcategory", subcategory);
       formData.set("amount", amount);
       formData.set("expenseDate", expenseDate);
       formData.set("description", description);
@@ -104,13 +133,36 @@ export function ExpenseFormDialog({
           <select
             id="expense-category"
             value={category}
-            onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
+            onChange={(e) => {
+              const next = e.target.value as ExpenseCategory;
+              setCategory(next);
+              setSubcategory(defaultExpenseSubcategory(next));
+            }}
             required
             className="mt-0.5 h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
           >
             {EXPENSE_CATEGORIES.map((value) => (
               <option key={value} value={value}>
                 {EXPENSE_CATEGORY_LABELS[value]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <Label htmlFor="expense-subcategory">Subcategory *</Label>
+          <select
+            id="expense-subcategory"
+            value={subcategory}
+            onChange={(e) =>
+              setSubcategory(e.target.value as ExpenseSubcategory)
+            }
+            required
+            className="mt-0.5 h-10 w-full rounded-md border border-gray-300 bg-white px-3 text-sm"
+          >
+            {expenseSubcategoriesFor(category).map((value) => (
+              <option key={value} value={value}>
+                {expenseSubcategoryLabel(value)}
               </option>
             ))}
           </select>

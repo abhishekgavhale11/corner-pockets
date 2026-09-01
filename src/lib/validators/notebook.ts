@@ -13,6 +13,7 @@ import {
 } from "@/lib/constants/counter-rates";
 import { VERIFICATION_METHODS } from "@/lib/constants/verification";
 import { sumPaymentAllocations } from "@/lib/utils/payment-allocations";
+import { contributorReceivedPaymentModeError } from "@/lib/utils/contributor-payment";
 
 export const paymentAllocationSchema = z.object({
   paymentMethod: z.enum(["CASH", "GPAY"]),
@@ -377,7 +378,10 @@ export const setEntryContributorsSchema = z.object({
           .max(100000)
           .optional()
           .default(0),
-        paymentMethod: z.enum(["CASH", "GPAY"]).optional(),
+        paymentMethod: z.preprocess(
+          (value) => (value === "" || value == null ? undefined : value),
+          z.enum(["CASH", "GPAY"]).optional()
+        ),
       })
       .superRefine((row, ctx) => {
         if ((row.paidAmount ?? 0) > row.amount) {
@@ -387,10 +391,14 @@ export const setEntryContributorsSchema = z.object({
             path: ["paidAmount"],
           });
         }
-        if ((row.paidAmount ?? 0) > 0 && !row.paymentMethod) {
+        const modeError = contributorReceivedPaymentModeError(
+          row.paidAmount ?? 0,
+          row.paymentMethod
+        );
+        if (modeError) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "Please select Cash or GPay.",
+            message: modeError,
             path: ["paymentMethod"],
           });
         }

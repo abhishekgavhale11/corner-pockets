@@ -29,6 +29,7 @@ export function HistoryActivityTable({
   footer,
   framed = true,
 }: HistoryActivityTableProps) {
+  const enableMinWidth = Boolean(minWidth) && minWidth !== "0";
   const table = (
     <>
       {title ? (
@@ -41,10 +42,10 @@ export function HistoryActivityTable({
           {titleTrailing}
         </div>
       ) : null}
-      <div className="overflow-x-auto">
+      <div className={enableMinWidth ? "overflow-x-auto" : "min-w-0 overflow-x-hidden"}>
         <table
           className="w-full border-collapse text-left text-sm"
-          style={{ minWidth }}
+          style={enableMinWidth ? { minWidth } : undefined}
         >
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50/90">
