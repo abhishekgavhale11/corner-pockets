@@ -133,27 +133,38 @@ export function UnassignedEntryDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} title="Assign Customer" size="lg">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Assign Customer"
+      size="lg"
+      bodyScroll={false}
+    >
       {entry && (
-        <div className="flex flex-col gap-4">
-          <p className="text-sm text-gray-600">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+          <p className="shrink-0 text-sm text-gray-600">
             {formatTime(entry.createdAt)} · {getEntryDisplayLabel(entry)} ·{" "}
             {formatCurrency(entry.amount)}
           </p>
 
-          <div>
-            <Input
-              className="h-10 text-sm"
-              placeholder="Search name or phone…"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setSelectedCustomer(null);
-              }}
-              autoFocus
-            />
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="shrink-0">
+              <Input
+                className="h-10 text-sm"
+                placeholder="Search name or phone…"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setSelectedCustomer(null);
+                }}
+                autoFocus
+              />
+            </div>
 
-            <div className="mt-2 max-h-[36rem] min-h-96 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50/50 p-1">
+            <div
+              data-assign-customer-results=""
+              className="mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-lg border border-gray-200 bg-gray-50/50 p-1"
+            >
               {isLoading ? (
                 <p className="px-3 py-3 text-sm text-gray-500">Searching…</p>
               ) : totalCustomers === 0 ? (
@@ -194,29 +205,31 @@ export function UnassignedEntryDialog({
             </div>
           </div>
 
-          {selectedCustomer && (
-            <p className="text-sm text-gray-700">
-              Selected:{" "}
-              <span className="font-semibold text-gray-900">
-                {selectedCustomer.name}
-              </span>
-            </p>
-          )}
+          <div className="shrink-0 space-y-4">
+            {selectedCustomer && (
+              <p className="text-sm text-gray-700">
+                Selected:{" "}
+                <span className="font-semibold text-gray-900">
+                  {selectedCustomer.name}
+                </span>
+              </p>
+            )}
 
-          {error && (
-            <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </p>
-          )}
+            {error && (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
+            )}
 
-          <Button
-            type="button"
-            fullWidth
-            onClick={assign}
-            disabled={!selectedCustomer || isPending}
-          >
-            {isPending ? "Assigning…" : "Assign Customer"}
-          </Button>
+            <Button
+              type="button"
+              fullWidth
+              onClick={assign}
+              disabled={!selectedCustomer || isPending}
+            >
+              {isPending ? "Assigning…" : "Assign Customer"}
+            </Button>
+          </div>
         </div>
       )}
     </Dialog>

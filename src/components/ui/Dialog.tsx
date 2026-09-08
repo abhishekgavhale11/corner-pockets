@@ -12,6 +12,11 @@ interface DialogProps {
   children: React.ReactNode;
   /** Default fits narrow forms; `lg` ~800px for POS-style editors. */
   size?: "md" | "lg";
+  /**
+   * When false, the dialog body does not scroll. Children must manage
+   * overflow (flex column with one inner scroller). Default true.
+   */
+  bodyScroll?: boolean;
 }
 
 export function Dialog({
@@ -20,6 +25,7 @@ export function Dialog({
   title,
   children,
   size = "md",
+  bodyScroll = true,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -41,6 +47,7 @@ export function Dialog({
   };
 
   const isLg = size === "lg";
+  const lockBodyScroll = !bodyScroll;
 
   return (
     <dialog
@@ -50,22 +57,29 @@ export function Dialog({
         "open:animate-in open:fade-in",
         isLg
           ? "max-h-[min(94vh,860px)] w-[min(calc(100vw-1.5rem),50rem)]"
-          : "max-h-[min(90vh,640px)] w-[min(calc(100vw-2rem),28rem)]"
+          : "max-h-[min(90vh,640px)] w-[min(calc(100vw-2rem),28rem)]",
+        lockBodyScroll &&
+          "open:flex open:h-[min(94dvh,860px)] open:max-h-[min(94dvh,860px)] open:flex-col"
       )}
       onClose={onClose}
       onClick={handleBackdropClick}
     >
       <div
         className={cn(
-          "overflow-y-auto",
-          isLg
-            ? "max-h-[min(94vh,860px)] px-5 py-4 sm:px-6"
-            : "max-h-[min(90vh,640px)] p-6"
+          isLg ? "px-5 py-4 sm:px-6" : "p-6",
+          lockBodyScroll
+            ? "flex min-h-0 w-full flex-1 flex-col overflow-hidden"
+            : cn(
+                "overflow-y-auto",
+                isLg
+                  ? "max-h-[min(94vh,860px)]"
+                  : "max-h-[min(90vh,640px)]"
+              )
         )}
       >
         <div
           className={cn(
-            "flex items-start justify-between gap-3",
+            "flex shrink-0 items-start justify-between gap-3",
             isLg ? "mb-3" : "mb-4"
           )}
         >
@@ -79,7 +93,13 @@ export function Dialog({
             ✕
           </button>
         </div>
-        {children}
+        {lockBodyScroll ? (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {children}
+          </div>
+        ) : (
+          children
+        )}
       </div>
     </dialog>
   );
