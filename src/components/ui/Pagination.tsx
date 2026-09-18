@@ -8,18 +8,24 @@ interface PaginationProps {
   limit: number;
   query?: string;
   filter?: string;
+  sort?: string;
+  dir?: string;
 }
 
 function buildHref(
   page: number,
   query?: string,
   filter?: string,
-  limit?: number
+  limit?: number,
+  sort?: string,
+  dir?: string
 ) {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
   if (filter) params.set("filter", filter);
-  if (limit && limit !== 10) params.set("limit", String(limit));
+  if (limit && limit !== 20) params.set("limit", String(limit));
+  if (sort) params.set("sort", sort);
+  if (dir) params.set("dir", dir);
   if (page > 1) params.set("page", String(page));
   const qs = params.toString();
   return qs ? `/customers?${qs}` : "/customers";
@@ -55,6 +61,8 @@ export function Pagination({
   limit,
   query,
   filter,
+  sort,
+  dir,
 }: PaginationProps) {
   if (total === 0) return null;
 
@@ -77,7 +85,7 @@ export function Pagination({
       {totalPages > 1 ? (
         <div className="flex items-center gap-1">
           <Link
-            href={buildHref(Math.max(1, page - 1), query, filter, limit)}
+            href={buildHref(Math.max(1, page - 1), query, filter, limit, sort, dir)}
             aria-disabled={page <= 1}
             className={cn(
               "inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-sm text-gray-600 hover:bg-gray-50",
@@ -97,7 +105,7 @@ export function Pagination({
             ) : (
               <Link
                 key={item}
-                href={buildHref(item, query, filter, limit)}
+                href={buildHref(item, query, filter, limit, sort, dir)}
                 className={cn(
                   "inline-flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-sm font-semibold tabular-nums",
                   item === page
@@ -110,7 +118,7 @@ export function Pagination({
             )
           )}
           <Link
-            href={buildHref(Math.min(totalPages, page + 1), query, filter, limit)}
+            href={buildHref(Math.min(totalPages, page + 1), query, filter, limit, sort, dir)}
             aria-disabled={page >= totalPages}
             className={cn(
               "inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-200 text-sm text-gray-600 hover:bg-gray-50",

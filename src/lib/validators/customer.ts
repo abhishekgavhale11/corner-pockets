@@ -47,7 +47,9 @@ export const customerSearchSchema = z.object({
   query: z.string().max(100).optional(),
   filter: z.enum(["all", "outstanding"]).optional().default("all"),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  sort: z.enum(["name", "phone", "outstanding"]).optional(),
+  dir: z.enum(["asc", "desc"]).optional(),
 });
 
 export const customerActivityFilterSchema = z.object({
@@ -75,6 +77,10 @@ export const updateCustomerDetailsSchema = createCustomerSchema
       .optional()
       .transform((value) => value?.trim() ?? ""),
   });
+
+export const deleteCustomerSchema = z.object({
+  customerId: z.string().min(1, "Customer is required"),
+});
 
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 export type CustomerSearchInput = z.infer<typeof customerSearchSchema>;

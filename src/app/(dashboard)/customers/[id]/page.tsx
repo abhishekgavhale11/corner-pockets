@@ -40,6 +40,7 @@ export default async function CustomerDetailPage({
   const canEditDetails = role
     ? hasPermission(role, "CUSTOMER_EDIT_DETAILS")
     : false;
+  const canDelete = role ? hasPermission(role, "CUSTOMER_DELETE") : false;
 
   return (
     <CustomerDetailView
@@ -48,6 +49,7 @@ export default async function CustomerDetailPage({
       activityItems={activityItems}
       canAddOpeningOutstanding={canAddOpeningOutstanding}
       canEditDetails={canEditDetails}
+      canDelete={canDelete}
       eligibleCorrectionDays={eligibleCorrectionDays}
     />
   );

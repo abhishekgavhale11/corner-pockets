@@ -14,6 +14,7 @@ import { CloseBusinessDayConfirmModal } from "@/components/business-day/CloseBus
 import { formatDate } from "@/lib/utils/format";
 import { formatBusinessDayDate } from "@/lib/business-day/format";
 import { getBusinessDate } from "@/lib/utils/business-date";
+import { BUSINESS_DAY_FINANCIAL_START_DATE } from "@/lib/constants/business-day";
 import type {
   BusinessDayClosePreviewDTO,
   BusinessDayDTO,
@@ -176,6 +177,7 @@ export function BusinessDayPageClient({
                 id="businessDate"
                 name="businessDate"
                 type="date"
+                min={BUSINESS_DAY_FINANCIAL_START_DATE}
                 value={businessDate}
                 onChange={(e) => setBusinessDate(e.target.value)}
                 disabled={isPending}

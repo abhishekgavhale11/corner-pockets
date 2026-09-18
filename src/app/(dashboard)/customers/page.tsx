@@ -23,6 +23,16 @@ export default async function CustomersPage({
   const query = typeof params.q === "string" ? params.q : undefined;
   const filter =
     typeof params.filter === "string" ? params.filter : undefined;
+  const sortParam = typeof params.sort === "string" ? params.sort : undefined;
+  const dirParam = typeof params.dir === "string" ? params.dir : undefined;
+  const sort =
+    sortParam === "name" ||
+    sortParam === "phone" ||
+    sortParam === "outstanding"
+      ? sortParam
+      : undefined;
+  const dir =
+    dirParam === "asc" || dirParam === "desc" ? dirParam : undefined;
   const autoOpenRegister = params.register === "1";
   const isOutstanding = filter === "outstanding";
   const showList =
@@ -64,6 +74,12 @@ export default async function CustomersPage({
         <>
           <CustomerList
             customers={result.items}
+            totalOutstanding={result.totalOutstanding}
+            sort={sort}
+            dir={dir}
+            query={query}
+            filter={filter}
+            limit={result.limit}
             emptyMessage={
               isOutstanding
                 ? "No customers with outstanding balances."
@@ -78,6 +94,8 @@ export default async function CustomersPage({
             limit={result.limit}
             query={query}
             filter={filter}
+            sort={sort}
+            dir={dir}
           />
         </>
       ) : (

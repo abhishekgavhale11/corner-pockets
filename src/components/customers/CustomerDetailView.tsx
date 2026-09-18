@@ -15,6 +15,7 @@ interface CustomerDetailViewProps {
   activityItems: CustomerActivityItemDTO[];
   canAddOpeningOutstanding?: boolean;
   canEditDetails?: boolean;
+  canDelete?: boolean;
   eligibleCorrectionDays?: FinancialCorrectionEligibleDayDTO[];
 }
 
@@ -24,6 +25,7 @@ export function CustomerDetailView({
   activityItems,
   canAddOpeningOutstanding = false,
   canEditDetails = false,
+  canDelete = false,
   eligibleCorrectionDays = [],
 }: CustomerDetailViewProps) {
   return (
@@ -42,7 +44,11 @@ export function CustomerDetailView({
             summary={summary}
             canAddOpeningOutstanding={canAddOpeningOutstanding}
           />
-          <CustomerInfo customer={customer} canEditDetails={canEditDetails} />
+          <CustomerInfo
+            customer={customer}
+            canEditDetails={canEditDetails}
+            canDelete={canDelete}
+          />
           <CustomerCorrectionsAdjustments
             customerId={customer.id}
             customerName={customer.name}

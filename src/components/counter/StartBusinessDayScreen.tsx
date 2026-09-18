@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { getBusinessDate } from "@/lib/utils/business-date";
+import { BUSINESS_DAY_FINANCIAL_START_DATE } from "@/lib/constants/business-day";
 
 /**
  * Counter entry screen when no OPEN Business Day exists.
@@ -76,6 +77,7 @@ export function StartBusinessDayScreen({
                 <Input
                   id="businessDate"
                   type="date"
+                  min={BUSINESS_DAY_FINANCIAL_START_DATE}
                   value={businessDate}
                   onChange={(e) => setBusinessDate(e.target.value)}
                   disabled={isPending}

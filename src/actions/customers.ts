@@ -8,6 +8,7 @@ import Customer from "@/models/Customer";
 import {
   createCustomerSchema,
   customerSearchSchema,
+  deleteCustomerSchema,
   updateCustomerDetailsSchema,
   updateStudentStatusSchema,
 } from "@/lib/validators/customer";
@@ -149,6 +150,54 @@ async function loadLastVisitByCustomer(
   return map;
 }
 
+function compareCustomerNames(a: string, b: string) {
+  return a.localeCompare(b, undefined, {
+    sensitivity: "base",
+    numeric: true,
+  });
+}
+
+function phoneSortNumber(phone: string | undefined): bigint | null {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  return BigInt(digits);
+}
+
+function sortCustomersForList<
+  T extends { _id: mongoose.Types.ObjectId; name: string; phone?: string },
+>(
+  customers: T[],
+  outstandingById: Map<string, number>,
+  sortKey: "name" | "phone" | "outstanding",
+  sortDir: "asc" | "desc"
+): T[] {
+  const multiplier = sortDir === "asc" ? 1 : -1;
+  return [...customers].sort((a, b) => {
+    if (sortKey === "phone") {
+      const aNum = phoneSortNumber(a.phone);
+      const bNum = phoneSortNumber(b.phone);
+      if (aNum === null && bNum !== null) return 1;
+      if (bNum === null && aNum !== null) return -1;
+      if (aNum !== null && bNum !== null && aNum !== bNum) {
+        return (aNum < bNum ? -1 : 1) * multiplier;
+      }
+    } else if (sortKey === "outstanding") {
+      const diff =
+        (outstandingById.get(a._id.toString()) ?? 0) -
+        (outstandingById.get(b._id.toString()) ?? 0);
+      if (diff !== 0) return diff * multiplier;
+    } else {
+      const byName = compareCustomerNames(a.name, b.name);
+      if (byName !== 0) return byName * multiplier;
+      return a._id.toString().localeCompare(b._id.toString()) * multiplier;
+    }
+
+    const byName = compareCustomerNames(a.name, b.name);
+    if (byName !== 0) return byName;
+    return a._id.toString().localeCompare(b._id.toString());
+  });
+}
+
 async function enrichCustomerListRows(
   customers: Array<{
     _id: mongoose.Types.ObjectId;
@@ -192,11 +241,31 @@ export async function getCustomers(
       typeof searchParams.filter === "string" ? searchParams.filter : undefined,
     page: searchParams.page,
     limit: searchParams.limit,
+    sort: typeof searchParams.sort === "string" ? searchParams.sort : undefined,
+    dir: typeof searchParams.dir === "string" ? searchParams.dir : undefined,
   });
 
-  const { query, page, limit, filter: filterType } = parsed.success
+  const { query, page, limit, filter: filterType, sort, dir } = parsed.success
     ? parsed.data
-    : { query: undefined, filter: "all" as const, page: 1, limit: 10 };
+    : {
+        query: undefined,
+        filter: "all" as const,
+        page: 1,
+        limit: 20,
+        sort: undefined,
+        dir: undefined,
+      };
+
+  const sortKey =
+    sort === "phone" || sort === "outstanding" || sort === "name"
+      ? sort
+      : "name";
+  const sortDir: "asc" | "desc" =
+    dir === "asc" || dir === "desc"
+      ? dir
+      : sort === "outstanding"
+        ? "desc"
+        : "asc";
 
   const baseFilter: Record<string, unknown> = { isActive: true };
 
@@ -219,14 +288,8 @@ export async function getCustomers(
 
   const skip = (page - 1) * limit;
 
-  const [customers, total, allCount, outstandingCount] = await Promise.all([
-    Customer.find(listFilter)
-      .sort({ name: 1 })
-      .skip(skip)
-      .limit(limit)
-      .select("name phone balance")
-      .lean(),
-    Customer.countDocuments(listFilter),
+  const [matchingCustomers, allCount, outstandingCount] = await Promise.all([
+    Customer.find(listFilter).select("name phone").lean(),
     Customer.countDocuments(baseFilter),
     Customer.countDocuments({
       ...baseFilter,
@@ -234,14 +297,34 @@ export async function getCustomers(
     }),
   ]);
 
+  const outstandingById = await loadOutstandingTotalsByCustomer(
+    matchingCustomers.map((customer) => customer._id)
+  );
+
+  const customers = sortCustomersForList(
+    matchingCustomers,
+    outstandingById,
+    sortKey,
+    sortDir
+  ).slice(skip, skip + limit);
+
+  const items = await enrichCustomerListRows(customers);
+  const total = matchingCustomers.length;
+
+  let totalOutstanding = 0;
+  for (const amount of outstandingById.values()) {
+    totalOutstanding += amount;
+  }
+
   return {
-    items: await enrichCustomerListRows(customers),
+    items,
     total,
     page,
     totalPages: Math.ceil(total / limit) || 1,
     limit,
     allCount,
     outstandingCount,
+    totalOutstanding,
   };
 }
 
@@ -611,5 +694,38 @@ export async function updateCustomerNotes(
   revalidatePath(`/customers/${customer._id.toString()}`);
 
   return success(toCustomerDTO(customer));
+}
+
+export async function deleteCustomer(
+  formData: FormData
+): Promise<ActionResult<void>> {
+  const authResult = await authorizePermission("CUSTOMER_DELETE");
+  if (!("session" in authResult)) {
+    return authResult;
+  }
+
+  const parsed = deleteCustomerSchema.safeParse({
+    customerId: formData.get("customerId"),
+  });
+
+  if (!parsed.success) {
+    return failure(parsed.error.issues[0]?.message ?? "Invalid input");
+  }
+
+  await connectDB();
+
+  const customer = await Customer.findById(parsed.data.customerId);
+  if (!customer || !customer.isActive) {
+    return failure("Customer not found");
+  }
+
+  customer.isActive = false;
+  await customer.save();
+
+  revalidateCounterPaths(parsed.data.customerId);
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${parsed.data.customerId}`);
+
+  return success(undefined);
 }
 

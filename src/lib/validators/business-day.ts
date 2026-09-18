@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BUSINESS_DAY_FINANCIAL_START_DATE } from "@/lib/constants/business-day";
 import { parseBusinessDateInput } from "@/lib/utils/business-date";
 
 export const openBusinessDaySchema = z.object({
@@ -8,7 +9,16 @@ export const openBusinessDaySchema = z.object({
     .min(1, "Business Date is required")
     .transform((value, ctx) => {
       try {
-        return parseBusinessDateInput(value);
+        const parsed = parseBusinessDateInput(value);
+        const minDate = parseBusinessDateInput(BUSINESS_DAY_FINANCIAL_START_DATE);
+        if (parsed.getTime() < minDate.getTime()) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Business Date cannot be before 17 September 2026",
+          });
+          return z.NEVER;
+        }
+        return parsed;
       } catch {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

@@ -100,6 +100,7 @@ export interface CustomerListResult extends PaginatedResult<CustomerListRowDTO> 
   limit: number;
   allCount: number;
   outstandingCount: number;
+  totalOutstanding: number;
 }
 
 export interface DashboardStats {

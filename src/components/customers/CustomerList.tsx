@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   AmountCell,
   CustomerCell,
@@ -17,10 +18,16 @@ import type { CustomerListRowDTO } from "@/types";
 
 interface CustomerListProps {
   customers: CustomerListRowDTO[];
+  totalOutstanding: number;
+  sort?: "name" | "phone" | "outstanding";
+  dir?: "asc" | "desc";
+  query?: string;
+  filter?: string;
+  limit?: number;
   emptyMessage?: string;
 }
 
-type SortKey = "name" | "outstandingAmount";
+type SortKey = "name" | "phone" | "outstanding";
 type SortDirection = "asc" | "desc";
 
 function SortHint({
@@ -90,6 +97,7 @@ function EyeOffIcon({ className }: { className?: string }) {
 
 const COLUMNS = [
   { key: "customer", label: "Customer" },
+  { key: "mobile", label: "Mobile" },
   { key: "outstanding", label: "Outstanding", align: "right" as const },
   { key: "visit", label: "Last Visit" },
   { key: "actions", label: "", className: "w-12" },
@@ -97,70 +105,39 @@ const COLUMNS = [
 
 export function CustomerList({
   customers,
+  totalOutstanding,
+  sort,
+  dir,
+  query,
+  filter,
+  limit,
   emptyMessage = "No customers found.",
 }: CustomerListProps) {
-  const [sort, setSort] = useState<{
-    key: SortKey;
-    direction: SortDirection;
-  } | null>(null);
+  const router = useRouter();
   const [totalsVisible, setTotalsVisible] = useState(false);
 
   const handleSort = (key: SortKey) => {
-    setSort((current) => {
-      if (!current || current.key !== key) {
-        return {
-          key,
-          direction: key === "name" ? "asc" : "desc",
-        };
-      }
-      return {
-        key,
-        direction: current.direction === "asc" ? "desc" : "asc",
-      };
-    });
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (filter) params.set("filter", filter);
+    if (limit && limit !== 20) params.set("limit", String(limit));
+    const defaultDir: SortDirection = key === "outstanding" ? "desc" : "asc";
+    const nextDir: SortDirection =
+      sort === key ? (dir === "asc" ? "desc" : "asc") : defaultDir;
+    params.set("sort", key);
+    params.set("dir", nextDir);
+    const qs = params.toString();
+    router.replace(qs ? `/customers?${qs}` : "/customers");
   };
-
-  const sortedCustomers = useMemo(() => {
-    if (!sort) return customers;
-
-    const multiplier = sort.direction === "asc" ? 1 : -1;
-    return [...customers].sort((a, b) => {
-      if (sort.key === "name") {
-        const byName = a.name.localeCompare(b.name, undefined, {
-          sensitivity: "base",
-          numeric: true,
-        });
-        if (byName !== 0) return byName * multiplier;
-        return a.id.localeCompare(b.id) * multiplier;
-      }
-
-      const diff = a[sort.key] - b[sort.key];
-      if (diff !== 0) return diff * multiplier;
-
-      const byName = a.name.localeCompare(b.name, undefined, {
-        sensitivity: "base",
-        numeric: true,
-      });
-      if (byName !== 0) return byName;
-      return a.id.localeCompare(b.id);
-    });
-  }, [customers, sort]);
-
-  const visibleTotals = useMemo(
-    () =>
-      sortedCustomers.reduce(
-        (acc, customer) => {
-          acc.outstandingAmount += customer.outstandingAmount;
-          return acc;
-        },
-        { outstandingAmount: 0 }
-      ),
-    [sortedCustomers]
-  );
 
   if (customers.length === 0) {
     return <HistoryEmptyState message={emptyMessage} />;
   }
+
+  const nameDir = sort === "name" ? (dir === "desc" ? "desc" : "asc") : undefined;
+  const phoneDir = sort === "phone" ? (dir === "desc" ? "desc" : "asc") : undefined;
+  const outstandingDir =
+    sort === "outstanding" ? (dir === "asc" ? "asc" : "desc") : undefined;
 
   const columns = COLUMNS.map((column) => {
     if (column.key === "customer") {
@@ -172,16 +149,33 @@ export function CustomerList({
             onClick={() => handleSort("name")}
             className="inline-flex items-center hover:text-gray-700"
             aria-label={
-              sort?.key === "name" && sort.direction === "asc"
+              nameDir === "asc"
                 ? "Sort customer name Z to A"
                 : "Sort customer name A to Z"
             }
           >
             Customer
-            <SortHint
-              active={sort?.key === "name"}
-              direction={sort?.key === "name" ? sort.direction : undefined}
-            />
+            <SortHint active={Boolean(nameDir)} direction={nameDir} />
+          </button>
+        ),
+      };
+    }
+    if (column.key === "mobile") {
+      return {
+        ...column,
+        label: (
+          <button
+            type="button"
+            onClick={() => handleSort("phone")}
+            className="inline-flex items-center hover:text-gray-700"
+            aria-label={
+              phoneDir === "asc"
+                ? "Sort mobile high to low"
+                : "Sort mobile low to high"
+            }
+          >
+            Mobile
+            <SortHint active={Boolean(phoneDir)} direction={phoneDir} />
           </button>
         ),
       };
@@ -192,20 +186,18 @@ export function CustomerList({
         label: (
           <button
             type="button"
-            onClick={() => handleSort("outstandingAmount")}
+            onClick={() => handleSort("outstanding")}
             className="inline-flex items-center justify-end hover:text-gray-700"
             aria-label={
-              sort?.key === "outstandingAmount" && sort.direction === "desc"
+              outstandingDir === "desc"
                 ? "Sort outstanding low to high"
                 : "Sort outstanding high to low"
             }
           >
             Outstanding
             <SortHint
-              active={sort?.key === "outstandingAmount"}
-              direction={
-                sort?.key === "outstandingAmount" ? sort.direction : undefined
-              }
+              active={Boolean(outstandingDir)}
+              direction={outstandingDir}
             />
           </button>
         ),
@@ -223,9 +215,9 @@ export function CustomerList({
           <p className="text-gray-500">
             Showing{" "}
             <span className="font-semibold tabular-nums text-gray-800">
-              {sortedCustomers.length}
+              {customers.length}
             </span>{" "}
-            customer{sortedCustomers.length === 1 ? "" : "s"}
+            customer{customers.length === 1 ? "" : "s"}
           </p>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -246,13 +238,13 @@ export function CustomerList({
               <span
                 className={cn(
                   "font-bold tabular-nums",
-                  visibleTotals.outstandingAmount > 0
+                  totalOutstanding > 0
                     ? "text-[#B71C1C]"
                     : "text-emerald-700"
                 )}
               >
                 {totalsVisible
-                  ? formatCurrency(visibleTotals.outstandingAmount)
+                  ? formatCurrency(totalOutstanding)
                   : "₹••••••"}
               </span>
             </div>
@@ -260,7 +252,7 @@ export function CustomerList({
         </div>
       }
     >
-      {sortedCustomers.map((customer) => {
+      {customers.map((customer) => {
         const phone = customer.phone?.trim();
         const hasOutstanding = customer.outstandingAmount > 0;
         const href = `/customers/${customer.id}`;
@@ -273,6 +265,14 @@ export function CustomerList({
                 href={href}
                 secondary={phone || undefined}
               />
+            </HistoryTableCell>
+            <HistoryTableCell>
+              <Link
+                href={href}
+                className="text-[12px] text-gray-500 hover:text-gray-700"
+              >
+                {phone || "—"}
+              </Link>
             </HistoryTableCell>
             <HistoryTableCell align="right">
               <Link href={href} className="block">

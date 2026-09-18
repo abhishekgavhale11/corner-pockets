@@ -1,29 +1,35 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { updateCustomerDetails } from "@/actions/customers";
+import { deleteCustomer, updateCustomerDetails } from "@/actions/customers";
 import { formatDate } from "@/lib/utils/format";
 import type { CustomerDTO } from "@/types";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 
 interface CustomerInfoProps {
   customer: CustomerDTO;
   canEditDetails?: boolean;
+  canDelete?: boolean;
 }
 
 export function CustomerInfo({
   customer,
   canEditDetails = false,
+  canDelete = false,
 }: CustomerInfoProps) {
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
   /** Remount the form after Cancel so inputs reset to the saved customer values. */
   const [formKey, setFormKey] = useState(0);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, startDelete] = useTransition();
 
   const [state, formAction, isPending] = useActionState(
     async (
@@ -46,7 +52,25 @@ export function CustomerInfo({
     setFormKey((key) => key + 1);
   };
 
+  const handleDelete = () => {
+    setDeleteError(null);
+    startDelete(async () => {
+      const formData = new FormData();
+      formData.set("customerId", customer.id);
+      const result = await deleteCustomer(formData);
+      if (!result.success) {
+        setDeleteError(result.error);
+        setConfirmDelete(false);
+        return;
+      }
+      setConfirmDelete(false);
+      router.push("/customers");
+      router.refresh();
+    });
+  };
+
   return (
+    <>
     <Card>
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-gray-900">Customer Details</h2>
@@ -156,9 +180,43 @@ export function CustomerInfo({
               Customer details updated successfully.
             </p>
           )}
+
+          {canDelete ? (
+            <div className="mt-4 border-t border-gray-100 pt-4">
+              {deleteError ? (
+                <p className="mb-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {deleteError}
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                variant="danger"
+                onClick={() => {
+                  setDeleteError(null);
+                  setConfirmDelete(true);
+                }}
+                disabled={isDeleting}
+              >
+                Delete Customer
+              </Button>
+            </div>
+          ) : null}
         </>
       )}
     </Card>
+
+    {canDelete ? (
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => !isDeleting && setConfirmDelete(false)}
+        onConfirm={handleDelete}
+        title="Delete Customer"
+        message={`${customer.name} is going to be deleted.`}
+        confirmLabel="Delete Customer"
+        isLoading={isDeleting}
+      />
+    ) : null}
+    </>
   );
 }
 
